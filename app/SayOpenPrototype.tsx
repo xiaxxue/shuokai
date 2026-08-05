@@ -19,6 +19,22 @@ type TimelineEvent = {
   time: string;
 };
 
+type BackendSession = {
+  roomId: string;
+  code: string;
+  participantToken: string;
+  partnerToken?: string;
+  role: "A" | "B";
+  state: string;
+};
+
+type Perspective = {
+  fact: string;
+  meaning: string;
+  impact: string;
+  request: string;
+};
+
 const intentOptions = [
   {
     id: "understand",
@@ -59,6 +75,21 @@ const stepLabels = ["开始", "表达", "确认", "共视", "约定"];
 const demoTranscript =
   "我们本来说好周六下午一起去看展，我还提前推掉了朋友的邀请。结果他到出发前二十分钟才告诉我不去了。我生气的不是不能改计划，而是觉得我的时间根本没有被考虑。";
 
+const perspectivesByRole: Record<"A" | "B", Perspective> = {
+  A: {
+    fact: "原定周六下午一起看展，对方在出发前二十分钟取消了计划。",
+    meaning: "你担心自己的时间和为共同计划做出的安排没有被认真考虑。",
+    impact: "你推掉了朋友的邀请，也失去了重新安排下午的机会。",
+    request: "计划可以变化，但希望对方一旦知道有变化，就尽早告诉你。",
+  },
+  B: {
+    fact: "周六上午才确定身体状态不适合外出，并在确认后告诉了对方。",
+    meaning: "你担心过早说“可能取消”会制造不必要的焦虑，也希望周末保留调整空间。",
+    impact: "在身体不舒服时仍感到需要立即解释清楚，压力变得更大。",
+    request: "计划还不确定时可以先说明待定，但不希望被要求立刻给出完整解释。",
+  },
+};
+
 function nowTime() {
   return new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
@@ -81,14 +112,76 @@ export function SayOpenPrototype() {
   const [copied, setCopied] = useState(false);
   const [acceptedA, setAcceptedA] = useState(true);
   const [acceptedB, setAcceptedB] = useState(false);
+  const [session, setSession] = useState<BackendSession | null>(null);
+  const [incomingCode, setIncomingCode] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [backendError, setBackendError] = useState("");
+  const [perspective, setPerspective] = useState<Perspective>(perspectivesByRole.A);
   const [events, setEvents] = useState<TimelineEvent[]>([
-    { type: "ROOM_READY", label: "原型房间已准备", time: nowTime() },
+    { type: "ROOM_READY", label: "原型房间已准备", time: "—" },
   ]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const current = stageMeta[stage];
+  const role = session?.role ?? "A";
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const code = new URLSearchParams(window.location.search).get("room")?.toUpperCase();
+      if (!code) return;
+      const saved = window.localStorage.getItem(`shuokai.room.${code}`);
+      if (!saved) {
+        setIncomingCode(code);
+        return;
+      }
+      try {
+        const restored = JSON.parse(saved) as BackendSession;
+        setSession(restored);
+        setPerspective(perspectivesByRole[restored.role]);
+        const stageForState: Partial<Record<string, Stage>> = {
+          GOAL_SETTING: "intent",
+          A_DRAFTING: "voice",
+          A_REVIEWING: "review",
+          WAITING_FOR_B: "invite",
+          B_DRAFTING: "voice",
+          B_REVIEWING: "review",
+          COMMON_VIEW_READY: "common",
+          AGREEMENT_PENDING: "agreement",
+          COMPLETED: "complete",
+        };
+        setStage(stageForState[restored.state] ?? "landing");
+      } catch {
+        setIncomingCode(code);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!session || stage !== "invite") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch(
+          `/api/rooms?roomId=${encodeURIComponent(session.roomId)}`,
+          { headers: { authorization: `Bearer ${session.participantToken}` } },
+        );
+        if (!response.ok) return;
+        const result = (await response.json()) as { room?: { state?: string } };
+        const serverState = result.room?.state;
+        if (!serverState || serverState === session.state) return;
+        rememberSession({ ...session, state: serverState });
+        if (serverState === "COMMON_VIEW_READY") {
+          appendEvent("COMMON_VIEW_READY", "双方批准版本已汇入共同空间");
+          setStage("common");
+        }
+      } catch {
+        // Polling is best-effort; explicit actions still surface errors.
+      }
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [session, stage]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -117,6 +210,224 @@ export function SayOpenPrototype() {
     if (eventType && label) appendEvent(eventType, label);
     setStage(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function backendAction<T extends Record<string, unknown>>(
+    payload: Record<string, unknown>,
+  ) {
+    const { token, ...body } = payload;
+    const response = await fetch("/api/rooms", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(typeof token === "string" ? { authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    const result = (await response.json()) as T & { error?: string };
+    if (!response.ok) throw new Error(result.error || "后端请求失败");
+    return result;
+  }
+
+  function rememberSession(next: BackendSession) {
+    setSession(next);
+    window.localStorage.setItem(`shuokai.room.${next.code}`, JSON.stringify(next));
+  }
+
+  async function createBackendRoom(demo = false) {
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const created = await backendAction<BackendSession>({
+        action: "create",
+        displayName: "Lin",
+      });
+      let next = { ...created, role: "A" as const };
+      appendEvent("ROOM_PERSISTED", `后端房间 ${created.code} 已创建`);
+      if (demo) {
+        const goal = await backendAction<{ state: string }>({
+          action: "set_goal",
+          roomId: created.roomId,
+          token: created.participantToken,
+          goal: "understand",
+        });
+        const draft = await backendAction<{ state: string }>({
+          action: "save_draft",
+          roomId: created.roomId,
+          token: created.participantToken,
+          transcript: demoTranscript,
+          clarification: "出发前二十分钟才告诉我",
+        });
+        next = { ...next, state: draft.state || goal.state };
+        rememberSession(next);
+        setIntent("understand");
+        setPerspective(perspectivesByRole.A);
+        setHasCapture(true);
+        setFactAnswer("出发前二十分钟才告诉我");
+        setStage("review");
+      } else {
+        rememberSession(next);
+        setStage("intent");
+      }
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法创建房间");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function joinBackendRoom() {
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const joined = await backendAction<BackendSession>({
+        action: "join",
+        code: incomingCode,
+        displayName: "Jun",
+      });
+      rememberSession({ ...joined, role: "B" });
+      setPerspective(perspectivesByRole.B);
+      setHasCapture(false);
+      setTranscript(
+        "我周六早上开始不舒服，但当时还不确定要不要取消。我希望等确定以后再说，因为不想让对方一直等一个不确定的答案。",
+      );
+      appendEvent("B_JOINED", `B 已加入后端房间 ${joined.code}`);
+      setStage("voice");
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法加入房间");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function continueFromIntent() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const result = await backendAction<{ state: string }>({
+        action: "set_goal",
+        roomId: session.roomId,
+        token: session.participantToken,
+        goal: intent,
+      });
+      rememberSession({ ...session, state: result.state });
+      move("voice", "VOICE_INTAKE_OPENED", "进入 A 的私人表达");
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法保存沟通目标");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function submitPrivateDraft() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const result = await backendAction<{ state: string }>({
+        action: "save_draft",
+        roomId: session.roomId,
+        token: session.participantToken,
+        transcript,
+        clarification: factAnswer,
+      });
+      rememberSession({ ...session, state: result.state });
+      move("review", "PRIVATE_DRAFT_SAVED", `${role} 的私人表达已加密保存`);
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法保存私人表达");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function approvePerspective() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const result = await backendAction<{ state: string; version: number }>({
+        action: "approve_perspective",
+        roomId: session.roomId,
+        token: session.participantToken,
+        cards: perspective,
+      });
+      rememberSession({ ...session, state: result.state });
+      move(
+        role === "A" ? "invite" : "common",
+        `${role}_PERSPECTIVE_APPROVED`,
+        `${role} 批准了观点卡 v${result.version}`,
+      );
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法批准观点卡");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function simulatePartner() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const result = await backendAction<{ state: string; partnerToken: string }>({
+        action: "simulate_partner",
+        roomId: session.roomId,
+        token: session.participantToken,
+      });
+      rememberSession({ ...session, state: result.state, partnerToken: result.partnerToken });
+      move("common", "B_PERSPECTIVE_APPROVED", "B 已加入并批准自己的观点卡");
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法完成双人演示");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function proposeAgreement() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      const result = await backendAction<{ state: string }>({
+        action: "propose_agreement",
+        roomId: session.roomId,
+        token: session.participantToken,
+        proposal: "计划可能发生变化时，先发送一个“待定”信号。",
+        reviewAt: "2026-08-12T20:30:00+08:00",
+      });
+      rememberSession({ ...session, state: result.state });
+      move("agreement", "AGREEMENT_PROPOSED", "已创建可逆的 7 天实验");
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法创建约定");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function activateAgreement() {
+    if (!session) return;
+    setIsSyncing(true);
+    setBackendError("");
+    try {
+      await backendAction<{ state: string }>({
+        action: "accept_agreement",
+        roomId: session.roomId,
+        token: session.participantToken,
+      });
+      if (session.partnerToken) {
+        await backendAction<{ state: string }>({
+          action: "accept_agreement",
+          roomId: session.roomId,
+          token: session.partnerToken,
+        });
+      }
+      move("complete", "AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验");
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法启用约定");
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
   async function startRecording() {
@@ -180,14 +491,21 @@ export function SayOpenPrototype() {
     setCopied(false);
     setAcceptedA(true);
     setAcceptedB(false);
+    setPerspective(perspectivesByRole.A);
+    setSession(null);
+    setIncomingCode("");
+    setBackendError("");
+    window.history.replaceState({}, "", window.location.pathname);
     setEvents([
-      { type: "ROOM_READY", label: "原型房间已准备", time: nowTime() },
+      { type: "ROOM_READY", label: "原型房间已准备", time: "—" },
     ]);
   }
 
   async function copyInvite() {
-    const message =
-      "我现在很难把这件事说清楚，又不想继续互相伤害。我先整理了自己的版本。如果你愿意，可以在『说开』里讲讲你的版本。";
+    const inviteUrl = session
+      ? `${window.location.origin}${window.location.pathname}?room=${session.code}`
+      : window.location.href;
+    const message = `我现在很难把这件事说清楚，又不想继续互相伤害。我先整理了自己的版本。如果你愿意，可以在「说开」里讲讲你的版本：${inviteUrl}`;
     try {
       await navigator.clipboard.writeText(message);
       setCopied(true);
@@ -260,12 +578,50 @@ export function SayOpenPrototype() {
         </header>
 
         <div className="experience-topline">
-          <span className="prototype-badge">交互原型 · AI 内容为模拟</span>
-          <span className="state-pill">{current.state}</span>
+          <span className="prototype-badge">
+            {session ? `后端已连接 · 房间 ${session.code}` : "全栈原型 · AI 内容为模拟"}
+          </span>
+          <span className="state-pill">{session?.state ?? current.state}</span>
         </div>
 
+        {backendError && (
+          <div className="backend-error" role="alert">
+            <span>后端没有完成这一步</span>
+            <p>{backendError}</p>
+          </div>
+        )}
+
         <div className="app-surface">
-          {stage === "landing" && (
+          {stage === "landing" && incomingCode && (
+            <section className="screen join-screen">
+              <div className="join-code">房间 {incomingCode}</div>
+              <div className="eyebrow">有人邀请你一起说开</div>
+              <h2>你可以先讲自己的版本，<br />对方不会看到原始表达。</h2>
+              <p className="lead">
+                只有你亲自确认的观点卡，才会进入双方的共同空间。加入不代表同意对方。
+              </p>
+              <div className="join-privacy">
+                <span>私人草稿</span>
+                <strong>仅自己可见</strong>
+                <span>观点卡</span>
+                <strong>确认后共享</strong>
+              </div>
+              <button
+                className="primary-button hero-button"
+                disabled={isSyncing}
+                onClick={() => void joinBackendRoom()}
+                type="button"
+              >
+                <span>{isSyncing ? "正在加入…" : "用我的版本加入"}</span>
+                <span aria-hidden="true">→</span>
+              </button>
+              <button className="text-button" onClick={resetPrototype} type="button">
+                暂时不加入
+              </button>
+            </section>
+          )}
+
+          {stage === "landing" && !incomingCode && (
             <section className="screen landing-screen">
               <div className="eyebrow">当聊天失效之后</div>
               <h1>
@@ -279,24 +635,21 @@ export function SayOpenPrototype() {
 
               <button
                 className="primary-button hero-button"
-                onClick={() => move("intent", "SESSION_STARTED", "A 发起了一次说开")}
+                disabled={isSyncing}
+                onClick={() => void createBackendRoom(false)}
                 type="button"
               >
-                <span>我想说开一件事</span>
+                <span>{isSyncing ? "正在准备私人房间…" : "我想说开一件事"}</span>
                 <span aria-hidden="true">→</span>
               </button>
 
               <button
                 className="text-button"
-                onClick={() => {
-                  setIntent("understand");
-                  appendEvent("DEMO_STARTED", "已进入双人演示场景");
-                  setHasCapture(true);
-                  setStage("review");
-                }}
+                disabled={isSyncing}
+                onClick={() => void createBackendRoom(true)}
                 type="button"
               >
-                直接查看双人演示
+                直接查看全栈双人演示
               </button>
 
               <div className="trust-row">
@@ -334,9 +687,9 @@ export function SayOpenPrototype() {
 
               <BottomActions
                 back={() => move("landing")}
-                next={() => move("voice", "VOICE_INTAKE_OPENED", "进入 A 的私人表达")}
-                disabled={!intent}
-                nextLabel="开始讲述"
+                next={() => void continueFromIntent()}
+                disabled={!intent || isSyncing}
+                nextLabel={isSyncing ? "正在保存…" : "开始讲述"}
               />
             </section>
           )}
@@ -344,7 +697,7 @@ export function SayOpenPrototype() {
           {stage === "voice" && (
             <section className="screen voice-screen">
               <ScreenHeader
-                kicker="只有你能看到"
+                kicker={role === "B" ? "这是你的独立空间" : "只有你能看到"}
                 title="先完整地说出来"
                 copy="不用组织语言，也不用照顾对方的感受。AI 会在你说完以后再提问。"
               />
@@ -398,7 +751,7 @@ export function SayOpenPrototype() {
               )}
 
               <BottomActions
-                back={() => move("intent")}
+                back={() => (role === "B" ? resetPrototype() : move("intent"))}
                 next={() => move("followup", "TRANSCRIPT_CONFIRMED", "A 确认了语音转写")}
                 disabled={!hasCapture || !transcript.trim()}
                 nextLabel="让 AI 帮我整理"
@@ -419,17 +772,26 @@ export function SayOpenPrototype() {
                 <div>
                   <span>说开助手</span>
                   <p>
-                    你说“我的时间根本没有被考虑”。在这次事件里，对方具体什么时候告诉你计划改变？
+                    {role === "A"
+                      ? "你说“我的时间根本没有被考虑”。在这次事件里，对方具体什么时候告诉你计划改变？"
+                      : "你说当时还不确定是否取消。你第一次意识到计划可能发生变化，具体是什么时候？"}
                   </p>
                 </div>
               </div>
 
               <div className="answer-grid">
-                {[
-                  "出发前二十分钟才告诉我",
-                  "临时取消，也没有解释",
-                  "不是时间问题，我想自己说明",
-                ].map((answer) => (
+                {(role === "A"
+                  ? [
+                      "出发前二十分钟才告诉我",
+                      "临时取消，也没有解释",
+                      "不是时间问题，我想自己说明",
+                    ]
+                  : [
+                      "周六早上开始觉得不舒服",
+                      "中午才确定不能出门",
+                      "不是时间问题，我想自己说明",
+                    ]
+                ).map((answer) => (
                   <button
                     className={factAnswer === answer ? "selected" : ""}
                     key={answer}
@@ -451,9 +813,9 @@ export function SayOpenPrototype() {
 
               <BottomActions
                 back={() => move("voice")}
-                next={() => move("review", "CLARIFICATION_ANSWERED", "A 补充了可观察事实")}
-                disabled={!factAnswer}
-                nextLabel="生成我的版本"
+                next={() => void submitPrivateDraft()}
+                disabled={!factAnswer || isSyncing}
+                nextLabel={isSyncing ? "正在私密保存…" : "生成我的版本"}
               />
             </section>
           )}
@@ -470,25 +832,37 @@ export function SayOpenPrototype() {
                 <PerspectiveCard
                   index="01"
                   label="发生的事情"
-                  text="原定周六下午一起看展，对方在出发前二十分钟取消了计划。"
+                  text={perspective.fact}
+                  onValueChange={(value) =>
+                    setPerspective((current) => ({ ...current, fact: value }))
+                  }
                   tone="fact"
                 />
                 <PerspectiveCard
                   index="02"
                   label="你的理解"
-                  text="你担心自己的时间和为共同计划做出的安排没有被认真考虑。"
+                  text={perspective.meaning}
+                  onValueChange={(value) =>
+                    setPerspective((current) => ({ ...current, meaning: value }))
+                  }
                   tone="meaning"
                 />
                 <PerspectiveCard
                   index="03"
                   label="对你的影响"
-                  text="你推掉了朋友的邀请，也失去了重新安排下午的机会。"
+                  text={perspective.impact}
+                  onValueChange={(value) =>
+                    setPerspective((current) => ({ ...current, impact: value }))
+                  }
                   tone="impact"
                 />
                 <PerspectiveCard
                   index="04"
                   label="你真正的请求"
-                  text="计划可以变化，但希望对方一旦知道有变化，就尽早告诉你。"
+                  text={perspective.request}
+                  onValueChange={(value) =>
+                    setPerspective((current) => ({ ...current, request: value }))
+                  }
                   tone="request"
                 />
               </div>
@@ -507,10 +881,10 @@ export function SayOpenPrototype() {
               </label>
 
               <BottomActions
-                back={() => move(stage === "review" && intent ? "followup" : "landing")}
-                next={() => move("invite", "PERSPECTIVE_APPROVED", "A 批准了观点卡 v1")}
-                disabled={!approved}
-                nextLabel="确认我的版本"
+                back={() => move("followup")}
+                next={() => void approvePerspective()}
+                disabled={!approved || isSyncing}
+                nextLabel={isSyncing ? "正在写入批准记录…" : "确认我的版本"}
               />
             </section>
           )}
@@ -531,6 +905,10 @@ export function SayOpenPrototype() {
                   <span>约 3 分钟</span>
                   <span>原始回答仅自己可见</span>
                 </div>
+                <div className="room-code-display">
+                  <small>房间码</small>
+                  <strong>{session?.code ?? "——"}</strong>
+                </div>
                 <button type="button">先看看对方想表达什么</button>
               </div>
 
@@ -540,10 +918,11 @@ export function SayOpenPrototype() {
                 </button>
                 <button
                   className="primary-button"
-                  onClick={() => move("common", "B_PERSPECTIVE_APPROVED", "B 已加入并批准自己的观点卡")}
+                  disabled={isSyncing}
+                  onClick={() => void simulatePartner()}
                   type="button"
                 >
-                  模拟对方完成表达
+                  {isSyncing ? "正在写入双方版本…" : "模拟对方完成表达"}
                 </button>
               </div>
 
@@ -599,8 +978,9 @@ export function SayOpenPrototype() {
 
               <BottomActions
                 back={() => move("invite")}
-                next={() => move("agreement", "COMMON_VIEW_CONFIRMED", "双方确认了共同点与真实分歧")}
-                nextLabel="尝试一个现实办法"
+                next={() => void proposeAgreement()}
+                disabled={isSyncing}
+                nextLabel={isSyncing ? "正在创建约定…" : "尝试一个现实办法"}
               />
             </section>
           )}
@@ -666,9 +1046,9 @@ export function SayOpenPrototype() {
 
               <BottomActions
                 back={() => move("common")}
-                next={() => move("complete", "AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验")}
-                disabled={!acceptedA || !acceptedB}
-                nextLabel="开始 7 天实验"
+                next={() => void activateAgreement()}
+                disabled={!acceptedA || !acceptedB || isSyncing}
+                nextLabel={isSyncing ? "正在记录双方同意…" : "开始 7 天实验"}
               />
             </section>
           )}
@@ -703,12 +1083,12 @@ export function SayOpenPrototype() {
         <details className="state-console">
           <summary>
             <span>工程视图</span>
-            <strong>{current.state}</strong>
+            <strong>{session?.state ?? current.state}</strong>
             <small>查看状态机事件</small>
           </summary>
           <div className="console-body">
             <div className="console-heading">
-              <span>ROOM / DEMO_01</span>
+              <span>ROOM / {session?.code ?? "LOCAL_DEMO"}</span>
               <span>VERSION {events.length}</span>
             </div>
             <div className="event-list">
@@ -780,11 +1160,13 @@ function PerspectiveCard({
   index,
   label,
   text,
+  onValueChange,
   tone,
 }: {
   index: string;
   label: string;
   text: string;
+  onValueChange: (value: string) => void;
   tone: "fact" | "meaning" | "impact" | "request";
 }) {
   const [editing, setEditing] = useState(false);
@@ -801,7 +1183,10 @@ function PerspectiveCard({
       {editing ? (
         <textarea
           aria-label={`修改${label}`}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            onValueChange(event.target.value);
+          }}
           rows={3}
           value={value}
         />

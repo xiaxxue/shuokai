@@ -269,6 +269,29 @@ input:focus-visible + span {
   letter-spacing: 0.06em;
 }
 
+.backend-error {
+  margin: 0 0 14px;
+  padding: 12px 15px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border: 1px solid #e6b5a8;
+  border-radius: 8px;
+  background: #fff2ed;
+  color: var(--coral-dark);
+  font-size: 11px;
+}
+
+.backend-error span {
+  flex: 0 0 auto;
+  font-weight: 800;
+}
+
+.backend-error p {
+  margin: 0;
+  color: #81584e;
+}
+
 .state-pill {
   border-color: #c8d6c5;
   color: var(--sage-dark);
@@ -359,6 +382,53 @@ input:focus-visible + span {
   justify-content: center;
   padding-top: 75px;
   padding-bottom: 70px;
+}
+
+.join-screen {
+  justify-content: center;
+}
+
+.join-screen h2 {
+  margin-top: 16px;
+  max-width: 570px;
+  font-size: 42px;
+}
+
+.join-code {
+  width: fit-content;
+  margin-bottom: 38px;
+  padding: 7px 11px;
+  border: 1px solid #c8d6c5;
+  border-radius: 999px;
+  background: var(--sage);
+  color: var(--sage-dark);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.join-privacy {
+  width: min(100%, 470px);
+  margin-top: 28px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.join-privacy span,
+.join-privacy strong {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.join-privacy span {
+  color: var(--muted);
+}
+
+.join-privacy strong {
+  color: var(--sage-dark);
 }
 
 .lead {
@@ -916,6 +986,33 @@ textarea {
   font-size: 9px;
 }
 
+.room-code-display {
+  width: fit-content;
+  margin: 18px auto 0;
+  padding: 9px 14px;
+  border: 1px dashed #bcb7aa;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.room-code-display small,
+.room-code-display strong {
+  display: block;
+}
+
+.room-code-display small {
+  color: #8a887f;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+}
+
+.room-code-display strong {
+  margin-top: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+}
+
 .invite-preview > button {
   margin-top: 22px;
   padding: 10px 15px;
@@ -1396,6 +1493,20 @@ textarea {
 
   .screen h2 {
     font-size: 29px;
+  }
+
+  .join-screen h2 {
+    font-size: 31px;
+  }
+
+  .backend-error {
+    margin-left: 16px;
+    margin-right: 16px;
+    display: block;
+  }
+
+  .backend-error p {
+    margin-top: 3px;
   }
 
   .screen-header {
