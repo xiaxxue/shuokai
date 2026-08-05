@@ -1,0 +1,813 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+type Stage =
+  | "landing"
+  | "intent"
+  | "voice"
+  | "followup"
+  | "review"
+  | "invite"
+  | "common"
+  | "agreement"
+  | "complete";
+
+type TimelineEvent = {
+  type: string;
+  label: string;
+  time: string;
+};
+
+const intentOptions = [
+  {
+    id: "understand",
+    title: "我怕一开口又会吵起来",
+    copy: "先把话整理清楚，再决定要不要邀请对方。",
+  },
+  {
+    id: "repeat",
+    title: "同一件事已经争论很多次",
+    copy: "找到反复绕圈背后真正没有说开的部分。",
+  },
+  {
+    id: "decision",
+    title: "我们需要共同做一个决定",
+    copy: "并排看见彼此在意的条件，而不是争论立场。",
+  },
+  {
+    id: "repair",
+    title: "我想修复一次不愉快",
+    copy: "表达影响、承担责任，并找到可以重新开始的一步。",
+  },
+];
+
+const stageMeta: Record<Stage, { state: string; step: number }> = {
+  landing: { state: "READY", step: 0 },
+  intent: { state: "GOAL_SETTING", step: 0 },
+  voice: { state: "A_DRAFTING", step: 1 },
+  followup: { state: "A_CLARIFYING", step: 1 },
+  review: { state: "A_REVIEWING", step: 2 },
+  invite: { state: "WAITING_FOR_B", step: 2 },
+  common: { state: "REVIEWING_COMMON_VIEW", step: 3 },
+  agreement: { state: "AGREEMENT_PENDING", step: 4 },
+  complete: { state: "COMPLETED", step: 4 },
+};
+
+const stepLabels = ["开始", "表达", "确认", "共视", "约定"];
+
+const demoTranscript =
+  "我们本来说好周六下午一起去看展，我还提前推掉了朋友的邀请。结果他到出发前二十分钟才告诉我不去了。我生气的不是不能改计划，而是觉得我的时间根本没有被考虑。";
+
+function nowTime() {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date());
+}
+
+export function SayOpenPrototype() {
+  const [stage, setStage] = useState<Stage>("landing");
+  const [intent, setIntent] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingError, setRecordingError] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [hasCapture, setHasCapture] = useState(false);
+  const [transcript, setTranscript] = useState(demoTranscript);
+  const [factAnswer, setFactAnswer] = useState("");
+  const [approved, setApproved] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [acceptedA, setAcceptedA] = useState(true);
+  const [acceptedB, setAcceptedB] = useState(false);
+  const [events, setEvents] = useState<TimelineEvent[]>([
+    { type: "ROOM_READY", label: "原型房间已准备", time: nowTime() },
+  ]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const current = stageMeta[stage];
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = window.setInterval(
+      () => setRecordingSeconds((value) => value + 1),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [isRecording]);
+
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+
+  function appendEvent(type: string, label: string) {
+    setEvents((items) => [
+      ...items,
+      { type, label, time: nowTime() },
+    ]);
+  }
+
+  function move(next: Stage, eventType?: string, label?: string) {
+    if (eventType && label) appendEvent(eventType, label);
+    setStage(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function startRecording() {
+    setRecordingError("");
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setRecordingError("当前浏览器无法录音，你可以使用演示内容继续体验。");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        setHasCapture(true);
+        stream.getTracks().forEach((track) => track.stop());
+        appendEvent("AUDIO_CAPTURED", "A 的语音已在本机完成录制");
+      };
+      recorder.start();
+      setRecordingSeconds(0);
+      setIsRecording(true);
+    } catch {
+      setRecordingError("没有获得麦克风权限，你可以使用演示内容继续体验。");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  }
+
+  function useDemoCapture() {
+    setHasCapture(true);
+    setRecordingSeconds(48);
+    appendEvent("DEMO_AUDIO_SELECTED", "已载入演示语音与转写");
+  }
+
+  function selectIntent(id: string) {
+    setIntent(id);
+    appendEvent("GOAL_SELECTED", "A 选择了本次沟通目标");
+  }
+
+  function resetPrototype() {
+    setStage("landing");
+    setIntent("");
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    setHasCapture(false);
+    setFactAnswer("");
+    setApproved(false);
+    setCopied(false);
+    setAcceptedA(true);
+    setAcceptedB(false);
+    setEvents([
+      { type: "ROOM_READY", label: "原型房间已准备", time: nowTime() },
+    ]);
+  }
+
+  async function copyInvite() {
+    const message =
+      "我现在很难把这件事说清楚，又不想继续互相伤害。我先整理了自己的版本。如果你愿意，可以在『说开』里讲讲你的版本。";
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      appendEvent("INVITE_COPIED", "邀请文案已复制");
+    } catch {
+      setCopied(true);
+    }
+  }
+
+  return (
+    <main className="prototype-shell">
+      <aside className="brand-rail" aria-label="产品信息与流程状态">
+        <div>
+          <div className="brand-lockup">
+            <span className="brand-mark" aria-hidden="true">
+              <span />
+              <span />
+            </span>
+            <div>
+              <strong>说开</strong>
+              <small>SHUOKAI</small>
+            </div>
+          </div>
+
+          <p className="brand-promise">理解，不必同意。</p>
+          <p className="brand-description">
+            当普通聊天开始重复、误解或升级，为彼此留一个可以慢下来表达的空间。
+          </p>
+
+          <div className="stepper" aria-label="沟通进度">
+            {stepLabels.map((label, index) => (
+              <div
+                className={`step ${current.step === index ? "is-current" : ""} ${current.step > index ? "is-done" : ""}`}
+                key={label}
+              >
+                <span>{current.step > index ? "✓" : index + 1}</span>
+                <p>{label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rail-footer">
+          <div className="privacy-note">
+            <span aria-hidden="true">◌</span>
+            <p>
+              <strong>私人内容默认不共享</strong>
+              只有本人确认的版本，才能进入共同空间。
+            </p>
+          </div>
+          <button className="quiet-button" onClick={resetPrototype} type="button">
+            重新体验
+          </button>
+        </div>
+      </aside>
+
+      <section className="experience-column">
+        <header className="mobile-header">
+          <div className="brand-lockup compact">
+            <span className="brand-mark" aria-hidden="true">
+              <span />
+              <span />
+            </span>
+            <div>
+              <strong>说开</strong>
+              <small>SHUOKAI</small>
+            </div>
+          </div>
+          <span className="prototype-badge">交互原型</span>
+        </header>
+
+        <div className="experience-topline">
+          <span className="prototype-badge">交互原型 · AI 内容为模拟</span>
+          <span className="state-pill">{current.state}</span>
+        </div>
+
+        <div className="app-surface">
+          {stage === "landing" && (
+            <section className="screen landing-screen">
+              <div className="eyebrow">当聊天失效之后</div>
+              <h1>
+                先别急着说服，
+                <br />
+                试着把话<span>说开。</span>
+              </h1>
+              <p className="lead">
+                你可以先独自说完。AI 会帮助你区分发生的事、你的理解、受到的影响和真正的请求。
+              </p>
+
+              <button
+                className="primary-button hero-button"
+                onClick={() => move("intent", "SESSION_STARTED", "A 发起了一次说开")}
+                type="button"
+              >
+                <span>我想说开一件事</span>
+                <span aria-hidden="true">→</span>
+              </button>
+
+              <button
+                className="text-button"
+                onClick={() => {
+                  setIntent("understand");
+                  appendEvent("DEMO_STARTED", "已进入双人演示场景");
+                  setHasCapture(true);
+                  setStage("review");
+                }}
+                type="button"
+              >
+                直接查看双人演示
+              </button>
+
+              <div className="trust-row">
+                <span>不判断对错</span>
+                <span>不擅自转发</span>
+                <span>随时可以退出</span>
+              </div>
+            </section>
+          )}
+
+          {stage === "intent" && (
+            <section className="screen">
+              <ScreenHeader
+                kicker="先确定这次的目标"
+                title="你现在最需要什么？"
+                copy="没有正确答案。这个选择只会改变 AI 接下来如何提问。"
+              />
+
+              <div className="option-list">
+                {intentOptions.map((item) => (
+                  <button
+                    className={`intent-card ${intent === item.id ? "selected" : ""}`}
+                    key={item.id}
+                    onClick={() => selectIntent(item.id)}
+                    type="button"
+                  >
+                    <span className="radio" aria-hidden="true" />
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{item.copy}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <BottomActions
+                back={() => move("landing")}
+                next={() => move("voice", "VOICE_INTAKE_OPENED", "进入 A 的私人表达")}
+                disabled={!intent}
+                nextLabel="开始讲述"
+              />
+            </section>
+          )}
+
+          {stage === "voice" && (
+            <section className="screen voice-screen">
+              <ScreenHeader
+                kicker="只有你能看到"
+                title="先完整地说出来"
+                copy="不用组织语言，也不用照顾对方的感受。AI 会在你说完以后再提问。"
+              />
+
+              <div className={`recording-orb ${isRecording ? "recording" : ""}`}>
+                <div className="wave" aria-hidden="true">
+                  {Array.from({ length: 15 }).map((_, index) => (
+                    <span key={index} style={{ animationDelay: `${index * 70}ms` }} />
+                  ))}
+                </div>
+                <button
+                  aria-label={isRecording ? "结束录音" : "开始录音"}
+                  className="mic-button"
+                  onClick={isRecording ? stopRecording : startRecording}
+                  type="button"
+                >
+                  <span aria-hidden="true">{isRecording ? "■" : "●"}</span>
+                </button>
+                <strong>
+                  {isRecording
+                    ? `正在倾听 · ${String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:${String(recordingSeconds % 60).padStart(2, "0")}`
+                    : hasCapture
+                      ? "已经记录下来"
+                      : "点击开始讲述"}
+                </strong>
+                <small>{isRecording ? "说完后点击方块结束" : "录音仅用于当前原型体验"}</small>
+              </div>
+
+              {recordingError && <p className="inline-error">{recordingError}</p>}
+
+              {!hasCapture && !isRecording && (
+                <button className="demo-button" onClick={useDemoCapture} type="button">
+                  没准备好开口？使用演示语音
+                </button>
+              )}
+
+              {hasCapture && (
+                <div className="transcript-panel">
+                  <div className="panel-label">
+                    <span>转写内容</span>
+                    <small>演示文本，可修改</small>
+                  </div>
+                  {audioUrl && <audio controls src={audioUrl} />}
+                  <textarea
+                    aria-label="语音转写内容"
+                    onChange={(event) => setTranscript(event.target.value)}
+                    rows={5}
+                    value={transcript}
+                  />
+                </div>
+              )}
+
+              <BottomActions
+                back={() => move("intent")}
+                next={() => move("followup", "TRANSCRIPT_CONFIRMED", "A 确认了语音转写")}
+                disabled={!hasCapture || !transcript.trim()}
+                nextLabel="让 AI 帮我整理"
+              />
+            </section>
+          )}
+
+          {stage === "followup" && (
+            <section className="screen">
+              <ScreenHeader
+                kicker="AI 正在澄清一个关键点"
+                title="我先确认一下具体发生了什么"
+                copy="AI 不会替你猜测对方的动机，只补全对方可以理解的事实。"
+              />
+
+              <div className="ai-message">
+                <div className="ai-avatar">开</div>
+                <div>
+                  <span>说开助手</span>
+                  <p>
+                    你说“我的时间根本没有被考虑”。在这次事件里，对方具体什么时候告诉你计划改变？
+                  </p>
+                </div>
+              </div>
+
+              <div className="answer-grid">
+                {[
+                  "出发前二十分钟才告诉我",
+                  "临时取消，也没有解释",
+                  "不是时间问题，我想自己说明",
+                ].map((answer) => (
+                  <button
+                    className={factAnswer === answer ? "selected" : ""}
+                    key={answer}
+                    onClick={() => setFactAnswer(answer)}
+                    type="button"
+                  >
+                    {answer}
+                  </button>
+                ))}
+              </div>
+
+              <div className="one-question-note">
+                <span>1</span>
+                <p>
+                  <strong>一次只问一个问题</strong>
+                  避免在情绪激动时变成一份漫长问卷。
+                </p>
+              </div>
+
+              <BottomActions
+                back={() => move("voice")}
+                next={() => move("review", "CLARIFICATION_ANSWERED", "A 补充了可观察事实")}
+                disabled={!factAnswer}
+                nextLabel="生成我的版本"
+              />
+            </section>
+          )}
+
+          {stage === "review" && (
+            <section className="screen">
+              <ScreenHeader
+                kicker="发送之前，先由你确认"
+                title="这是我对你的理解"
+                copy="它仍然只在你的私人空间里。哪里不准确，可以直接修改。"
+              />
+
+              <div className="perspective-stack">
+                <PerspectiveCard
+                  index="01"
+                  label="发生的事情"
+                  text="原定周六下午一起看展，对方在出发前二十分钟取消了计划。"
+                  tone="fact"
+                />
+                <PerspectiveCard
+                  index="02"
+                  label="你的理解"
+                  text="你担心自己的时间和为共同计划做出的安排没有被认真考虑。"
+                  tone="meaning"
+                />
+                <PerspectiveCard
+                  index="03"
+                  label="对你的影响"
+                  text="你推掉了朋友的邀请，也失去了重新安排下午的机会。"
+                  tone="impact"
+                />
+                <PerspectiveCard
+                  index="04"
+                  label="你真正的请求"
+                  text="计划可以变化，但希望对方一旦知道有变化，就尽早告诉你。"
+                  tone="request"
+                />
+              </div>
+
+              <label className="approval-check">
+                <input
+                  checked={approved}
+                  onChange={(event) => setApproved(event.target.checked)}
+                  type="checkbox"
+                />
+                <span aria-hidden="true" />
+                <p>
+                  <strong>这准确表达了我的意思</strong>
+                  确认后，这个版本才可以被分享。
+                </p>
+              </label>
+
+              <BottomActions
+                back={() => move(stage === "review" && intent ? "followup" : "landing")}
+                next={() => move("invite", "PERSPECTIVE_APPROVED", "A 批准了观点卡 v1")}
+                disabled={!approved}
+                nextLabel="确认我的版本"
+              />
+            </section>
+          )}
+
+          {stage === "invite" && (
+            <section className="screen invite-screen">
+              <ScreenHeader
+                kicker="你已经把自己的部分说清楚了"
+                title="现在，要邀请对方吗？"
+                copy="对方可以稍后回应，也可以拒绝。邀请不会展示你的原始录音。"
+              />
+
+              <div className="invite-preview">
+                <div className="invite-logo">说开</div>
+                <span>Lin 邀请你一起说开一件事</span>
+                <h3>“我想让我们互相理解，不是证明谁是对的。”</h3>
+                <div className="invite-meta">
+                  <span>约 3 分钟</span>
+                  <span>原始回答仅自己可见</span>
+                </div>
+                <button type="button">先看看对方想表达什么</button>
+              </div>
+
+              <div className="invite-actions">
+                <button className="secondary-button" onClick={copyInvite} type="button">
+                  {copied ? "邀请文案已复制" : "复制低压力邀请"}
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => move("common", "B_PERSPECTIVE_APPROVED", "B 已加入并批准自己的观点卡")}
+                  type="button"
+                >
+                  模拟对方完成表达
+                </button>
+              </div>
+
+              <button className="text-button" type="button">
+                暂时只保存给自己
+              </button>
+            </section>
+          )}
+
+          {stage === "common" && (
+            <section className="screen common-screen">
+              <ScreenHeader
+                kicker="双方都已确认自己的版本"
+                title="你们真正没有说开的，是这里"
+                copy="理解对方，不代表必须同意。共同视图只使用双方批准过的内容。"
+              />
+
+              <div className="common-goal">
+                <span>共同点</span>
+                <h3>你们都希望周末可以放松，也不想每次计划变化都变成一次争吵。</h3>
+                <div className="both-approved">
+                  <span>A 已认可</span>
+                  <span>B 已认可</span>
+                </div>
+              </div>
+
+              <div className="difference-map">
+                <div className="difference-heading">
+                  <span>真实分歧</span>
+                  <small>不是“谁更在乎这段关系”</small>
+                </div>
+                <div className="view-columns">
+                  <article>
+                    <span>A 的版本</span>
+                    <p>共同计划改变时，应当尽早告知，让彼此能够重新安排时间。</p>
+                  </article>
+                  <div className="versus">≠</div>
+                  <article>
+                    <span>B 的版本</span>
+                    <p>周末计划应保留自由度；不确定的变化很难提前给出明确通知。</p>
+                  </article>
+                </div>
+                <div className="core-question">
+                  <span>需要一起回答的问题</span>
+                  <p>“知道可能有变化”时就应该告知，还是确定取消以后再告知？</p>
+                </div>
+              </div>
+
+              <div className="source-note">
+                <span>↳</span>
+                每个结论都可以追溯到双方批准的观点卡，不使用私人草稿。
+              </div>
+
+              <BottomActions
+                back={() => move("invite")}
+                next={() => move("agreement", "COMMON_VIEW_CONFIRMED", "双方确认了共同点与真实分歧")}
+                nextLabel="尝试一个现实办法"
+              />
+            </section>
+          )}
+
+          {stage === "agreement" && (
+            <section className="screen">
+              <ScreenHeader
+                kicker="不寻找永久正确答案"
+                title="先试行一个可逆的办法"
+                copy="到期后分别评价效果，而不是现在承诺永远这样做。"
+              />
+
+              <div className="experiment-card">
+                <div className="experiment-top">
+                  <span>7 天实验</span>
+                  <small>可随时提出调整</small>
+                </div>
+                <h3>计划可能发生变化时，先发送一个“待定”信号。</h3>
+                <ul>
+                  <li>不需要立刻解释完整原因</li>
+                  <li>最迟在确定变化后 30 分钟内更新</li>
+                  <li>收到信号的一方可以先安排自己的时间</li>
+                </ul>
+                <div className="review-date">
+                  <span>复盘</span>
+                  <strong>8 月 12 日 · 晚上 20:30</strong>
+                </div>
+              </div>
+
+              <div className="acceptance-list">
+                <label>
+                  <button
+                    aria-label="切换 A 的接受状态"
+                    className={acceptedA ? "accepted" : ""}
+                    onClick={() => setAcceptedA((value) => !value)}
+                    type="button"
+                  >
+                    {acceptedA ? "✓" : ""}
+                  </button>
+                  <span>
+                    <strong>Lin</strong>
+                    {acceptedA ? "已自愿接受" : "等待确认"}
+                  </span>
+                </label>
+                <label>
+                  <button
+                    aria-label="切换 B 的接受状态"
+                    className={acceptedB ? "accepted" : ""}
+                    onClick={() => {
+                      setAcceptedB((value) => !value);
+                      if (!acceptedB) appendEvent("B_ACCEPTED_EXPERIMENT", "B 接受了 7 天实验");
+                    }}
+                    type="button"
+                  >
+                    {acceptedB ? "✓" : ""}
+                  </button>
+                  <span>
+                    <strong>Jun</strong>
+                    {acceptedB ? "已自愿接受" : "点击模拟确认"}
+                  </span>
+                </label>
+              </div>
+
+              <BottomActions
+                back={() => move("common")}
+                next={() => move("complete", "AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验")}
+                disabled={!acceptedA || !acceptedB}
+                nextLabel="开始 7 天实验"
+              />
+            </section>
+          )}
+
+          {stage === "complete" && (
+            <section className="screen complete-screen">
+              <div className="completion-mark" aria-hidden="true">
+                ✓
+              </div>
+              <div className="eyebrow">这一次已经说开</div>
+              <h2>不是谁赢了，<br />是你们终于在讨论同一个问题。</h2>
+              <p>
+                系统将在 7 天后分别询问：这个办法是否让你更自由，也让对方更安心？
+              </p>
+
+              <div className="completion-summary">
+                <span>本次留下</span>
+                <div>
+                  <strong>1</strong><small>个共同点</small>
+                  <strong>1</strong><small>个真实分歧</small>
+                  <strong>1</strong><small>个可验证实验</small>
+                </div>
+              </div>
+
+              <button className="primary-button" onClick={resetPrototype} type="button">
+                再体验一次
+              </button>
+            </section>
+          )}
+        </div>
+
+        <details className="state-console">
+          <summary>
+            <span>工程视图</span>
+            <strong>{current.state}</strong>
+            <small>查看状态机事件</small>
+          </summary>
+          <div className="console-body">
+            <div className="console-heading">
+              <span>ROOM / DEMO_01</span>
+              <span>VERSION {events.length}</span>
+            </div>
+            <div className="event-list">
+              {events
+                .slice()
+                .reverse()
+                .map((event, index) => (
+                  <div className={index === 0 ? "latest" : ""} key={`${event.type}-${event.time}-${index}`}>
+                    <time>{event.time}</time>
+                    <code>{event.type}</code>
+                    <span>{event.label}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </details>
+      </section>
+    </main>
+  );
+}
+
+function ScreenHeader({
+  kicker,
+  title,
+  copy,
+}: {
+  kicker: string;
+  title: string;
+  copy: string;
+}) {
+  return (
+    <header className="screen-header">
+      <div className="eyebrow">{kicker}</div>
+      <h2>{title}</h2>
+      <p>{copy}</p>
+    </header>
+  );
+}
+
+function BottomActions({
+  back,
+  next,
+  nextLabel,
+  disabled = false,
+}: {
+  back: () => void;
+  next: () => void;
+  nextLabel: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="bottom-actions">
+      <button className="back-button" onClick={back} type="button">
+        ← 返回
+      </button>
+      <button
+        className="primary-button"
+        disabled={disabled}
+        onClick={next}
+        type="button"
+      >
+        {nextLabel} <span aria-hidden="true">→</span>
+      </button>
+    </div>
+  );
+}
+
+function PerspectiveCard({
+  index,
+  label,
+  text,
+  tone,
+}: {
+  index: string;
+  label: string;
+  text: string;
+  tone: "fact" | "meaning" | "impact" | "request";
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(text);
+  return (
+    <article className={`perspective-card ${tone}`}>
+      <div className="perspective-card-top">
+        <span>{index}</span>
+        <strong>{label}</strong>
+        <button onClick={() => setEditing((current) => !current)} type="button">
+          {editing ? "完成" : "修改"}
+        </button>
+      </div>
+      {editing ? (
+        <textarea
+          aria-label={`修改${label}`}
+          onChange={(event) => setValue(event.target.value)}
+          rows={3}
+          value={value}
+        />
+      ) : (
+        <p>{value}</p>
+      )}
+    </article>
+  );
+}
