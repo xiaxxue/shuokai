@@ -12,7 +12,8 @@
     "miniapp:dev": "npm --prefix miniapp run dev:weapp",
     "miniapp:build": "npm --prefix miniapp run build:weapp",
     "miniapp:test": "npm --prefix miniapp test",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test:web": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run test:web && npm run miniapp:test",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {

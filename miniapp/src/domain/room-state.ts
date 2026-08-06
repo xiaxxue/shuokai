@@ -31,7 +31,8 @@ export type ClientStage =
   | "RECORD"
   | "CLARIFY"
   | "REVIEW"
-  | "INVITE";
+  | "INVITE"
+  | "COMMON";
 
 export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
@@ -40,9 +41,29 @@ export const clientStageOrder: readonly ClientStage[] = [
   "CLARIFY",
   "REVIEW",
   "INVITE",
+  "COMMON",
 ];
 
 export function previousStage(stage: ClientStage): ClientStage {
   const index = clientStageOrder.indexOf(stage);
   return clientStageOrder[Math.max(0, index - 1)];
+}
+
+export function canNavigateBack(stage: ClientStage) {
+  return stage === "CLARIFY";
+}
+
+export function stageForRoom(role: "A" | "B", state: RoomState): ClientStage {
+  if (state === "COMMON_VIEW_READY" || state === "AGREEMENT_PENDING" || state === "COMPLETED") {
+    return "COMMON";
+  }
+  if (role === "A") {
+    if (state === "GOAL_SETTING") return "GOAL";
+    if (state === "A_DRAFTING") return "RECORD";
+    if (state === "A_REVIEWING") return "REVIEW";
+    return "INVITE";
+  }
+  if (state === "B_DRAFTING") return "RECORD";
+  if (state === "B_REVIEWING") return "REVIEW";
+  return "WELCOME";
 }

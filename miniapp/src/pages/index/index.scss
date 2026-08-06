@@ -54,6 +54,13 @@ button { margin: 0; }
 .room-card { margin: 30px 0 6px; padding: 30px 20px; border: 1px solid #dcd8ce; border-radius: 14px; background: $surface; color: $muted; font-size: 11px; }
 .room-code { display: block; margin: 14px 0; color: $ink; font-family: monospace; font-size: 28px; font-weight: 700; letter-spacing: 5px; }
 .waiting { display: block; margin-top: 22px; color: $muted; font-size: 11px; line-height: 1.7; }
+.refresh { width: 100%; margin-top: 12px; }
+.shared-perspective, .shared-view { margin-top: 16px; padding: 18px; border-radius: 12px; background: $surface; color: $ink; font-size: 13px; line-height: 1.75; }
+.shared-perspective text { display: block; margin-top: 7px; }
+.shared-view { margin-top: 24px; background: $sage; }
+.shared-view text { display: block; }
+.section-label { margin-top: 18px; }
 .bottom-bar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 12px; border-top: 1px solid rgba(70, 75, 71, .1); background: rgba(255, 253, 248, .97); }
 .back { width: 92px; background: transparent; color: $muted; }
+.back-placeholder { width: 92px; }
 .next { flex: 1; }

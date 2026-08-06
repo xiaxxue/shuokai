@@ -2,8 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Input, ScrollView, Text, Textarea, View } from "@tarojs/components";
 import Taro, { useLoad, useShareAppMessage } from "@tarojs/taro";
 import type { ClientStage } from "../../domain/room-state";
-import { clientStageOrder, previousStage } from "../../domain/room-state";
-import type { Perspective, RoomSession } from "../../domain/types";
+import {
+  canNavigateBack,
+  clientStageOrder,
+  previousStage,
+  stageForRoom,
+} from "../../domain/room-state";
+import { perspectiveFromDraft } from "../../domain/perspective";
+import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
 import { loginWithWechat, roomApi, transcribeAudio } from "../../services/api";
 import { startRecording, stopRecording } from "../../services/recorder";
 import "./index.scss";
@@ -14,25 +20,21 @@ const goals = [
   "找到一个双方都能尝试的下一步",
 ];
 
-const initialPerspective: Perspective = {
-  fact: "对方在周六上午确认计划取消，并在之后告诉了我。",
-  meaning: "我把这理解成：共同安排发生变化时，我不是会被提前想到的人。",
-  impact: "我感到失落，也更难相信之后的约定。",
-  request: "计划可能变化时，先告诉我“还没确定”，不必等到最终取消。",
-};
+const initialPerspective: Perspective = { fact: "", meaning: "", impact: "", request: "" };
 
 function Header({ stage }: { stage: ClientStage }) {
   const step = Math.max(0, clientStageOrder.indexOf(stage) - 1);
   const total = clientStageOrder.length - 1;
+  const current = Math.min(step + 1, total);
   return (
     <View className="topbar">
       <View>
         <Text className="brand">说开</Text>
         <Text className="brand-en">SHUOKAI</Text>
       </View>
-      {stage !== "WELCOME" && <Text className="progress-copy">{Math.min(step + 1, total)} / {total}</Text>}
+      {stage !== "WELCOME" && <Text className="progress-copy">{current} / {total}</Text>}
       <View className="progress-track">
-        <View className="progress-fill" style={{ width: `${(step / total) * 100}%` }} />
+        <View className="progress-fill" style={{ width: `${(current / total) * 100}%` }} />
       </View>
     </View>
   );
@@ -41,6 +43,7 @@ function Header({ stage }: { stage: ClientStage }) {
 export default function IndexPage() {
   const [stage, setStage] = useState<ClientStage>("WELCOME");
   const [room, setRoom] = useState<RoomSession | null>(null);
+  const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [goal, setGoal] = useState(goals[0]);
   const [joinCode, setJoinCode] = useState("");
   const [recording, setRecording] = useState(false);
@@ -67,8 +70,11 @@ export default function IndexPage() {
   const canContinue = useMemo(() => {
     if (stage === "RECORD") return transcript.trim().length > 0;
     if (stage === "CLARIFY") return clarification.trim().length > 0;
+    if (stage === "REVIEW") {
+      return Object.values(perspective).every((value) => value.trim().length > 0);
+    }
     return true;
-  }, [clarification, stage, transcript]);
+  }, [clarification, perspective, stage, transcript]);
 
   async function createRoom() {
     setBusy(true);
@@ -76,7 +82,7 @@ export default function IndexPage() {
       await loginWithWechat();
       const created = await roomApi.create();
       setRoom(created);
-      setStage("GOAL");
+      setStage(stageForRoom(created.role, created.state));
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : "创建失败", icon: "none" });
     } finally {
@@ -93,7 +99,9 @@ export default function IndexPage() {
     try {
       const joined = await roomApi.join(joinCode.trim().toUpperCase());
       setRoom(joined);
-      setStage("RECORD");
+      const joinedStage = stageForRoom(joined.role, joined.state);
+      if (joinedStage === "COMMON") setSnapshot(await roomApi.snapshot(joined.roomId));
+      setStage(joinedStage);
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : "加入失败", icon: "none" });
     } finally {
@@ -104,14 +112,23 @@ export default function IndexPage() {
   async function toggleRecording() {
     try {
       if (!recording) {
-        await startRecording();
+        const { completion } = await startRecording();
         setRecording(true);
+        void completion
+          .then(async (filePath) => {
+            setRecording(false);
+            setBusy(true);
+            setTranscript(await transcribeAudio(filePath));
+          })
+          .catch((error) => {
+            setRecording(false);
+            Taro.showToast({ title: error instanceof Error ? error.message : "录音失败", icon: "none" });
+          })
+          .finally(() => setBusy(false));
         return;
       }
       setBusy(true);
-      const filePath = await stopRecording();
-      setRecording(false);
-      setTranscript(await transcribeAudio(filePath));
+      stopRecording();
     } catch (error) {
       setRecording(false);
       Taro.showToast({ title: error instanceof Error ? error.message : "录音失败", icon: "none" });
@@ -131,13 +148,38 @@ export default function IndexPage() {
         setStage("CLARIFY");
       } else if (stage === "CLARIFY") {
         await roomApi.saveDraft(room.roomId, transcript, clarification);
+        setPerspective(perspectiveFromDraft(transcript, clarification));
         setStage("REVIEW");
       } else if (stage === "REVIEW") {
-        await roomApi.approvePerspective(room.roomId, perspective);
-        setStage("INVITE");
+        const approved = await roomApi.approvePerspective(room.roomId, perspective);
+        const updatedRoom = { ...room, state: approved.state };
+        setRoom(updatedRoom);
+        if (stageForRoom(room.role, approved.state) === "COMMON") {
+          setSnapshot(await roomApi.snapshot(room.roomId));
+          setStage("COMMON");
+        } else {
+          setStage("INVITE");
+        }
       }
     } catch (error) {
       Taro.showToast({ title: error instanceof Error ? error.message : "请稍后重试", icon: "none" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshRoom() {
+    if (!room) return;
+    setBusy(true);
+    try {
+      const latest = await roomApi.snapshot(room.roomId);
+      setSnapshot(latest);
+      setRoom({ ...room, state: latest.room.state });
+      const nextStage = stageForRoom(room.role, latest.room.state);
+      if (nextStage === "COMMON") setStage(nextStage);
+      else Taro.showToast({ title: "还在等待对方确认", icon: "none" });
+    } catch (error) {
+      Taro.showToast({ title: error instanceof Error ? error.message : "刷新失败", icon: "none" });
     } finally {
       setBusy(false);
     }
@@ -187,7 +229,7 @@ export default function IndexPage() {
             <Text className="eyebrow">只说你的版本</Text>
             <Text className="title">先把事情说出来。</Text>
             <Text className="description">不用组织得很完美。录音结束后会转成文字，你仍然可以删改。</Text>
-            <Button className={`record-button ${recording ? "recording" : ""}`} onClick={toggleRecording}>
+            <Button className={`record-button ${recording ? "recording" : ""}`} disabled={busy} onClick={toggleRecording}>
               <Text className="mic">{recording ? "■" : "●"}</Text>
               <Text>{recording ? "正在录音，再点一次结束" : "按下开始说"}</Text>
             </Button>
@@ -203,9 +245,9 @@ export default function IndexPage() {
 
         {stage === "CLARIFY" && (
           <View className="screen">
-            <Text className="eyebrow">AI 只追问一个问题</Text>
-            <Text className="title">如果对方当时提前告诉你“计划可能有变”，最重要的区别是什么？</Text>
-            <View className="ai-card"><Text>这不是为了证明谁对，而是为了分清“计划改变”和“没有被提前考虑”是不是同一件事。</Text></View>
+            <Text className="eyebrow">先抓住最重要的一点</Text>
+            <Text className="title">如果对方只能准确理解一件事，你最希望是哪一件？</Text>
+            <View className="ai-card"><Text>可以写下最让你在意的影响，也可以说明怎样的回应会让你觉得自己被听见。</Text></View>
             <Textarea
               className="transcript large"
               maxlength={3000}
@@ -219,8 +261,8 @@ export default function IndexPage() {
         {stage === "REVIEW" && (
           <View className="screen">
             <Text className="eyebrow">发送前由你确认</Text>
-            <Text className="title">这是 AI 整理的“你的版本”</Text>
-            <Text className="description">逐项修改。只有这四张卡会分享给对方，原始录音和草稿不会。</Text>
+            <Text className="title">把你的表达整理成四部分</Text>
+            <Text className="description">系统先带入你的原话，请补全并逐项确认。只有这四张卡会分享给对方。</Text>
             <View className="card-list">
               {(["fact", "meaning", "impact", "request"] as const).map((key, index) => (
                 <View className={`perspective-card tone-${index}`} key={key}>
@@ -246,14 +288,46 @@ export default function IndexPage() {
               <Text>对方看不到你的原始录音和草稿</Text>
             </View>
             <Button className="primary full" openType="share">微信邀请对方</Button>
-            <Text className="waiting">邀请发出后，你可以先离开。对方确认自己的版本后再通知你。</Text>
+            <Button className="secondary refresh" loading={busy} onClick={refreshRoom}>刷新沟通进展</Button>
+            <Text className="waiting">对方确认自己的版本后，这里会进入双方共同查看的页面。</Text>
+          </View>
+        )}
+
+        {stage === "COMMON" && (
+          <View className="screen">
+            <Text className="eyebrow">看懂彼此</Text>
+            <Text className="title">理解，不必同意。</Text>
+            <Text className="description">这里只使用双方本人确认过的内容，不包含原始录音和私人草稿。</Text>
+            {snapshot?.approvedPerspectives.map((item) => (
+              <View className="shared-perspective" key={item.role}>
+                <Text className="card-label">{item.role === "A" ? "发起者确认的意思" : "受邀者确认的意思"}</Text>
+                <Text>{item.fact}</Text>
+                <Text>{item.meaning}</Text>
+                <Text>{item.impact}</Text>
+                <Text>{item.request}</Text>
+              </View>
+            ))}
+            {snapshot?.sharedView && (
+              <View className="shared-view">
+                <Text className="card-label">共同点</Text>
+                <Text>{snapshot.sharedView.common_ground}</Text>
+                <Text className="card-label section-label">仍然不同的地方</Text>
+                <Text>{snapshot.sharedView.disagreement}</Text>
+                <Text className="card-label section-label">接下来最值得回答的问题</Text>
+                <Text>{snapshot.sharedView.core_question}</Text>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
 
-      {stage !== "WELCOME" && stage !== "INVITE" && (
+      {stage !== "WELCOME" && stage !== "INVITE" && stage !== "COMMON" && (
         <View className="bottom-bar">
-          <Button className="back" onClick={() => setStage(previousStage(stage))}>返回</Button>
+          {canNavigateBack(stage) ? (
+            <Button className="back" onClick={() => setStage(previousStage(stage))}>返回修改</Button>
+          ) : (
+            <View className="back-placeholder" />
+          )}
           <Button className="primary next" disabled={!canContinue || busy} loading={busy} onClick={next}>继续</Button>
         </View>
       )}

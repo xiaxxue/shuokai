@@ -31,8 +31,7 @@
     "babel-preset-taro": "4.2.1",
     "react-refresh": "0.14.2",
     "typescript": "5.9.3",
-    "vite": "4.5.14",
-    "vitest": "3.2.4"
+    "vitest": "3.2.7"
   },
   "overrides": {
     "esbuild": "0.25.12",

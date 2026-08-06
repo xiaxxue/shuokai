@@ -29,6 +29,10 @@ export type RoomSnapshot = {
     goal: string | null;
   };
   me: { id: string; role: "A" | "B"; display_name: string };
+  privateDraft: null | {
+    transcript: string;
+    clarification: string | null;
+  };
   ownPerspective: Perspective | null;
   approvedPerspectives: Array<Perspective & { role: "A" | "B" }>;
   sharedView: null | {

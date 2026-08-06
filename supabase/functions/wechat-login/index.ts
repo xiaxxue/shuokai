@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
-const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+const jsonHeaders = {
+  "content-type": "application/json; charset=utf-8",
+  "cache-control": "no-store",
+};
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: jsonHeaders });
@@ -14,14 +17,20 @@ async function digest(value: string) {
 Deno.serve(async (request) => {
   if (request.method !== "POST") return json({ message: "Method not allowed" }, 405);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY");
   const appId = Deno.env.get("WECHAT_APP_ID");
   const appSecret = Deno.env.get("WECHAT_APP_SECRET");
-  if (!appId || !appSecret) return json({ message: "微信登录尚未配置。" }, 503);
+  if (!supabaseUrl || !serviceKey || !publishableKey || !appId || !appSecret) {
+    return json({ message: "微信登录尚未配置。" }, 503);
+  }
 
-  const { code, refreshToken } = await request.json().catch(() => ({ code: "", refreshToken: "" }));
+  const payload: unknown = await request.json().catch(() => null);
+  if (!payload || typeof payload !== "object") return json({ message: "请求格式无效。" }, 400);
+  const input = payload as { code?: unknown; refreshToken?: unknown };
+  const code = typeof input.code === "string" ? input.code.trim() : "";
+  const refreshToken = typeof input.refreshToken === "string" ? input.refreshToken.trim() : "";
   const client = createClient(supabaseUrl, publishableKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -65,7 +74,7 @@ Deno.serve(async (request) => {
   );
   if (lookupError) return json({ message: "微信身份映射读取失败。" }, 500);
 
-  let userId = knownUser as string | null;
+  let userId = typeof knownUser === "string" ? knownUser : null;
   let email = "";
   if (userId) {
     const { data, error } = await admin.auth.admin.getUserById(userId);
@@ -76,16 +85,42 @@ Deno.serve(async (request) => {
     const { data, error } = await admin.auth.admin.createUser({
       email,
       email_confirm: true,
-      user_metadata: { provider: "wechat-mini-program" },
+      app_metadata: { provider: "wechat-mini-program" },
     });
-    if (error || !data.user) return json({ message: "用户创建失败。" }, 500);
-    userId = data.user.id;
-    const { error: bindError } = await admin.rpc("internal_bind_wechat_user", {
-      p_openid: identity.openid,
-      p_unionid: identity.unionid ?? "",
-      p_user_id: userId,
-    });
-    if (bindError) return json({ message: "微信身份绑定失败。" }, 500);
+    if (error || !data.user) {
+      const { data: racedUser } = await admin.rpc("internal_get_wechat_user", {
+        p_openid: identity.openid,
+      });
+      if (typeof racedUser !== "string") return json({ message: "用户创建失败。" }, 500);
+      userId = racedUser;
+      const { data: racedAccount, error: racedAccountError } =
+        await admin.auth.admin.getUserById(userId);
+      if (racedAccountError || !racedAccount.user?.email) {
+        return json({ message: "用户会话创建失败。" }, 500);
+      }
+      email = racedAccount.user.email;
+    } else {
+      const createdUserId = data.user.id;
+      const { data: boundUser, error: bindError } = await admin.rpc("internal_bind_wechat_user", {
+        p_openid: identity.openid,
+        p_unionid: identity.unionid ?? "",
+        p_user_id: createdUserId,
+      });
+      if (bindError || typeof boundUser !== "string") {
+        await admin.auth.admin.deleteUser(createdUserId);
+        return json({ message: "微信身份绑定失败。" }, 500);
+      }
+      userId = boundUser;
+      if (userId !== createdUserId) {
+        await admin.auth.admin.deleteUser(createdUserId);
+        const { data: boundAccount, error: boundAccountError } =
+          await admin.auth.admin.getUserById(userId);
+        if (boundAccountError || !boundAccount.user?.email) {
+          return json({ message: "用户会话创建失败。" }, 500);
+        }
+        email = boundAccount.user.email;
+      }
+    }
   }
 
   const { data: link, error: linkError } = await admin.auth.admin.generateLink({
