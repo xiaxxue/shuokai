@@ -255,6 +255,88 @@ input:focus-visible + span {
   margin-bottom: 14px;
 }
 
+.topline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-button {
+  min-height: 29px;
+  max-width: 210px;
+  padding: 0 11px;
+  overflow: hidden;
+  border: 1px solid #d7cdbf;
+  border-radius: 999px;
+  background: #fffaf1;
+  color: #68675f;
+  cursor: pointer;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.email-panel {
+  margin: 0 0 14px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d8d0c2;
+  border-radius: 10px;
+  background: rgba(255, 250, 241, 0.94);
+  box-shadow: 0 9px 26px rgba(67, 58, 43, 0.08);
+}
+
+.email-panel strong,
+.email-panel span {
+  display: block;
+}
+
+.email-panel strong {
+  font-size: 12px;
+}
+
+.email-panel span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.email-panel input {
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid #d6d0c5;
+  border-radius: 6px;
+  background: white;
+  color: var(--ink);
+}
+
+.email-panel button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--ink);
+  color: white;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.email-panel button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.email-panel p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--sage-dark);
+  font-size: 10px;
+}
+
 .prototype-badge,
 .state-pill {
   display: inline-flex;
@@ -1460,6 +1542,14 @@ textarea {
   .experience-topline {
     justify-content: flex-end;
   }
+
+  .email-panel {
+    grid-template-columns: 1fr auto;
+  }
+
+  .email-panel > div {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 620px) {
@@ -1503,6 +1593,17 @@ textarea {
     margin-left: 16px;
     margin-right: 16px;
     display: block;
+  }
+
+  .email-panel {
+    margin-left: 16px;
+    margin-right: 16px;
+    grid-template-columns: 1fr;
+  }
+
+  .email-panel > div,
+  .email-panel p {
+    grid-column: 1;
   }
 
   .backend-error p {

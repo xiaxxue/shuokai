@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type Stage =
   | "landing"
@@ -22,8 +23,6 @@ type TimelineEvent = {
 type BackendSession = {
   roomId: string;
   code: string;
-  participantToken: string;
-  partnerToken?: string;
   role: "A" | "B";
   state: string;
 };
@@ -110,12 +109,17 @@ export function SayOpenPrototype() {
   const [factAnswer, setFactAnswer] = useState("");
   const [approved, setApproved] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [acceptedA, setAcceptedA] = useState(true);
+  const [acceptedA, setAcceptedA] = useState(false);
   const [acceptedB, setAcceptedB] = useState(false);
   const [session, setSession] = useState<BackendSession | null>(null);
   const [incomingCode, setIncomingCode] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
   const [backendError, setBackendError] = useState("");
+  const [authLabel, setAuthLabel] = useState("临时访客");
+  const [showEmailPanel, setShowEmailPanel] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailStatus, setEmailStatus] = useState("");
+  const [simulatedPartner, setSimulatedPartner] = useState(false);
   const [perspective, setPerspective] = useState<Perspective>(perspectivesByRole.A);
   const [events, setEvents] = useState<TimelineEvent[]>([
     { type: "ROOM_READY", label: "原型房间已准备", time: "—" },
@@ -128,10 +132,21 @@ export function SayOpenPrototype() {
   const role = session?.role ?? "A";
 
   useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => {
+      const user = data.session?.user;
+      setAuthLabel(user?.email ?? (user ? "临时访客" : "尚未登录"));
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setAuthLabel(nextSession?.user.email ?? (nextSession ? "临时访客" : "尚未登录"));
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       const code = new URLSearchParams(window.location.search).get("room")?.toUpperCase();
       if (!code) return;
-      const saved = window.localStorage.getItem(`shuokai.room.${code}`);
+      const saved = window.localStorage.getItem(`shuokai.supabase.room.${code}`);
       if (!saved) {
         setIncomingCode(code);
         return;
@@ -160,28 +175,36 @@ export function SayOpenPrototype() {
   }, []);
 
   useEffect(() => {
-    if (!session || stage !== "invite") return;
-    const timer = window.setInterval(async () => {
-      try {
-        const response = await fetch(
-          `/api/rooms?roomId=${encodeURIComponent(session.roomId)}`,
-          { headers: { authorization: `Bearer ${session.participantToken}` } },
-        );
-        if (!response.ok) return;
-        const result = (await response.json()) as { room?: { state?: string } };
-        const serverState = result.room?.state;
-        if (!serverState || serverState === session.state) return;
-        rememberSession({ ...session, state: serverState });
-        if (serverState === "COMMON_VIEW_READY") {
-          appendEvent("COMMON_VIEW_READY", "双方批准版本已汇入共同空间");
-          setStage("common");
-        }
-      } catch {
-        // Polling is best-effort; explicit actions still surface errors.
-      }
-    }, 4000);
-    return () => window.clearInterval(timer);
-  }, [session, stage]);
+    if (!session) return;
+    const channel = supabase
+      .channel(`room-${session.roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rooms",
+          filter: `id=eq.${session.roomId}`,
+        },
+        (payload) => {
+          const serverState = String(payload.new.state ?? "");
+          if (!serverState || serverState === session.state) return;
+          rememberSession({ ...session, state: serverState });
+          if (serverState === "COMMON_VIEW_READY") {
+            appendEvent("COMMON_VIEW_READY", "双方批准版本已汇入共同空间");
+            setStage("common");
+          }
+          if (serverState === "COMPLETED") {
+            appendEvent("AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验");
+            setStage("complete");
+          }
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -212,26 +235,83 @@ export function SayOpenPrototype() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  async function ensureAuth() {
+    const { data } = await supabase.auth.getSession();
+    if (data.session) return data.session;
+    const { data: signedIn, error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      if (error.message.toLowerCase().includes("anonymous sign-ins are disabled")) {
+        throw new Error("Supabase 匿名登录尚未开启，请在 Auth → Providers 中开启 Anonymous Sign-Ins。");
+      }
+      throw error;
+    }
+    if (!signedIn.session) throw new Error("无法建立临时访客会话。");
+    return signedIn.session;
+  }
+
   async function backendAction<T extends Record<string, unknown>>(
     payload: Record<string, unknown>,
   ) {
-    const { token, ...body } = payload;
-    const response = await fetch("/api/rooms", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(typeof token === "string" ? { authorization: `Bearer ${token}` } : {}),
+    await ensureAuth();
+    const action = String(payload.action ?? "");
+    const calls: Record<string, { fn: string; args: Record<string, unknown> }> = {
+      create: {
+        fn: "create_room",
+        args: { p_display_name: payload.displayName },
       },
-      body: JSON.stringify(body),
-    });
-    const result = (await response.json()) as T & { error?: string };
-    if (!response.ok) throw new Error(result.error || "后端请求失败");
-    return result;
+      join: {
+        fn: "join_room",
+        args: { p_code: payload.code, p_display_name: payload.displayName },
+      },
+      set_goal: {
+        fn: "set_room_goal",
+        args: { p_room_id: payload.roomId, p_goal: payload.goal },
+      },
+      save_draft: {
+        fn: "save_private_draft",
+        args: {
+          p_room_id: payload.roomId,
+          p_transcript: payload.transcript,
+          p_clarification: payload.clarification,
+        },
+      },
+      approve_perspective: {
+        fn: "approve_perspective",
+        args: {
+          p_room_id: payload.roomId,
+          p_fact: (payload.cards as Perspective).fact,
+          p_meaning: (payload.cards as Perspective).meaning,
+          p_impact: (payload.cards as Perspective).impact,
+          p_request: (payload.cards as Perspective).request,
+        },
+      },
+      simulate_partner: {
+        fn: "simulate_partner",
+        args: { p_room_id: payload.roomId },
+      },
+      propose_agreement: {
+        fn: "propose_agreement",
+        args: {
+          p_room_id: payload.roomId,
+          p_proposal: payload.proposal,
+          p_review_at: payload.reviewAt,
+        },
+      },
+      accept_agreement: {
+        fn: "accept_agreement",
+        args: { p_room_id: payload.roomId },
+      },
+    };
+    const call = calls[action];
+    if (!call) throw new Error("未知的后端操作。");
+    const { data, error } = await supabase.rpc(call.fn, call.args);
+    if (error) throw new Error(error.message || "Supabase 请求失败");
+    return data as T;
   }
 
   function rememberSession(next: BackendSession) {
     setSession(next);
-    window.localStorage.setItem(`shuokai.room.${next.code}`, JSON.stringify(next));
+    window.localStorage.setItem(`shuokai.supabase.room.${next.code}`, JSON.stringify(next));
   }
 
   async function createBackendRoom(demo = false) {
@@ -248,13 +328,11 @@ export function SayOpenPrototype() {
         const goal = await backendAction<{ state: string }>({
           action: "set_goal",
           roomId: created.roomId,
-          token: created.participantToken,
           goal: "understand",
         });
         const draft = await backendAction<{ state: string }>({
           action: "save_draft",
           roomId: created.roomId,
-          token: created.participantToken,
           transcript: demoTranscript,
           clarification: "出发前二十分钟才告诉我",
         });
@@ -285,8 +363,11 @@ export function SayOpenPrototype() {
         code: incomingCode,
         displayName: "Jun",
       });
-      rememberSession({ ...joined, role: "B" });
-      setPerspective(perspectivesByRole.B);
+      if (joined.role === "A") {
+        throw new Error("这是你发起的房间。请用另一个浏览器或无痕窗口体验 B 的独立身份。");
+      }
+      rememberSession(joined);
+      setPerspective(perspectivesByRole[joined.role]);
       setHasCapture(false);
       setTranscript(
         "我周六早上开始不舒服，但当时还不确定要不要取消。我希望等确定以后再说，因为不想让对方一直等一个不确定的答案。",
@@ -308,7 +389,6 @@ export function SayOpenPrototype() {
       const result = await backendAction<{ state: string }>({
         action: "set_goal",
         roomId: session.roomId,
-        token: session.participantToken,
         goal: intent,
       });
       rememberSession({ ...session, state: result.state });
@@ -328,7 +408,6 @@ export function SayOpenPrototype() {
       const result = await backendAction<{ state: string }>({
         action: "save_draft",
         roomId: session.roomId,
-        token: session.participantToken,
         transcript,
         clarification: factAnswer,
       });
@@ -349,7 +428,6 @@ export function SayOpenPrototype() {
       const result = await backendAction<{ state: string; version: number }>({
         action: "approve_perspective",
         roomId: session.roomId,
-        token: session.participantToken,
         cards: perspective,
       });
       rememberSession({ ...session, state: result.state });
@@ -370,12 +448,12 @@ export function SayOpenPrototype() {
     setIsSyncing(true);
     setBackendError("");
     try {
-      const result = await backendAction<{ state: string; partnerToken: string }>({
+      const result = await backendAction<{ state: string }>({
         action: "simulate_partner",
         roomId: session.roomId,
-        token: session.participantToken,
       });
-      rememberSession({ ...session, state: result.state, partnerToken: result.partnerToken });
+      rememberSession({ ...session, state: result.state });
+      setSimulatedPartner(true);
       move("common", "B_PERSPECTIVE_APPROVED", "B 已加入并批准自己的观点卡");
     } catch (error) {
       setBackendError(error instanceof Error ? error.message : "无法完成双人演示");
@@ -392,11 +470,11 @@ export function SayOpenPrototype() {
       const result = await backendAction<{ state: string }>({
         action: "propose_agreement",
         roomId: session.roomId,
-        token: session.participantToken,
         proposal: "计划可能发生变化时，先发送一个“待定”信号。",
         reviewAt: "2026-08-12T20:30:00+08:00",
       });
       rememberSession({ ...session, state: result.state });
+      if (simulatedPartner) setAcceptedB(true);
       move("agreement", "AGREEMENT_PROPOSED", "已创建可逆的 7 天实验");
     } catch (error) {
       setBackendError(error instanceof Error ? error.message : "无法创建约定");
@@ -410,21 +488,57 @@ export function SayOpenPrototype() {
     setIsSyncing(true);
     setBackendError("");
     try {
-      await backendAction<{ state: string }>({
+      const result = await backendAction<{ state: string; activated: boolean }>({
         action: "accept_agreement",
         roomId: session.roomId,
-        token: session.participantToken,
       });
-      if (session.partnerToken) {
-        await backendAction<{ state: string }>({
-          action: "accept_agreement",
-          roomId: session.roomId,
-          token: session.partnerToken,
-        });
+      if (session.role === "A") setAcceptedA(true);
+      if (session.role === "B") setAcceptedB(true);
+      rememberSession({ ...session, state: result.state });
+      if (result.activated) {
+        move("complete", "AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验");
+      } else {
+        appendEvent(`${session.role}_AGREEMENT_ACCEPTED`, "已确认，等待对方回应");
       }
-      move("complete", "AGREEMENT_ACTIVATED", "双方共同启用了 7 天实验");
     } catch (error) {
       setBackendError(error instanceof Error ? error.message : "无法启用约定");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function saveWithEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSyncing(true);
+    setEmailStatus("");
+    setBackendError("");
+    try {
+      const activeSession = await ensureAuth();
+      const redirectTo = `${window.location.origin}${window.location.pathname}`;
+      if (activeSession.user.is_anonymous) {
+        const { error } = await supabase.auth.updateUser(
+          { email: email.trim() },
+          { emailRedirectTo: redirectTo },
+        );
+        if (error) {
+          if (error.message.toLowerCase().includes("already")) {
+            const { error: signInError } = await supabase.auth.signInWithOtp({
+              email: email.trim(),
+              options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
+            });
+            if (signInError) throw signInError;
+            setEmailStatus("这个邮箱已有账号，登录链接已经发送。");
+          } else {
+            throw error;
+          }
+        } else {
+          setEmailStatus("确认邮件已发送。点击邮件里的链接后，这个临时身份会绑定到邮箱。");
+        }
+      } else {
+        setEmailStatus(`当前记录已经由 ${activeSession.user.email ?? "这个邮箱"} 保存。`);
+      }
+    } catch (error) {
+      setBackendError(error instanceof Error ? error.message : "无法发送邮箱确认链接");
     } finally {
       setIsSyncing(false);
     }
@@ -489,12 +603,13 @@ export function SayOpenPrototype() {
     setFactAnswer("");
     setApproved(false);
     setCopied(false);
-    setAcceptedA(true);
+    setAcceptedA(false);
     setAcceptedB(false);
     setPerspective(perspectivesByRole.A);
     setSession(null);
     setIncomingCode("");
     setBackendError("");
+    setSimulatedPartner(false);
     window.history.replaceState({}, "", window.location.pathname);
     setEvents([
       { type: "ROOM_READY", label: "原型房间已准备", time: "—" },
@@ -579,10 +694,41 @@ export function SayOpenPrototype() {
 
         <div className="experience-topline">
           <span className="prototype-badge">
-            {session ? `后端已连接 · 房间 ${session.code}` : "全栈原型 · AI 内容为模拟"}
+            {session ? `Supabase 已连接 · 房间 ${session.code}` : "Supabase 全栈原型 · AI 内容为模拟"}
           </span>
-          <span className="state-pill">{session?.state ?? current.state}</span>
+          <div className="topline-actions">
+            <button
+              className="account-button"
+              onClick={() => setShowEmailPanel((value) => !value)}
+              type="button"
+            >
+              {authLabel === "临时访客" || authLabel === "尚未登录" ? "用邮箱保存" : authLabel}
+            </button>
+            <span className="state-pill">{session?.state ?? current.state}</span>
+          </div>
         </div>
+
+        {showEmailPanel && (
+          <form className="email-panel" onSubmit={(event) => void saveWithEmail(event)}>
+            <div>
+              <strong>用邮箱保存这段旅程</strong>
+              <span>无需密码。我们只发送一次确认或登录链接。</span>
+            </div>
+            <input
+              aria-label="邮箱地址"
+              autoComplete="email"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+              type="email"
+              value={email}
+            />
+            <button disabled={isSyncing} type="submit">
+              {isSyncing ? "发送中…" : "发送链接"}
+            </button>
+            {emailStatus && <p>{emailStatus}</p>}
+          </form>
+        )}
 
         {backendError && (
           <div className="backend-error" role="alert">
@@ -1015,7 +1161,7 @@ export function SayOpenPrototype() {
                   <button
                     aria-label="切换 A 的接受状态"
                     className={acceptedA ? "accepted" : ""}
-                    onClick={() => setAcceptedA((value) => !value)}
+                    disabled
                     type="button"
                   >
                     {acceptedA ? "✓" : ""}
@@ -1029,17 +1175,14 @@ export function SayOpenPrototype() {
                   <button
                     aria-label="切换 B 的接受状态"
                     className={acceptedB ? "accepted" : ""}
-                    onClick={() => {
-                      setAcceptedB((value) => !value);
-                      if (!acceptedB) appendEvent("B_ACCEPTED_EXPERIMENT", "B 接受了 7 天实验");
-                    }}
+                    disabled
                     type="button"
                   >
                     {acceptedB ? "✓" : ""}
                   </button>
                   <span>
                     <strong>Jun</strong>
-                    {acceptedB ? "已自愿接受" : "点击模拟确认"}
+                    {acceptedB ? "已自愿接受" : "等待确认"}
                   </span>
                 </label>
               </div>
@@ -1047,8 +1190,8 @@ export function SayOpenPrototype() {
               <BottomActions
                 back={() => move("common")}
                 next={() => void activateAgreement()}
-                disabled={!acceptedA || !acceptedB || isSyncing}
-                nextLabel={isSyncing ? "正在记录双方同意…" : "开始 7 天实验"}
+                disabled={(session?.role === "A" ? acceptedA : acceptedB) || isSyncing}
+                nextLabel={isSyncing ? "正在记录同意…" : `确认 ${session?.role ?? "我"} 接受这个实验`}
               />
             </section>
           )}

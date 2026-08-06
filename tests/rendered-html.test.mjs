@@ -14,14 +14,14 @@ test("ships the 说开 product UI instead of starter content", async () => {
   assert.doesNotMatch(prototype, /Your site is taking shape|Building your site/);
 });
 
-test("keeps product privacy and state-machine concepts explicit", async () => {
-  const [prototype, layout, packageJson, api, schema, hosting] = await Promise.all([
+test("keeps product privacy and Supabase state-machine concepts explicit", async () => {
+  const [prototype, layout, packageJson, migration, hosting, client] = await Promise.all([
     readFile(new URL("../app/SayOpenPrototype.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/rooms/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260806053218_migrate_from_d1_to_supabase.sql", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../lib/supabase.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(prototype, /私人内容默认不共享/);
@@ -29,10 +29,12 @@ test("keeps product privacy and state-machine concepts explicit", async () => {
   assert.match(prototype, /REVIEWING_COMMON_VIEW/);
   assert.match(prototype, /AGREEMENT_ACTIVATED/);
   assert.match(layout, /说开 SHUOKAI/);
-  assert.match(api, /rawDraftVisibility: "owner_only"/);
-  assert.match(api, /sharedContentRule: "approved_perspectives_only"/);
-  assert.match(api, /hashToken/);
-  assert.match(schema, /roomEvents/);
-  assert.match(hosting, /"d1": "DB"/);
+  assert.match(migration, /'rawDraftVisibility', 'owner_only'/);
+  assert.match(migration, /'sharedContentRule', 'approved_perspectives_only'/);
+  assert.match(migration, /enable row level security/);
+  assert.match(migration, /security definer/);
+  assert.match(hosting, /"d1": null/);
+  assert.match(client, /createClient/);
+  assert.match(packageJson, /@supabase\/supabase-js/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
