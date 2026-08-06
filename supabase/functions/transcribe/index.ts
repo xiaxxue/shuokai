@@ -34,10 +34,24 @@ Deno.serve(async (request) => {
   if (file.size > 20 * 1024 * 1024) {
     return json({ message: "录音不能超过 20MB。" }, 413);
   }
-  const extension = file.name.toLowerCase().split(".").pop();
-  const supportedTypes = new Set(["audio/mpeg", "audio/mp3", "application/octet-stream"]);
-  if (extension !== "mp3" || (file.type && !supportedTypes.has(file.type))) {
-    return json({ message: "目前只支持 MP3 录音。" }, 415);
+  const extension = file.name.toLowerCase().split(".").pop() ?? "";
+  const supportedExtensions = new Set(["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"]);
+  const supportedTypes = new Set([
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/webm",
+    "video/mp4",
+    "application/octet-stream",
+  ]);
+  // Browsers commonly append codec parameters, for example
+  // `audio/webm;codecs=opus`. Validate the base media type instead.
+  const mediaType = file.type.toLowerCase().split(";", 1)[0].trim();
+  if (!supportedExtensions.has(extension) || (mediaType && !supportedTypes.has(mediaType))) {
+    return json({ message: "当前录音格式不受支持，请改用文字输入。" }, 415);
   }
 
   const openAIKey = Deno.env.get("OPENAI_API_KEY");

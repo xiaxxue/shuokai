@@ -1,16 +1,15 @@
-import Taro from "@tarojs/taro";
 import type { AuthSession } from "../domain/types";
 
-const SESSION_KEY = "shuokai.wechat-session.v1";
+const SESSION_KEY = "shuokai.session.v2";
 
 export function getSession(): AuthSession | null {
-  return Taro.getStorageSync<AuthSession | null>(SESSION_KEY) || null;
+  return (uni.getStorageSync(SESSION_KEY) as AuthSession | null) || null;
 }
 
 export function saveSession(session: AuthSession) {
-  Taro.setStorageSync(SESSION_KEY, session);
+  uni.setStorageSync(SESSION_KEY, session);
 }
 
 export function clearSession() {
-  Taro.removeStorageSync(SESSION_KEY);
+  uni.removeStorageSync(SESSION_KEY);
 }

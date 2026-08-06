@@ -1,15 +1,15 @@
 {
-  "miniprogramRoot": "dist/",
+  "miniprogramRoot": "dist/build/mp-weixin/",
   "projectname": "shuokai-miniapp",
   "description": "说开：结构化双人沟通工具",
   "appid": "touristappid",
   "setting": {
     "urlCheck": true,
-    "es6": false,
+    "es6": true,
     "enhance": true,
     "compileHotReLoad": true,
-    "postcss": false,
-    "minified": false
+    "postcss": true,
+    "minified": true
   },
   "compileType": "miniprogram"
 }

@@ -1,0 +1,29 @@
+{
+  "name": "说开",
+  "appid": "__UNI__SHUOKAI",
+  "description": "帮助两个人慢下来、把话说完整的结构化沟通工具",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "vueVersion": "3",
+  "h5": {
+    "title": "说开"
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {
+      "scope.record": {
+        "desc": "用于把你主动录下的表达转成文字；发送前仍可编辑和确认"
+      }
+    },
+    "lazyCodeLoading": "requiredComponents"
+  },
+  "uniStatistics": {
+    "enable": false
+  }
+}

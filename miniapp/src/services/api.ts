@@ -1,13 +1,65 @@
-import Taro from "@tarojs/taro";
 import type {
   AuthSession,
   Perspective,
   RoomSession,
   RoomSnapshot,
 } from "../domain/types";
+import type { RecordedAudio } from "./recorder";
 import { clearSession, getSession, saveSession } from "./session";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
+
+type ApiResponse<T> = {
+  statusCode: number;
+  data: T;
+};
+
+function request<T>(options: Omit<UniApp.RequestOptions, "success" | "fail">) {
+  return new Promise<ApiResponse<T>>((resolve, reject) => {
+    uni.request({
+      ...options,
+      success: (response) => resolve(response as unknown as ApiResponse<T>),
+      fail: (error) => reject(new Error(error.errMsg)),
+    });
+  });
+}
+
+function wechatLogin() {
+  if (__PLATFORM__ !== "mp-weixin") {
+    throw new Error("当前平台的正式登录方式尚未配置。");
+  }
+  return new Promise<string>((resolve, reject) => {
+    uni.login({
+      provider: "weixin",
+      success: ({ code }) => code ? resolve(code) : reject(new Error("微信没有返回登录凭证，请重试。")),
+      fail: (error) => reject(new Error(error.errMsg)),
+    });
+  });
+}
+
+function toAuthSession(session: {
+  access_token: string;
+  refresh_token: string;
+  expires_at?: number;
+  user: { id: string };
+}): AuthSession {
+  return {
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    expiresAt: session.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
+    userId: session.user.id,
+  };
+}
+
+async function h5SupabaseClient() {
+  if (!__SUPABASE_URL__ || !__SUPABASE_PUBLISHABLE_KEY__) {
+    throw new Error("网页登录尚未配置。");
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  return createClient(__SUPABASE_URL__, __SUPABASE_PUBLISHABLE_KEY__, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 function errorMessage(data: unknown, fallback: string) {
   if (typeof data === "object" && data && "message" in data) {
@@ -34,7 +86,7 @@ function parseAuthSession(data: unknown): AuthSession {
   return data as AuthSession;
 }
 
-async function requestWechatSession(): Promise<AuthSession> {
+async function requestPlatformSession(): Promise<AuthSession> {
   if (__USE_MOCK_API__) {
     const mock = {
       accessToken: "mock-access-token",
@@ -46,9 +98,17 @@ async function requestWechatSession(): Promise<AuthSession> {
     return mock;
   }
 
-  const { code } = await Taro.login();
-  if (!code) throw new Error("微信没有返回登录凭证，请重试。");
-  const response = await Taro.request<unknown>({
+  if (__PLATFORM__ === "h5") {
+    const client = await h5SupabaseClient();
+    const { data, error } = await client.auth.signInAnonymously();
+    if (error || !data.session || !data.user) throw new Error("网页登录失败，请稍后重试。");
+    const session = toAuthSession({ ...data.session, user: data.user });
+    saveSession(session);
+    return session;
+  }
+
+  const code = await wechatLogin();
+  const response = await request<unknown>({
     url: `${__API_BASE_URL__}/wechat-login`,
     method: "POST",
     header: { "content-type": "application/json" },
@@ -65,7 +125,15 @@ async function requestWechatSession(): Promise<AuthSession> {
 
 async function refreshSession(session: AuthSession): Promise<AuthSession> {
   if (__USE_MOCK_API__) return session;
-  const response = await Taro.request<unknown>({
+  if (__PLATFORM__ === "h5") {
+    const client = await h5SupabaseClient();
+    const { data, error } = await client.auth.refreshSession({ refresh_token: session.refreshToken });
+    if (error || !data.session || !data.user) throw new Error("登录已失效，请重新打开页面。");
+    const refreshed = toAuthSession({ ...data.session, user: data.user });
+    saveSession(refreshed);
+    return refreshed;
+  }
+  const response = await request<unknown>({
     url: `${__API_BASE_URL__}/wechat-login`,
     method: "POST",
     header: { "content-type": "application/json" },
@@ -82,17 +150,17 @@ let pendingSession: Promise<AuthSession> | null = null;
 
 async function resolveSession() {
   const session = getSession();
-  if (!session) return requestWechatSession();
+  if (!session) return requestPlatformSession();
   if (session.expiresAt > Math.floor(Date.now() / 1000) + 60) return session;
   try {
     return await refreshSession(session);
   } catch {
     clearSession();
-    return requestWechatSession();
+    return requestPlatformSession();
   }
 }
 
-export function loginWithWechat(): Promise<AuthSession> {
+export function loginForPlatform(): Promise<AuthSession> {
   if (!pendingSession) {
     pendingSession = resolveSession().finally(() => {
       pendingSession = null;
@@ -102,13 +170,13 @@ export function loginWithWechat(): Promise<AuthSession> {
 }
 
 async function activeSession() {
-  return loginWithWechat();
+  return loginForPlatform();
 }
 
 async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
   if (__USE_MOCK_API__) return mockRpc<T>(name, args);
   const session = await activeSession();
-  const response = await Taro.request<T>({
+  const response = await request<T>({
     url: `${__API_BASE_URL__}/miniapp-api`,
     method: "POST",
     header: {
@@ -213,19 +281,41 @@ export const roomApi = {
     rpc<RoomSnapshot>("get_room_snapshot", { p_room_id: roomId }),
 };
 
-export async function transcribeAudio(filePath: string) {
+async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {
+  return new Promise<{ statusCode: number; data: string }>((resolve, reject) => {
+    uni.uploadFile({
+      url: `${__API_BASE_URL__}/transcribe`,
+      filePath: audio.filePath,
+      name: "file",
+      header: { Authorization: `Bearer ${accessToken}` },
+      formData: { language: "zh" },
+      timeout: 120000,
+      success: resolve,
+      fail: (error) => reject(new Error(error.errMsg)),
+    });
+  });
+}
+
+async function uploadBlob(audio: Extract<RecordedAudio, { kind: "blob" }>, accessToken: string) {
+  const form = new FormData();
+  form.append("file", audio.blob, audio.fileName);
+  form.append("language", "zh");
+  const response = await fetch(`${__API_BASE_URL__}/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  return { statusCode: response.status, data: await response.text() };
+}
+
+export async function transcribeAudio(audio: RecordedAudio) {
   if (__USE_MOCK_API__) {
     return "昨晚你临时改变了周末安排，我是到很晚才知道。我难过的不只是计划取消，而是觉得自己没有被提前考虑。";
   }
   const session = await activeSession();
-  const result = await Taro.uploadFile({
-    url: `${__API_BASE_URL__}/transcribe`,
-    filePath,
-    name: "file",
-    header: { Authorization: `Bearer ${session.accessToken}` },
-    formData: { language: "zh" },
-    timeout: 120000,
-  });
+  const result = audio.kind === "blob"
+    ? await uploadBlob(audio, session.accessToken)
+    : await uploadPath(audio, session.accessToken);
   let body: { text?: string; message?: string } = {};
   try {
     body = JSON.parse(result.data) as { text?: string; message?: string };
@@ -233,7 +323,7 @@ export async function transcribeAudio(filePath: string) {
     // The API boundary is untrusted; fall through to the stable user-facing error.
   }
   if (result.statusCode !== 200 || !body.text) {
-    throw new Error(body.message ?? "录音转写失败，请改用文字输入。 ");
+    throw new Error(body.message ?? "录音转写失败，请改用文字输入。");
   }
   return body.text;
 }

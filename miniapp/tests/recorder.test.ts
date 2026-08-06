@@ -1,33 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => {
-  let stopCallback: ((result: { tempFilePath: string }) => void) | undefined;
-  let errorCallback: ((error: { errMsg: string }) => void) | undefined;
-  const manager = {
-    onStop: vi.fn((callback: typeof stopCallback) => {
-      stopCallback = callback;
+const mocks = {
+  stopCallback: undefined as ((result: { tempFilePath: string }) => void) | undefined,
+  errorCallback: undefined as ((error: { errMsg: string }) => void) | undefined,
+  manager: {
+    onStop: vi.fn((callback: (result: { tempFilePath: string }) => void) => {
+      mocks.stopCallback = callback;
     }),
-    onError: vi.fn((callback: typeof errorCallback) => {
-      errorCallback = callback;
+    onError: vi.fn((callback: (error: { errMsg: string }) => void) => {
+      mocks.errorCallback = callback;
     }),
     start: vi.fn(),
     stop: vi.fn(),
-  };
-  return {
-    manager,
-    emitStop: (tempFilePath: string) => stopCallback?.({ tempFilePath }),
-    emitError: (errMsg: string) => errorCallback?.({ errMsg }),
-  };
-});
-
-vi.mock("@tarojs/taro", () => ({
-  default: {
-    getRecorderManager: () => mocks.manager,
-    getSetting: vi.fn().mockResolvedValue({ authSetting: { "scope.record": true } }),
-    openSetting: vi.fn(),
-    authorize: vi.fn(),
   },
-}));
+};
+
+vi.stubGlobal("uni", {
+  getRecorderManager: () => mocks.manager,
+  getSetting: ({ success }: { success: (value: unknown) => void }) => {
+    success({ authSetting: { "scope.record": true } });
+  },
+  openSetting: vi.fn(),
+  authorize: ({ success }: { success: () => void }) => success(),
+});
 
 import { startRecording, stopRecording } from "../src/services/recorder";
 
@@ -39,24 +34,29 @@ describe("recorder lifecycle", () => {
 
   it("resolves when WeChat automatically stops at the duration limit", async () => {
     const { completion } = await startRecording();
-    mocks.emitStop("/tmp/auto-stop.mp3");
+    mocks.stopCallback?.({ tempFilePath: "/tmp/auto-stop.mp3" });
 
-    await expect(completion).resolves.toBe("/tmp/auto-stop.mp3");
+    await expect(completion).resolves.toEqual({
+      kind: "path",
+      filePath: "/tmp/auto-stop.mp3",
+      fileName: "recording.mp3",
+      mimeType: "audio/mpeg",
+    });
   });
 
   it("uses the same completion when the user stops manually", async () => {
     const { completion } = await startRecording();
     stopRecording();
-    mocks.emitStop("/tmp/manual-stop.mp3");
+    mocks.stopCallback?.({ tempFilePath: "/tmp/manual-stop.mp3" });
 
     expect(mocks.manager.stop).toHaveBeenCalledTimes(1);
-    await expect(completion).resolves.toBe("/tmp/manual-stop.mp3");
+    await expect(completion).resolves.toMatchObject({ filePath: "/tmp/manual-stop.mp3" });
   });
 
   it("rejects the active recording when WeChat reports an error", async () => {
     const { completion } = await startRecording();
     const rejection = expect(completion).rejects.toThrow("microphone interrupted");
-    mocks.emitError("microphone interrupted");
+    mocks.errorCallback?.({ errMsg: "microphone interrupted" });
 
     await rejection;
   });

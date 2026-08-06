@@ -5,6 +5,14 @@ page {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+  background: #f4f0e8;
+}
+
 button::after {
   border: 0;
 }
