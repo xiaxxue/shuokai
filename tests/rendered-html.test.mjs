@@ -28,6 +28,8 @@ test("keeps product privacy and Supabase state-machine concepts explicit", async
   assert.match(prototype, /PERSPECTIVE_APPROVED/);
   assert.match(prototype, /REVIEWING_COMMON_VIEW/);
   assert.match(prototype, /AGREEMENT_ACTIVATED/);
+  assert.match(prototype, /args: \(\) =>/);
+  assert.match(prototype, /call\.args\(\)/);
   assert.match(layout, /说开 SHUOKAI/);
   assert.match(migration, /'rawDraftVisibility', 'owner_only'/);
   assert.match(migration, /'sharedContentRule', 'approved_perspectives_only'/);

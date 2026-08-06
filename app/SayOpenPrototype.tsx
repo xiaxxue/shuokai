@@ -254,57 +254,60 @@ export function SayOpenPrototype() {
   ) {
     await ensureAuth();
     const action = String(payload.action ?? "");
-    const calls: Record<string, { fn: string; args: Record<string, unknown> }> = {
+    const calls: Record<
+      string,
+      { fn: string; args: () => Record<string, unknown> }
+    > = {
       create: {
         fn: "create_room",
-        args: { p_display_name: payload.displayName },
+        args: () => ({ p_display_name: payload.displayName }),
       },
       join: {
         fn: "join_room",
-        args: { p_code: payload.code, p_display_name: payload.displayName },
+        args: () => ({ p_code: payload.code, p_display_name: payload.displayName }),
       },
       set_goal: {
         fn: "set_room_goal",
-        args: { p_room_id: payload.roomId, p_goal: payload.goal },
+        args: () => ({ p_room_id: payload.roomId, p_goal: payload.goal }),
       },
       save_draft: {
         fn: "save_private_draft",
-        args: {
+        args: () => ({
           p_room_id: payload.roomId,
           p_transcript: payload.transcript,
           p_clarification: payload.clarification,
-        },
+        }),
       },
       approve_perspective: {
         fn: "approve_perspective",
-        args: {
+        args: () => ({
           p_room_id: payload.roomId,
           p_fact: (payload.cards as Perspective).fact,
           p_meaning: (payload.cards as Perspective).meaning,
           p_impact: (payload.cards as Perspective).impact,
           p_request: (payload.cards as Perspective).request,
-        },
+        }),
       },
       simulate_partner: {
         fn: "simulate_partner",
-        args: { p_room_id: payload.roomId },
+        args: () => ({ p_room_id: payload.roomId }),
       },
       propose_agreement: {
         fn: "propose_agreement",
-        args: {
+        args: () => ({
           p_room_id: payload.roomId,
           p_proposal: payload.proposal,
           p_review_at: payload.reviewAt,
-        },
+        }),
       },
       accept_agreement: {
         fn: "accept_agreement",
-        args: { p_room_id: payload.roomId },
+        args: () => ({ p_room_id: payload.roomId }),
       },
     };
     const call = calls[action];
     if (!call) throw new Error("未知的后端操作。");
-    const { data, error } = await supabase.rpc(call.fn, call.args);
+    const { data, error } = await supabase.rpc(call.fn, call.args());
     if (error) throw new Error(error.message || "Supabase 请求失败");
     return data as T;
   }
