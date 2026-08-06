@@ -9,6 +9,9 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "miniapp:dev": "npm --prefix miniapp run dev:weapp",
+    "miniapp:build": "npm --prefix miniapp run build:weapp",
+    "miniapp:test": "npm --prefix miniapp test",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

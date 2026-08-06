@@ -1,0 +1,15 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "shuokai-miniapp",
+  "description": "说开：结构化双人沟通工具",
+  "appid": "touristappid",
+  "setting": {
+    "urlCheck": true,
+    "es6": false,
+    "enhance": true,
+    "compileHotReLoad": true,
+    "postcss": false,
+    "minified": false
+  },
+  "compileType": "miniprogram"
+}
