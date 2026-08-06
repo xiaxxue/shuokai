@@ -38,7 +38,7 @@ npm run build:h5
 
 ```bash
 SHUOKAI_API_MODE=live \
-SHUOKAI_API_BASE_URL=https://your-api.example.com \
+SHUOKAI_API_BASE_URL=https://your-cloudflare-worker.example.com \
 npm run build:mp-weixin
 ```
 
@@ -46,11 +46,12 @@ H5 接入真实后端：
 
 ```bash
 SHUOKAI_API_MODE=live \
-SHUOKAI_API_BASE_URL=https://your-api.example.com \
 SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
 SHUOKAI_SUPABASE_PUBLISHABLE_KEY=your-publishable-key \
 npm run build:h5
 ```
+
+H5 与 Cloudflare Worker 一起部署时默认使用同源 API，所以无需填写 `SHUOKAI_API_BASE_URL`；若 H5 和 API 使用不同域名，再显式配置该变量与 Worker 的 `ALLOWED_ORIGINS`。
 
 Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；`service_role`、微信 AppSecret 和 OpenAI API Key 绝不能进入客户端构建。H5 目前使用 Supabase 匿名登录，因此真实上线前需要在 Supabase Authentication 中启用 Anonymous Sign-Ins，并配置防滥用策略。
 
@@ -59,8 +60,8 @@ Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；
 - 微信登录：`uni.login(provider: "weixin")` 获取 code，再由后端交换 openid 并签发 Supabase Auth 会话。
 - H5 登录：浏览器直接使用 Supabase 匿名身份；会话保存在本机，仍受数据库 RLS 隔离。
 - 录音：微信端使用 RecorderManager；H5 使用 MediaRecorder。用户停止录音后才上传，也可以直接输入或修改文字。
-- 数据：客户端只携带用户 JWT 调用统一 HTTPS API；RLS 继续通过 `auth.uid()` 隔离数据。
-- AI：录音由后端转写，任何模型私钥都只存在服务端。
+- 数据：客户端只携带用户 JWT 调用 Cloudflare Worker；Worker 以用户身份访问 Supabase，RLS 继续通过 `auth.uid()` 隔离数据。
+- AI：录音由 Cloudflare Worker 转写，任何模型私钥都只存在 Worker Secret。
 - 分享：微信使用原生分享能力，H5 使用系统分享面板或复制邀请链接。
 
 微信正式发布还需要真实 AppID、微信 AppSecret、已备案的 HTTPS API 域名，并在小程序后台配置 `request` 与 `uploadFile` 合法域名。开发者工具的 `urlCheck` 保持开启，避免把只在本地能工作的网络配置误当成可发布状态。

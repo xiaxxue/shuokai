@@ -37,9 +37,12 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
 /miniapp/dist/
 /miniapp/.swc/
 /.wrangler/
+/cloudflare/.wrangler/
+/cloudflare/.dev.vars*
 /outputs/
 /work/

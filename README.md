@@ -20,18 +20,19 @@
 ```text
 uni-app / Vue 3 / TypeScript
   ├─ 微信小程序
-  │   ├─ uni.login(weixin) ─────→ wechat-login Edge Function
-  │   └─ RecorderManager ───────→ transcribe Edge Function ─→ OpenAI
+  │   ├─ uni.login(weixin) ─────→ Cloudflare Worker
+  │   └─ RecorderManager ───────→ Cloudflare Worker ────────→ OpenAI
   ├─ 移动 H5
   │   ├─ Supabase 匿名认证
-  │   └─ MediaRecorder ─────────→ transcribe Edge Function ─→ OpenAI
-  └─ HTTPS + Supabase JWT ─────→ miniapp-api ─→ PostgREST RPC ─→ Postgres + RLS
+  │   └─ MediaRecorder ─────────→ Cloudflare Worker ────────→ OpenAI
+  └─ HTTPS + Supabase JWT ─────→ Cloudflare Worker ─→ PostgREST RPC ─→ Postgres + RLS
 ```
 
 - 微信 `code` 和 AppSecret 只在服务端交换，`openid` 不发送给业务页面。
 - 服务端把微信身份桥接成标准 Supabase Auth 用户，现有 `auth.uid()`、RLS 和状态机无需推倒重写。
-- 小程序只访问一个可配置的 HTTPS API 域名；微信 AppSecret、Supabase service role 和 OpenAI Key 均为服务端环境变量。
+- Cloudflare Worker 同时托管 H5 与统一 API；微信 AppSecret、Supabase service role 和 OpenAI Key 均为 Worker Secret。
 - 微信录音使用 RecorderManager，H5 使用浏览器 MediaRecorder；录音停止后才上传，转写结果仍须本人修改和批准。
+- Supabase 是唯一数据源，不引入 D1；现有 Edge Functions 暂时只作迁移回滚。
 
 ## Supabase 后端能力
 
@@ -65,6 +66,15 @@ npm test
 ```
 
 当前录音仍保留在浏览器本机，不上传服务器。房间、双方批准记录和状态事件会持久化。AI 转写与观点卡生成仍使用演示内容，正式接入模型时会继续沿用同一套“生成—本人修改—本人批准”的权限边界。
+
+## Cloudflare Worker
+
+统一 Worker 的代码、环境变量和部署命令见 [`cloudflare/README.md`](./cloudflare/README.md)。本地安全检查：
+
+```bash
+npm run cloudflare:test
+npm run cloudflare:dry-run
+```
 
 ## 本地运行跨端客户端
 

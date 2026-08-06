@@ -14,6 +14,10 @@ type ApiResponse<T> = {
   data: T;
 };
 
+function apiUrl(path: string) {
+  return `${__API_BASE_URL__}${path}`;
+}
+
 function request<T>(options: Omit<UniApp.RequestOptions, "success" | "fail">) {
   return new Promise<ApiResponse<T>>((resolve, reject) => {
     uni.request({
@@ -109,7 +113,7 @@ async function requestPlatformSession(): Promise<AuthSession> {
 
   const code = await wechatLogin();
   const response = await request<unknown>({
-    url: `${__API_BASE_URL__}/wechat-login`,
+    url: apiUrl("/wechat-login"),
     method: "POST",
     header: { "content-type": "application/json" },
     data: { code },
@@ -134,7 +138,7 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
     return refreshed;
   }
   const response = await request<unknown>({
-    url: `${__API_BASE_URL__}/wechat-login`,
+    url: apiUrl("/wechat-login"),
     method: "POST",
     header: { "content-type": "application/json" },
     data: { refreshToken: session.refreshToken },
@@ -177,7 +181,7 @@ async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
   if (__USE_MOCK_API__) return mockRpc<T>(name, args);
   const session = await activeSession();
   const response = await request<T>({
-    url: `${__API_BASE_URL__}/miniapp-api`,
+    url: apiUrl("/miniapp-api"),
     method: "POST",
     header: {
       Authorization: `Bearer ${session.accessToken}`,
@@ -284,7 +288,7 @@ export const roomApi = {
 async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {
   return new Promise<{ statusCode: number; data: string }>((resolve, reject) => {
     uni.uploadFile({
-      url: `${__API_BASE_URL__}/transcribe`,
+      url: apiUrl("/transcribe"),
       filePath: audio.filePath,
       name: "file",
       header: { Authorization: `Bearer ${accessToken}` },
@@ -300,7 +304,7 @@ async function uploadBlob(audio: Extract<RecordedAudio, { kind: "blob" }>, acces
   const form = new FormData();
   form.append("file", audio.blob, audio.fileName);
   form.append("language", "zh");
-  const response = await fetch(`${__API_BASE_URL__}/transcribe`, {
+  const response = await fetch(apiUrl("/transcribe"), {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
