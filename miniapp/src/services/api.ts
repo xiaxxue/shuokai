@@ -1,9 +1,14 @@
 import type {
   AuthSession,
   Perspective,
-  RoomSession,
-  RoomSnapshot,
 } from "../domain/types";
+import {
+  parseAcceptanceResult,
+  parseApprovalResult,
+  parseRoomSession,
+  parseRoomSnapshot,
+  parseStateResult,
+} from "../domain/room-validation";
 import type { RecordedAudio } from "./recorder";
 import { createMockApi } from "./mock-api";
 import { clearSession, getActiveRoom, getSession, saveSession } from "./session";
@@ -205,46 +210,46 @@ async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
 }
 
 export const roomApi = {
-  create: (displayName = "我") =>
-    rpc<RoomSession>("create_room", { p_display_name: displayName }),
-  join: (code: string, displayName = "我") =>
-    rpc<RoomSession>("join_room", { p_code: code, p_display_name: displayName }),
-  setGoal: (roomId: string, goal: string) =>
-    rpc<{ state: "A_DRAFTING" }>("set_room_goal", {
+  create: async (displayName = "我") =>
+    parseRoomSession(await rpc<unknown>("create_room", { p_display_name: displayName })),
+  join: async (code: string, displayName = "我") =>
+    parseRoomSession(await rpc<unknown>("join_room", { p_code: code, p_display_name: displayName })),
+  setGoal: async (roomId: string, goal: string) =>
+    parseStateResult(await rpc<unknown>("set_room_goal", {
       p_room_id: roomId,
       p_goal: goal,
-    }),
-  saveDraft: (roomId: string, transcript: string, clarification: string) =>
-    rpc<{ state: "A_REVIEWING" | "B_REVIEWING" }>("save_private_draft", {
+    }), ["A_DRAFTING"] as const),
+  saveDraft: async (roomId: string, transcript: string, clarification: string) =>
+    parseStateResult(await rpc<unknown>("save_private_draft", {
       p_room_id: roomId,
       p_transcript: transcript,
       p_clarification: clarification,
-    }),
-  approvePerspective: (roomId: string, perspective: Perspective) =>
-    rpc<{ state: RoomSession["state"]; version: number }>("approve_perspective", {
+    }), ["A_REVIEWING", "B_REVIEWING"] as const),
+  approvePerspective: async (roomId: string, perspective: Perspective) =>
+    parseApprovalResult(await rpc<unknown>("approve_perspective", {
       p_room_id: roomId,
       p_fact: perspective.fact,
       p_meaning: perspective.meaning,
       p_impact: perspective.impact,
       p_request: perspective.request,
-    }),
-  proposeAgreement: (roomId: string, proposal: string, reviewAt: string) =>
-    rpc<{ state: "AGREEMENT_PENDING" }>("propose_agreement", {
+    })),
+  proposeAgreement: async (roomId: string, proposal: string, reviewAt: string) =>
+    parseStateResult(await rpc<unknown>("propose_agreement", {
       p_room_id: roomId,
       p_proposal: proposal,
       p_review_at: reviewAt,
-    }),
-  acceptAgreement: (roomId: string) =>
-    rpc<{ state: "AGREEMENT_PENDING" | "COMPLETED"; activated: boolean }>(
+    }), ["AGREEMENT_PENDING"] as const),
+  acceptAgreement: async (roomId: string) =>
+    parseAcceptanceResult(await rpc<unknown>(
       "accept_agreement",
       { p_room_id: roomId },
-    ),
+    )),
   simulatePartnerAcceptance: () => {
     if (!__USE_MOCK_API__) throw new Error("模拟操作只在本地演示模式可用。");
     return Promise.resolve(activeMockApi().simulatePartnerAcceptance());
   },
-  snapshot: (roomId: string) =>
-    rpc<RoomSnapshot>("get_room_snapshot", { p_room_id: roomId }),
+  snapshot: async (roomId: string) =>
+    parseRoomSnapshot(await rpc<unknown>("get_room_snapshot", { p_room_id: roomId })),
 };
 
 async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {
