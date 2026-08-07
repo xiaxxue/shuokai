@@ -1,13 +1,16 @@
-export type RoomState =
-  | "GOAL_SETTING"
-  | "A_DRAFTING"
-  | "A_REVIEWING"
-  | "WAITING_FOR_B"
-  | "B_DRAFTING"
-  | "B_REVIEWING"
-  | "COMMON_VIEW_READY"
-  | "AGREEMENT_PENDING"
-  | "COMPLETED";
+export const roomStates = [
+  "GOAL_SETTING",
+  "A_DRAFTING",
+  "A_REVIEWING",
+  "WAITING_FOR_B",
+  "B_DRAFTING",
+  "B_REVIEWING",
+  "COMMON_VIEW_READY",
+  "AGREEMENT_PENDING",
+  "COMPLETED",
+] as const;
+
+export type RoomState = typeof roomStates[number];
 
 export const allowedTransitions: Record<RoomState, readonly RoomState[]> = {
   GOAL_SETTING: ["A_DRAFTING"],
@@ -32,7 +35,9 @@ export type ClientStage =
   | "CLARIFY"
   | "REVIEW"
   | "INVITE"
-  | "COMMON";
+  | "COMMON"
+  | "AGREEMENT"
+  | "COMPLETE";
 
 export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
@@ -42,6 +47,8 @@ export const clientStageOrder: readonly ClientStage[] = [
   "REVIEW",
   "INVITE",
   "COMMON",
+  "AGREEMENT",
+  "COMPLETE",
 ];
 
 export function previousStage(stage: ClientStage): ClientStage {
@@ -54,9 +61,9 @@ export function canNavigateBack(stage: ClientStage) {
 }
 
 export function stageForRoom(role: "A" | "B", state: RoomState): ClientStage {
-  if (state === "COMMON_VIEW_READY" || state === "AGREEMENT_PENDING" || state === "COMPLETED") {
-    return "COMMON";
-  }
+  if (state === "COMPLETED") return "COMPLETE";
+  if (state === "AGREEMENT_PENDING") return "AGREEMENT";
+  if (state === "COMMON_VIEW_READY") return "COMMON";
   if (role === "A") {
     if (state === "GOAL_SETTING") return "GOAL";
     if (state === "A_DRAFTING") return "RECORD";

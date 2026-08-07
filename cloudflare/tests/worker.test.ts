@@ -73,6 +73,33 @@ test("RPC validation normalizes safe inputs and rejects extra fields", () => {
   );
 });
 
+test("RPC validation permits the agreement loop with bounded inputs", () => {
+  const roomId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(
+    validateRpcArgs("propose_agreement", {
+      p_room_id: roomId,
+      p_proposal: " 先发送一个待定信号 ",
+      p_review_at: "2026-08-14T12:00:00.000Z",
+    }),
+    {
+      p_room_id: roomId,
+      p_proposal: "先发送一个待定信号",
+      p_review_at: "2026-08-14T12:00:00.000Z",
+    },
+  );
+  assert.deepEqual(validateRpcArgs("accept_agreement", { p_room_id: roomId }), {
+    p_room_id: roomId,
+  });
+  assert.equal(
+    validateRpcArgs("propose_agreement", {
+      p_room_id: roomId,
+      p_proposal: "尝试一个办法",
+      p_review_at: "not-a-date",
+    }),
+    null,
+  );
+});
+
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {
   assert.equal(isSupportedAudio(new File(["audio"], "recording.webm", {
     type: "audio/webm;codecs=opus",
