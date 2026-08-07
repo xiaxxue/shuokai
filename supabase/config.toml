@@ -1,0 +1,6 @@
+project_id = "shuokai"
+
+# wx.login has no Supabase session yet. This endpoint validates the one-time
+# WeChat code itself and must therefore be reachable before JWT issuance.
+[functions.wechat-login]
+verify_jwt = false

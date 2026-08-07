@@ -1,3 +1,4 @@
+-- Migration version aligned with the deployed Supabase history.
 create schema if not exists private;
 
 create table public.rooms (
