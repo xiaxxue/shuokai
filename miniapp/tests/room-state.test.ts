@@ -28,5 +28,7 @@ describe("room state machine", () => {
     expect(stageForRoom("A", "WAITING_FOR_B")).toBe("INVITE");
     expect(stageForRoom("B", "B_DRAFTING")).toBe("RECORD");
     expect(stageForRoom("B", "COMMON_VIEW_READY")).toBe("COMMON");
+    expect(stageForRoom("A", "AGREEMENT_PENDING")).toBe("AGREEMENT");
+    expect(stageForRoom("B", "COMPLETED")).toBe("COMPLETE");
   });
 });

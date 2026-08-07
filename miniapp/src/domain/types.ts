@@ -21,6 +21,16 @@ export type Perspective = {
   request: string;
 };
 
+export type Agreement = {
+  id: string;
+  proposal: string;
+  review_at: string;
+  accepted_a: boolean;
+  accepted_b: boolean;
+  activated_at: string | null;
+  created_at: string;
+};
+
 export type RoomSnapshot = {
   room: {
     id: string;
@@ -40,4 +50,5 @@ export type RoomSnapshot = {
     disagreement: string;
     core_question: string;
   };
+  agreement: Agreement | null;
 };

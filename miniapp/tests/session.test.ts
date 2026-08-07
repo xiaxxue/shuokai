@@ -13,6 +13,7 @@ vi.stubGlobal("uni", {
 });
 
 import { loginForPlatform } from "../src/services/api";
+import { clearActiveRoom, getActiveRoom, saveActiveRoom } from "../src/services/session";
 
 const sessionKey = "shuokai.session.v2";
 const freshSession = {
@@ -69,5 +70,35 @@ describe("wechat session recovery", () => {
     await expect(Promise.all([first, second])).resolves.toEqual([freshSession, freshSession]);
     expect(login).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("active room recovery", () => {
+  beforeEach(() => storage.clear());
+
+  it("persists and clears the room needed to resume a mobile flow", () => {
+    const room = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      code: "SAY2026",
+      role: "A" as const,
+      state: "WAITING_FOR_B" as const,
+    };
+
+    expect(getActiveRoom()).toBeNull();
+    saveActiveRoom(room);
+    expect(getActiveRoom()).toEqual(room);
+    clearActiveRoom();
+    expect(getActiveRoom()).toBeNull();
+  });
+
+  it("ignores malformed room data from local storage", () => {
+    storage.set("shuokai.active-room.v1", {
+      roomId: "not-a-complete-room",
+      code: "SAY2026",
+      role: "A",
+      state: "UNKNOWN_STATE",
+    });
+
+    expect(getActiveRoom()).toBeNull();
   });
 });

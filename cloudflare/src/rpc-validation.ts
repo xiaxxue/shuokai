@@ -20,6 +20,10 @@ const specs = {
       p_request: 1000,
     },
   },
+  propose_agreement: {
+    required: { p_room_id: 36, p_proposal: 2000, p_review_at: 64 },
+  },
+  accept_agreement: { required: { p_room_id: 36 } },
   get_room_snapshot: { required: { p_room_id: 36 } },
 } as const;
 
@@ -59,6 +63,7 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
   }
 
   if ("p_room_id" in result && !uuidPattern.test(result.p_room_id)) return null;
+  if ("p_review_at" in result && Number.isNaN(Date.parse(result.p_review_at))) return null;
   if ("p_code" in result) {
     result.p_code = result.p_code.toUpperCase();
     if (!roomCodePattern.test(result.p_code)) return null;

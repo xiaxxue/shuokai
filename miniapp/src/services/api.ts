@@ -1,4 +1,5 @@
 import type {
+  Agreement,
   AuthSession,
   Perspective,
   RoomSession,
@@ -202,10 +203,12 @@ let mockRoom: RoomSession = {
   role: "A",
   state: "GOAL_SETTING",
 };
+let mockAgreement: Agreement | null = null;
 
 function mockRpc<T>(name: string, args: RpcArgs): T {
   if (name === "create_room") {
     mockRoom = { ...mockRoom, role: "A", state: "GOAL_SETTING" };
+    mockAgreement = null;
     return mockRoom as T;
   }
   if (name === "set_room_goal") {
@@ -225,10 +228,38 @@ function mockRpc<T>(name: string, args: RpcArgs): T {
   }
   if (name === "join_room") {
     mockRoom = { ...mockRoom, code: String(args.p_code), role: "B", state: "B_DRAFTING" };
+    mockAgreement = null;
     return mockRoom as T;
   }
+  if (name === "propose_agreement") {
+    mockRoom = { ...mockRoom, state: "AGREEMENT_PENDING" };
+    mockAgreement = {
+      id: "22222222-2222-4222-8222-222222222222",
+      proposal: String(args.p_proposal),
+      review_at: String(args.p_review_at),
+      accepted_a: mockRoom.role === "B",
+      accepted_b: mockRoom.role === "A",
+      activated_at: null,
+      created_at: new Date().toISOString(),
+    };
+    return { state: mockRoom.state } as T;
+  }
+  if (name === "accept_agreement") {
+    if (!mockAgreement) throw new Error("还没有可以确认的约定。");
+    mockAgreement = {
+      ...mockAgreement,
+      accepted_a: mockRoom.role === "A" ? true : mockAgreement.accepted_a,
+      accepted_b: mockRoom.role === "B" ? true : mockAgreement.accepted_b,
+    };
+    const activated = mockAgreement.accepted_a && mockAgreement.accepted_b;
+    if (activated) {
+      mockRoom = { ...mockRoom, state: "COMPLETED" };
+      mockAgreement = { ...mockAgreement, activated_at: new Date().toISOString() };
+    }
+    return { state: mockRoom.state, activated } as T;
+  }
   if (name === "get_room_snapshot") {
-    const isShared = mockRoom.state === "COMMON_VIEW_READY";
+    const isShared = ["COMMON_VIEW_READY", "AGREEMENT_PENDING", "COMPLETED"].includes(mockRoom.state);
     return {
       room: {
         id: mockRoom.roomId,
@@ -252,6 +283,7 @@ function mockRpc<T>(name: string, args: RpcArgs): T {
             core_question: "怎样既能提前同步不确定性，也保留确认情况的空间？",
           }
         : null,
+      agreement: isShared ? mockAgreement : null,
     } as T;
   }
   throw new Error(`Mock RPC 尚未实现：${name}`);
@@ -281,6 +313,17 @@ export const roomApi = {
       p_impact: perspective.impact,
       p_request: perspective.request,
     }),
+  proposeAgreement: (roomId: string, proposal: string, reviewAt: string) =>
+    rpc<{ state: "AGREEMENT_PENDING" }>("propose_agreement", {
+      p_room_id: roomId,
+      p_proposal: proposal,
+      p_review_at: reviewAt,
+    }),
+  acceptAgreement: (roomId: string) =>
+    rpc<{ state: "AGREEMENT_PENDING" | "COMPLETED"; activated: boolean }>(
+      "accept_agreement",
+      { p_room_id: roomId },
+    ),
   snapshot: (roomId: string) =>
     rpc<RoomSnapshot>("get_room_snapshot", { p_room_id: roomId }),
 };
