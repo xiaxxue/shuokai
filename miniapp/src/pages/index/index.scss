@@ -66,6 +66,20 @@ $ochre: #eedfbd;
   letter-spacing: 2px;
 }
 
+.account-logout {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: 16px;
+  min-width: 50px;
+  padding: 4px 10px;
+  border: 1px solid rgba(104, 114, 108, .28);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, .72);
+  color: $muted;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
 .progress-track {
   position: absolute;
   right: 0;
@@ -245,6 +259,14 @@ button::after { border: 0; }
   z-index: 2;
   margin-top: 32px;
   padding: 0 1px;
+}
+
+.account-copy {
+  display: block;
+  margin-bottom: 10px;
+  color: $green;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .entry-panel .full { margin-top: 0; }

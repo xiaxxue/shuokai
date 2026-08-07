@@ -31,6 +31,16 @@ function adminClient(env: Required<Pick<WorkerEnv, "SUPABASE_URL" | "SUPABASE_SE
   });
 }
 
+async function verifiedUserId(
+  supabase: ReturnType<typeof userClient>,
+  authorization: string,
+) {
+  const jwt = authorization.slice("Bearer ".length);
+  const { data, error } = await supabase.auth.getClaims(jwt);
+  const subject = data?.claims?.sub;
+  return error || typeof subject !== "string" ? null : subject;
+}
+
 export async function handleMiniappApi(request: Request, env: WorkerEnv) {
   if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
   const authorization = bearerToken(request);
@@ -56,8 +66,9 @@ export async function handleMiniappApi(request: Request, env: WorkerEnv) {
   if (!validatedArgs) return json(request, env, { message: "操作参数无效。" }, 400);
 
   const supabase = userClient(supabaseConfig, authorization);
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return json(request, env, { message: "登录已失效。" }, 401);
+  if (!await verifiedUserId(supabase, authorization)) {
+    return json(request, env, { message: "登录已失效。" }, 401);
+  }
 
   const { data, error } = await supabase.rpc(method, validatedArgs);
   if (error) {
@@ -260,8 +271,8 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
   }
 
   const supabase = userClient(supabaseConfig, authorization);
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return json(request, env, { message: "登录已失效。" }, 401);
+  const userId = await verifiedUserId(supabase, authorization);
+  if (!userId) return json(request, env, { message: "登录已失效。" }, 401);
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
@@ -278,7 +289,7 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
   const admin = adminClient(configured);
   const { data: allowed, error: quotaError } = await admin.rpc(
     "internal_reserve_transcription",
-    { p_user_id: user.id },
+    { p_user_id: userId },
   );
   if (quotaError) return json(request, env, { message: "暂时无法确认语音额度，请稍后重试。" }, 503);
   if (!allowed) return json(request, env, { message: "本小时转写次数已用完，请稍后再试。" }, 429);

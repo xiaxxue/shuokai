@@ -31,7 +31,11 @@ npm run cloudflare:dry-run
 - `OPENAI_API_KEY`（Secret）
 - `ALLOWED_ORIGINS`（可选，逗号分隔；H5 与 Worker 同域时无需填写）
 
-本地开发可放在 `cloudflare/.dev.vars`；该文件已被 Git 忽略。不要把任何真实密钥写入仓库。
+本地开发先复制 `cloudflare/.dev.vars.example` 为 `cloudflare/.dev.vars`；真实值文件已被 Git 忽略。不要把任何真实密钥写入仓库。
+
+业务 API 与转写入口会从 `Authorization: Bearer <jwt>` 中提取 JWT，并使用 Supabase
+`auth.getClaims(jwt)` 按当前项目 signing keys 验证签名与 claims。Worker 仍以同一个用户 JWT 调用
+PostgREST RPC，让数据库中的 `auth.uid()` 与 RLS 执行最终资源所有权检查。
 
 ## 部署
 

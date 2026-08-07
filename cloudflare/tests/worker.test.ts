@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isSupportedAudio } from "../src/handlers.ts";
-import { publicSupabaseConfig } from "../src/http.ts";
+import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
 import { validateRpcArgs } from "../src/rpc-validation.ts";
 
@@ -40,6 +40,18 @@ test("business API rejects unauthenticated requests before touching Supabase", a
   );
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { message: "请先登录。" });
+});
+
+test("Bearer parsing rejects empty or ambiguous authorization values", () => {
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer signed.jwt.value" },
+  })), "Bearer signed.jwt.value");
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer " },
+  })), null);
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer first second" },
+  })), null);
 });
 
 test("Worker accepts current publishable keys and legacy anon keys", () => {

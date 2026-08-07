@@ -9,7 +9,7 @@
     "dev:h5": "uni",
     "build:h5": "uni build",
     "type-check": "vue-tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts && vitest run --config vitest.h5.config.ts"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5010520260709002",

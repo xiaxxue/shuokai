@@ -81,7 +81,8 @@ export async function readJson(request: Request, maxBytes = 64 * 1024): Promise<
 
 export function bearerToken(request: Request) {
   const authorization = request.headers.get("authorization");
-  return authorization?.startsWith("Bearer ") ? authorization : null;
+  const match = authorization?.match(/^Bearer ([^\s]+)$/i);
+  return match ? `Bearer ${match[1]}` : null;
 }
 
 export function requireEnv<T extends keyof WorkerEnv>(env: WorkerEnv, keys: readonly T[]) {

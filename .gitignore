@@ -31,6 +31,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+!**/.env.example
 
 # vercel
 .vercel
@@ -44,5 +46,6 @@ next-env.d.ts
 /.wrangler/
 /cloudflare/.wrangler/
 /cloudflare/.dev.vars*
+!/cloudflare/.dev.vars.example
 /outputs/
 /work/

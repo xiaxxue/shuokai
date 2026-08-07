@@ -11,5 +11,6 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    exclude: ["tests/auth.h5.test.ts"],
   },
 });

@@ -23,7 +23,7 @@ uni-app / Vue 3 / TypeScript
   │   ├─ uni.login(weixin) ─────→ Cloudflare Worker
   │   └─ RecorderManager ───────→ Cloudflare Worker ────────→ OpenAI
   ├─ 移动 H5
-  │   ├─ Supabase 匿名认证
+  │   ├─ Supabase 邮箱注册 / 登录（PKCE + 持久会话）
   │   └─ MediaRecorder ─────────→ Cloudflare Worker ────────→ OpenAI
   └─ HTTPS + Supabase JWT ─────→ Cloudflare Worker ─→ PostgREST RPC ─→ Postgres + RLS
 ```
@@ -37,7 +37,7 @@ uni-app / Vue 3 / TypeScript
 ## Supabase 后端能力
 
 - Supabase Postgres 持久化房间、参与者、私人草稿、批准后的观点卡、共同视图与约定
-- H5 使用匿名 Supabase Auth 会话；微信小程序使用微信 code 桥接为 Supabase Auth 会话
+- H5 使用邮箱/密码 Supabase Auth 会话；微信小程序使用微信 code 桥接为 Supabase Auth 会话
 - RLS 和受控数据库 RPC 同时校验身份、房间角色与合法状态迁移，模型不能直接控制流程
 - 原始转写只对所有者可见；共同视图只读取双方批准后的观点卡
 - 真实房间码与邀请链接；第二个浏览器可以作为 B 独立加入
@@ -47,9 +47,17 @@ uni-app / Vue 3 / TypeScript
 
 首次部署前，在 Supabase Dashboard 完成以下 Auth 设置：
 
-1. `Authentication → Sign In / Providers` 开启 Anonymous Sign-Ins。
-2. `Authentication → URL Configuration` 将 Site URL 设置为 H5 部署域名。
-3. 正式公开 H5 前启用 CAPTCHA/Cloudflare Turnstile，并检查 Auth Rate Limits；只有以后增加“匿名账号绑定邮箱”时才需要开启 Manual Linking。
+1. `Authentication → Sign In / Providers → Email` 开启邮箱登录；测试阶段可选择关闭邮箱确认，若开启则确认邮件回跳地址必须在 Redirect URLs 中。
+2. `Authentication → URL Configuration` 将 Site URL 和测试 H5 地址加入允许列表。
+3. 检查密码策略、Auth Rate Limits 与 leaked password protection；公开测试前配置 CAPTCHA/Cloudflare Turnstile。
+4. 不需要开启 Anonymous Sign-Ins；正式 H5 不再自动创建匿名用户。
+
+复制 [`.env.example`](./.env.example)、[`miniapp/.env.example`](./miniapp/.env.example) 和
+[`cloudflare/.dev.vars.example`](./cloudflare/.dev.vars.example) 中相应的示例。前端只允许使用
+publishable/legacy anon key；`service_role`、微信 AppSecret 与 OpenAI Key 只允许进入 Worker Secret。
+
+应用数据库变更时按文件名顺序执行 `supabase/migrations/`，先在独立测试项目或 Supabase Branch
+验证，再执行 Advisor 与 RLS 隔离测试。不要在未确认环境性质时直接向已有数据的项目 push migration。
 
 ## 本地运行 Web 演示
 

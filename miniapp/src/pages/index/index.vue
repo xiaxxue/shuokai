@@ -9,6 +9,12 @@
         <text class="progress-label">{{ currentPhaseLabel }}</text>
         <text class="progress-copy">{{ currentStep }} / {{ totalSteps }}</text>
       </view>
+      <button
+        v-if="isLiveH5 && authUserId"
+        class="account-logout"
+        :disabled="busy"
+        @tap="logoutH5Account"
+      >退出</button>
       <view v-if="stage !== 'WELCOME'" class="progress-track">
         <view class="progress-fill" :style="{ width: `${progressPercent}%` }" />
       </view>
@@ -46,7 +52,15 @@
           <text class="lead">不裁判谁对谁错。先把事实、理解、影响和请求分开，再一起看清真正的分歧。</text>
         </view>
 
-        <view class="entry-panel">
+        <H5AuthPanel
+          v-if="isLiveH5 && !authUserId"
+          :disabled="busy"
+          @authenticated="handleH5Authenticated"
+          @notice="setNotice"
+        />
+
+        <view v-else class="entry-panel">
+          <text v-if="isLiveH5" class="account-copy">已登录 · {{ authEmail }}</text>
           <button class="primary full" :loading="busy" :disabled="busy" @tap="createRoom">
             发起一次沟通
           </button>
@@ -314,7 +328,9 @@ import type { ClientStage } from "../../domain/room-state";
 import { canNavigateBack, previousStage, stageForRoom } from "../../domain/room-state";
 import { perspectiveFromDraft } from "../../domain/perspective";
 import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
+import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
+import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearActiveRoom,
@@ -342,6 +358,7 @@ const perspectivePlaceholders = [
 ];
 const participantRoles = ["A", "B"] as const;
 const isMockApi = __USE_MOCK_API__;
+const isLiveH5 = !__USE_MOCK_API__ && __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
@@ -368,6 +385,8 @@ const clarification = ref("");
 const agreementProposal = ref("");
 const reviewAt = ref(defaultReviewAt());
 const notice = ref<Notice | null>(null);
+const authEmail = ref("");
+const authUserId = ref("");
 const perspective = reactive<Perspective>({ fact: "", meaning: "", impact: "", request: "" });
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -463,7 +482,7 @@ function setNotice(kind: Notice["kind"], text: string) {
 
 function updateRoom(nextRoom: RoomSession) {
   room.value = nextRoom;
-  saveActiveRoom(nextRoom);
+  saveActiveRoom(nextRoom, authUserId.value || undefined);
 }
 
 function isEditorStage(value: ClientStage) {
@@ -527,26 +546,60 @@ async function loadSnapshot(roomSession: RoomSession) {
   restoreEditorDraft(roomSession);
 }
 
-onLoad((options) => {
-  const incomingRoom = typeof options?.room === "string"
-    ? options.room.replace(/[^a-z0-9]/gi, "").slice(0, 7).toUpperCase()
-    : "";
-  if (incomingRoom) {
-    joinCode.value = incomingRoom;
-    return;
-  }
-  const savedRoom = getActiveRoom();
+async function restoreSavedRoom() {
+  const savedRoom = getActiveRoom(authUserId.value || undefined);
   if (!savedRoom) return;
   busy.value = true;
   room.value = savedRoom;
   stage.value = stageForRoom(savedRoom.role, savedRoom.state);
   restoreEditorDraft(savedRoom);
-  void loadSnapshot(savedRoom)
-    .then(() => setNotice("success", "已恢复上次的沟通进度。"))
-    .catch(() => {
-      setNotice("error", "暂时无法同步最新进展，房间信息已保留，可以稍后重试。 ");
-    })
-    .finally(() => { busy.value = false; });
+  try {
+    await loadSnapshot(savedRoom);
+    setNotice("success", "已恢复上次的沟通进度。");
+  } catch {
+    setNotice("error", "暂时无法同步最新进展，房间信息已保留，可以稍后重试。 ");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function initializePage(options: Record<string, unknown> | undefined) {
+  const incomingRoom = typeof options?.room === "string"
+    ? options.room.replace(/[^a-z0-9]/gi, "").slice(0, 7).toUpperCase()
+    : "";
+  if (incomingRoom) joinCode.value = incomingRoom;
+
+  if (isLiveH5) {
+    busy.value = true;
+    try {
+      const restored = await restoreH5Auth();
+      authUserId.value = restored.session?.userId ?? "";
+      authEmail.value = restored.email;
+    } catch (error) {
+      setNotice("error", message(error, "无法恢复登录状态，请重新登录。"));
+    } finally {
+      busy.value = false;
+    }
+    if (!authUserId.value || incomingRoom) return;
+  } else if (!__USE_MOCK_API__) {
+    busy.value = true;
+    try {
+      const session = await loginForPlatform();
+      authUserId.value = session.userId;
+    } catch (error) {
+      setNotice("error", message(error, "当前平台登录失败，请稍后重试。"));
+      return;
+    } finally {
+      busy.value = false;
+    }
+    if (incomingRoom) return;
+  }
+
+  await restoreSavedRoom();
+}
+
+onLoad((options) => {
+  void initializePage(options);
 });
 
 onShareAppMessage(() => ({
@@ -563,7 +616,8 @@ async function createRoom() {
   notice.value = null;
   busy.value = true;
   try {
-    await loginForPlatform();
+    const session = await loginForPlatform();
+    authUserId.value = session.userId;
     const created = await roomApi.create();
     clearEditorDraft();
     updateRoom(created);
@@ -584,6 +638,8 @@ async function joinRoom() {
   notice.value = null;
   busy.value = true;
   try {
+    const session = await loginForPlatform();
+    authUserId.value = session.userId;
     const joined = await roomApi.join(joinCode.value);
     clearEditorDraft();
     updateRoom(joined);
@@ -593,6 +649,35 @@ async function joinRoom() {
     setNotice("success", "已进入沟通房间。你的草稿不会直接分享给对方。 ");
   } catch (error) {
     setNotice("error", message(error, "加入失败，请检查房间码后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function handleH5Authenticated(result: H5AuthResult) {
+  if (!result.session) return;
+  authUserId.value = result.session.userId;
+  authEmail.value = result.email;
+  setNotice("success", "登录成功。");
+  await restoreSavedRoom();
+}
+
+async function logoutH5Account() {
+  if (!isLiveH5 || !authUserId.value) return;
+  notice.value = null;
+  busy.value = true;
+  try {
+    await signOutH5();
+    clearActiveRoom();
+    clearEditorDraft();
+    room.value = null;
+    snapshot.value = null;
+    authUserId.value = "";
+    authEmail.value = "";
+    stage.value = "WELCOME";
+    setNotice("success", "已退出，并清除本机保存的房间与私人草稿。");
+  } catch (error) {
+    setNotice("error", message(error, "退出失败，请稍后重试。"));
   } finally {
     busy.value = false;
   }

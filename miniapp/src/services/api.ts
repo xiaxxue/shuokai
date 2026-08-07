@@ -11,6 +11,7 @@ import {
 } from "../domain/room-validation";
 import type { RecordedAudio } from "./recorder";
 import { createMockApi } from "./mock-api";
+import { requireH5Session } from "./auth";
 import { clearSession, getActiveRoom, getSession, saveSession } from "./session";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
@@ -44,30 +45,6 @@ function wechatLogin() {
       success: ({ code }) => code ? resolve(code) : reject(new Error("微信没有返回登录凭证，请重试。")),
       fail: (error) => reject(new Error(error.errMsg)),
     });
-  });
-}
-
-function toAuthSession(session: {
-  access_token: string;
-  refresh_token: string;
-  expires_at?: number;
-  user: { id: string };
-}): AuthSession {
-  return {
-    accessToken: session.access_token,
-    refreshToken: session.refresh_token,
-    expiresAt: session.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
-    userId: session.user.id,
-  };
-}
-
-async function h5SupabaseClient() {
-  if (!__SUPABASE_URL__ || !__SUPABASE_PUBLISHABLE_KEY__) {
-    throw new Error("网页登录尚未配置。");
-  }
-  const { createClient } = await import("@supabase/supabase-js");
-  return createClient(__SUPABASE_URL__, __SUPABASE_PUBLISHABLE_KEY__, {
-    auth: { autoRefreshToken: false, persistSession: false },
   });
 }
 
@@ -108,15 +85,6 @@ async function requestPlatformSession(): Promise<AuthSession> {
     return mock;
   }
 
-  if (__PLATFORM__ === "h5") {
-    const client = await h5SupabaseClient();
-    const { data, error } = await client.auth.signInAnonymously();
-    if (error || !data.session || !data.user) throw new Error("网页登录失败，请稍后重试。");
-    const session = toAuthSession({ ...data.session, user: data.user });
-    saveSession(session);
-    return session;
-  }
-
   const code = await wechatLogin();
   const response = await request<unknown>({
     url: apiUrl("/wechat-login"),
@@ -135,14 +103,6 @@ async function requestPlatformSession(): Promise<AuthSession> {
 
 async function refreshSession(session: AuthSession): Promise<AuthSession> {
   if (__USE_MOCK_API__) return session;
-  if (__PLATFORM__ === "h5") {
-    const client = await h5SupabaseClient();
-    const { data, error } = await client.auth.refreshSession({ refresh_token: session.refreshToken });
-    if (error || !data.session || !data.user) throw new Error("登录已失效，请重新打开页面。");
-    const refreshed = toAuthSession({ ...data.session, user: data.user });
-    saveSession(refreshed);
-    return refreshed;
-  }
   const response = await request<unknown>({
     url: apiUrl("/wechat-login"),
     method: "POST",
@@ -159,6 +119,7 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
 let pendingSession: Promise<AuthSession> | null = null;
 
 async function resolveSession() {
+  if (!__USE_MOCK_API__ && __PLATFORM__ === "h5") return requireH5Session();
   const session = getSession();
   if (!session) return requestPlatformSession();
   if (session.expiresAt > Math.floor(Date.now() / 1000) + 60) return session;

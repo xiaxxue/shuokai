@@ -92,10 +92,23 @@ describe("active room recovery", () => {
     };
 
     expect(getActiveRoom()).toBeNull();
-    saveActiveRoom(room);
-    expect(getActiveRoom()).toEqual(room);
+    saveActiveRoom(room, freshSession.userId);
+    expect(getActiveRoom(freshSession.userId)).toEqual(room);
     clearActiveRoom();
-    expect(getActiveRoom()).toBeNull();
+    expect(getActiveRoom(freshSession.userId)).toBeNull();
+  });
+
+  it("does not restore a room after switching to another authenticated user", () => {
+    const room = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      code: "SAY2026",
+      role: "A" as const,
+      state: "WAITING_FOR_B" as const,
+    };
+
+    saveActiveRoom(room, freshSession.userId);
+    expect(getActiveRoom("00000000-0000-4000-8000-000000000099")).toBeNull();
+    expect(getActiveRoom(freshSession.userId)).toEqual(room);
   });
 
   it("ignores malformed room data from local storage", () => {
