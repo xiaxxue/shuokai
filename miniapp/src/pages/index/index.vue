@@ -122,7 +122,7 @@
           :maxlength="12000"
           placeholder="也可以直接打字。试着描述具体发生了什么，以及它为什么让你在意。"
         />
-        <text class="privacy-note">🔒 当前内容只保存在你的私人草稿中</text>
+        <text class="privacy-note">🔒 当前内容已保存在此设备的私人草稿中</text>
       </view>
 
       <view v-else-if="stage === 'CLARIFY'" class="screen">
@@ -264,6 +264,13 @@
           :disabled="busy || ownAccepted"
           @tap="acceptAgreement"
         >{{ ownAccepted ? "我已确认，等待对方" : "我愿意尝试这个办法" }}</button>
+        <button
+          v-if="isMockApi && ownAccepted"
+          class="secondary refresh demo-action"
+          :loading="busy"
+          :disabled="busy"
+          @tap="simulatePartnerAgreement"
+        >演示：让对方确认</button>
         <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">刷新双方状态</button>
         <text class="privacy-note centered-note">只有双方都确认后，实验才会正式开始。</text>
       </view>
@@ -302,14 +309,21 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from "vue";
-import { onLoad, onShareAppMessage } from "@dcloudio/uni-app";
+import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
 import { canNavigateBack, previousStage, stageForRoom } from "../../domain/room-state";
 import { perspectiveFromDraft } from "../../domain/perspective";
 import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
 import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
 import { startRecording, stopRecording } from "../../services/recorder";
-import { clearActiveRoom, getActiveRoom, saveActiveRoom } from "../../services/session";
+import {
+  clearActiveRoom,
+  clearEditorDraft,
+  getActiveRoom,
+  getEditorDraft,
+  saveActiveRoom,
+  saveEditorDraft,
+} from "../../services/session";
 
 type Notice = { kind: "info" | "success" | "error"; message: string };
 
@@ -327,6 +341,7 @@ const perspectivePlaceholders = [
   "你希望对方接下来具体做什么？",
 ];
 const participantRoles = ["A", "B"] as const;
+const isMockApi = __USE_MOCK_API__;
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
@@ -355,6 +370,7 @@ const reviewAt = ref(defaultReviewAt());
 const notice = ref<Notice | null>(null);
 const perspective = reactive<Perspective>({ fact: "", meaning: "", impact: "", request: "" });
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
+let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(stage, () => {
   contentScrollTop.value = contentScrollTop.value === 0 ? 1 : 0;
@@ -371,9 +387,26 @@ watch(recording, (isRecording) => {
   }
 });
 
+watch(
+  [
+    transcript,
+    clarification,
+    () => perspective.fact,
+    () => perspective.meaning,
+    () => perspective.impact,
+    () => perspective.request,
+  ],
+  scheduleEditorDraftSave,
+  { flush: "post" },
+);
+
 onUnmounted(() => {
   if (recordingTimer) clearInterval(recordingTimer);
+  flushEditorDraft();
 });
+
+onHide(flushEditorDraft);
+onUnload(flushEditorDraft);
 
 const totalSteps = 5;
 const currentStep = computed(() => phaseByStage[stage.value].step);
@@ -433,6 +466,37 @@ function updateRoom(nextRoom: RoomSession) {
   saveActiveRoom(nextRoom);
 }
 
+function isEditorStage(value: ClientStage) {
+  return value === "RECORD" || value === "CLARIFY" || value === "REVIEW";
+}
+
+function flushEditorDraft() {
+  if (editorSaveTimer) clearTimeout(editorSaveTimer);
+  editorSaveTimer = null;
+  if (!room.value || !isEditorStage(stage.value)) return;
+  saveEditorDraft({
+    roomId: room.value.roomId,
+    role: room.value.role,
+    transcript: transcript.value,
+    clarification: clarification.value,
+    perspective: { ...perspective },
+  });
+}
+
+function scheduleEditorDraftSave() {
+  if (editorSaveTimer) clearTimeout(editorSaveTimer);
+  editorSaveTimer = setTimeout(flushEditorDraft, 250);
+}
+
+function restoreEditorDraft(roomSession: RoomSession) {
+  if (!isEditorStage(stage.value)) return;
+  const draft = getEditorDraft(roomSession.roomId, roomSession.role);
+  if (!draft) return;
+  transcript.value = draft.transcript;
+  clarification.value = draft.clarification;
+  Object.assign(perspective, draft.perspective);
+}
+
 function applySnapshot(latest: RoomSnapshot) {
   snapshot.value = latest;
   if (!room.value) return;
@@ -460,6 +524,7 @@ async function loadSnapshot(roomSession: RoomSession) {
   const latest = await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
   stage.value = stageForRoom(roomSession.role, latest.room.state);
+  restoreEditorDraft(roomSession);
 }
 
 onLoad((options) => {
@@ -475,6 +540,7 @@ onLoad((options) => {
   busy.value = true;
   room.value = savedRoom;
   stage.value = stageForRoom(savedRoom.role, savedRoom.state);
+  restoreEditorDraft(savedRoom);
   void loadSnapshot(savedRoom)
     .then(() => setNotice("success", "已恢复上次的沟通进度。"))
     .catch(() => {
@@ -499,6 +565,7 @@ async function createRoom() {
   try {
     await loginForPlatform();
     const created = await roomApi.create();
+    clearEditorDraft();
     updateRoom(created);
     stage.value = stageForRoom(created.role, created.state);
     setNotice("success", "私人沟通空间已创建。先确认这次的意图。 ");
@@ -518,6 +585,7 @@ async function joinRoom() {
   busy.value = true;
   try {
     const joined = await roomApi.join(joinCode.value);
+    clearEditorDraft();
     updateRoom(joined);
     const joinedStage = stageForRoom(joined.role, joined.state);
     if (["COMMON", "AGREEMENT", "COMPLETE"].includes(joinedStage)) await loadSnapshot(joined);
@@ -581,6 +649,9 @@ async function next() {
         impact: perspective.impact.trim(),
         request: perspective.request.trim(),
       });
+      if (editorSaveTimer) clearTimeout(editorSaveTimer);
+      editorSaveTimer = null;
+      clearEditorDraft();
       updateRoom({ ...room.value, state: approved.state });
       if (stageForRoom(room.value.role, approved.state) === "COMMON") {
         await loadSnapshot(room.value);
@@ -665,6 +736,22 @@ async function acceptAgreement() {
   }
 }
 
+async function simulatePartnerAgreement() {
+  if (!room.value || !isMockApi) return;
+  notice.value = null;
+  busy.value = true;
+  try {
+    const result = await roomApi.simulatePartnerAcceptance();
+    updateRoom({ ...room.value, state: result.state });
+    await loadSnapshot(room.value);
+    setNotice("success", "演示中的对方已独立确认，7 天实验现在开始。 ");
+  } catch (error) {
+    setNotice("error", message(error, "无法完成对方确认演示。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
 function goBack() {
   notice.value = null;
   stage.value = previousStage(stage.value);
@@ -672,6 +759,7 @@ function goBack() {
 
 function startAnotherRoom() {
   clearActiveRoom();
+  clearEditorDraft();
   room.value = null;
   snapshot.value = null;
   transcript.value = "";

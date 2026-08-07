@@ -13,7 +13,14 @@ vi.stubGlobal("uni", {
 });
 
 import { loginForPlatform } from "../src/services/api";
-import { clearActiveRoom, getActiveRoom, saveActiveRoom } from "../src/services/session";
+import {
+  clearActiveRoom,
+  clearEditorDraft,
+  getActiveRoom,
+  getEditorDraft,
+  saveActiveRoom,
+  saveEditorDraft,
+} from "../src/services/session";
 
 const sessionKey = "shuokai.session.v2";
 const freshSession = {
@@ -100,5 +107,42 @@ describe("active room recovery", () => {
     });
 
     expect(getActiveRoom()).toBeNull();
+  });
+});
+
+describe("private editor draft recovery", () => {
+  beforeEach(() => storage.clear());
+
+  it("restores in-progress text and cards only for the same room role", () => {
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "还没有提交的原话",
+      clarification: "最希望对方理解的事",
+      perspective: {
+        fact: "可观察事实",
+        meaning: "我的理解",
+        impact: "对我的影响",
+        request: "我的请求",
+      },
+    };
+
+    saveEditorDraft(draft);
+    expect(getEditorDraft(draft.roomId, "A")).toEqual(draft);
+    expect(getEditorDraft(draft.roomId, "B")).toBeNull();
+    clearEditorDraft();
+    expect(getEditorDraft(draft.roomId, "A")).toBeNull();
+  });
+
+  it("rejects oversized cached private text", () => {
+    storage.set("shuokai.editor-draft.v1", {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A",
+      transcript: "a".repeat(12001),
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+    });
+
+    expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();
   });
 });

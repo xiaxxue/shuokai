@@ -1,12 +1,12 @@
 import type {
-  Agreement,
   AuthSession,
   Perspective,
   RoomSession,
   RoomSnapshot,
 } from "../domain/types";
 import type { RecordedAudio } from "./recorder";
-import { clearSession, getSession, saveSession } from "./session";
+import { createMockApi } from "./mock-api";
+import { clearSession, getActiveRoom, getSession, saveSession } from "./session";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
 
@@ -178,8 +178,15 @@ async function activeSession() {
   return loginForPlatform();
 }
 
+let mockApi: ReturnType<typeof createMockApi> | null = null;
+
+function activeMockApi() {
+  if (!mockApi) mockApi = createMockApi(getActiveRoom() ?? undefined);
+  return mockApi;
+}
+
 async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
-  if (__USE_MOCK_API__) return mockRpc<T>(name, args);
+  if (__USE_MOCK_API__) return activeMockApi().call<T>(name, args);
   const session = await activeSession();
   const response = await request<T>({
     url: apiUrl("/miniapp-api"),
@@ -197,98 +204,6 @@ async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
   return response.data;
 }
 
-let mockRoom: RoomSession = {
-  roomId: "11111111-1111-4111-8111-111111111111",
-  code: "SAY2026",
-  role: "A",
-  state: "GOAL_SETTING",
-};
-let mockAgreement: Agreement | null = null;
-
-function mockRpc<T>(name: string, args: RpcArgs): T {
-  if (name === "create_room") {
-    mockRoom = { ...mockRoom, role: "A", state: "GOAL_SETTING" };
-    mockAgreement = null;
-    return mockRoom as T;
-  }
-  if (name === "set_room_goal") {
-    mockRoom = { ...mockRoom, state: "A_DRAFTING" };
-    return { state: mockRoom.state } as T;
-  }
-  if (name === "save_private_draft") {
-    mockRoom = { ...mockRoom, state: "A_REVIEWING" };
-    return { state: mockRoom.state } as T;
-  }
-  if (name === "approve_perspective") {
-    mockRoom = {
-      ...mockRoom,
-      state: mockRoom.role === "A" ? "WAITING_FOR_B" : "COMMON_VIEW_READY",
-    };
-    return { state: mockRoom.state, version: 1 } as T;
-  }
-  if (name === "join_room") {
-    mockRoom = { ...mockRoom, code: String(args.p_code), role: "B", state: "B_DRAFTING" };
-    mockAgreement = null;
-    return mockRoom as T;
-  }
-  if (name === "propose_agreement") {
-    mockRoom = { ...mockRoom, state: "AGREEMENT_PENDING" };
-    mockAgreement = {
-      id: "22222222-2222-4222-8222-222222222222",
-      proposal: String(args.p_proposal),
-      review_at: String(args.p_review_at),
-      accepted_a: mockRoom.role === "B",
-      accepted_b: mockRoom.role === "A",
-      activated_at: null,
-      created_at: new Date().toISOString(),
-    };
-    return { state: mockRoom.state } as T;
-  }
-  if (name === "accept_agreement") {
-    if (!mockAgreement) throw new Error("还没有可以确认的约定。");
-    mockAgreement = {
-      ...mockAgreement,
-      accepted_a: mockRoom.role === "A" ? true : mockAgreement.accepted_a,
-      accepted_b: mockRoom.role === "B" ? true : mockAgreement.accepted_b,
-    };
-    const activated = mockAgreement.accepted_a && mockAgreement.accepted_b;
-    if (activated) {
-      mockRoom = { ...mockRoom, state: "COMPLETED" };
-      mockAgreement = { ...mockAgreement, activated_at: new Date().toISOString() };
-    }
-    return { state: mockRoom.state, activated } as T;
-  }
-  if (name === "get_room_snapshot") {
-    const isShared = ["COMMON_VIEW_READY", "AGREEMENT_PENDING", "COMPLETED"].includes(mockRoom.state);
-    return {
-      room: {
-        id: mockRoom.roomId,
-        code: mockRoom.code,
-        state: mockRoom.state,
-        goal: "让我被准确理解",
-      },
-      me: { id: "mock-participant", role: mockRoom.role, display_name: "我" },
-      privateDraft: null,
-      ownPerspective: null,
-      approvedPerspectives: isShared
-        ? [
-            { role: "A", fact: "双方的计划发生了变化。", meaning: "我希望被提前告知。", impact: "我感到失落。", request: "变化时先告诉我。" },
-            { role: "B", fact: "我在确认后告知了变化。", meaning: "我想避免过早制造焦虑。", impact: "我感到有解释压力。", request: "允许我先确认情况。" },
-          ]
-        : [],
-      sharedView: isShared
-        ? {
-            common_ground: "双方都希望减少误解。",
-            disagreement: "对于何时告知变化，双方期待不同。",
-            core_question: "怎样既能提前同步不确定性，也保留确认情况的空间？",
-          }
-        : null,
-      agreement: isShared ? mockAgreement : null,
-    } as T;
-  }
-  throw new Error(`Mock RPC 尚未实现：${name}`);
-}
-
 export const roomApi = {
   create: (displayName = "我") =>
     rpc<RoomSession>("create_room", { p_display_name: displayName }),
@@ -300,7 +215,7 @@ export const roomApi = {
       p_goal: goal,
     }),
   saveDraft: (roomId: string, transcript: string, clarification: string) =>
-    rpc<{ state: "A_REVIEWING" }>("save_private_draft", {
+    rpc<{ state: "A_REVIEWING" | "B_REVIEWING" }>("save_private_draft", {
       p_room_id: roomId,
       p_transcript: transcript,
       p_clarification: clarification,
@@ -324,6 +239,10 @@ export const roomApi = {
       "accept_agreement",
       { p_room_id: roomId },
     ),
+  simulatePartnerAcceptance: () => {
+    if (!__USE_MOCK_API__) throw new Error("模拟操作只在本地演示模式可用。");
+    return Promise.resolve(activeMockApi().simulatePartnerAcceptance());
+  },
   snapshot: (roomId: string) =>
     rpc<RoomSnapshot>("get_room_snapshot", { p_room_id: roomId }),
 };
