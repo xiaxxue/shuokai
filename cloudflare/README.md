@@ -8,8 +8,15 @@
 
 ```bash
 npm run cloudflare:test
-npm run cloudflare:dry-run
 npm run cloudflare:dev
+```
+
+正式 H5 的 dry-run 必须显式提供客户端可公开的 Supabase 配置，避免生成 mock 包后被误部署：
+
+```bash
+SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
+SHUOKAI_SUPABASE_PUBLISHABLE_KEY=your-publishable-key \
+npm run cloudflare:dry-run
 ```
 
 ## Worker 环境变量

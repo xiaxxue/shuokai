@@ -1,3 +1,4 @@
+-- Migration version aligned with the deployed Supabase history.
 create table private.wechat_identities (
   openid text primary key check (char_length(openid) between 8 and 128),
   unionid text,

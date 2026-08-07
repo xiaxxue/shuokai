@@ -19,7 +19,7 @@ test("keeps product privacy and Supabase state-machine concepts explicit", async
     readFile(new URL("../app/SayOpenPrototype.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../supabase/migrations/20260806053218_migrate_from_d1_to_supabase.sql", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260806053428_migrate_from_d1_to_supabase.sql", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../lib/supabase.ts", import.meta.url), "utf8"),
   ]);

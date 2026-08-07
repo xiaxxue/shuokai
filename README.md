@@ -73,6 +73,8 @@ npm test
 
 ```bash
 npm run cloudflare:test
+SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
+SHUOKAI_SUPABASE_PUBLISHABLE_KEY=your-publishable-key \
 npm run cloudflare:dry-run
 ```
 
