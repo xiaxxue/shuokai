@@ -3,7 +3,7 @@ import test from "node:test";
 import { isSupportedAudio } from "../src/handlers.ts";
 import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
-import { validateRpcArgs } from "../src/rpc-validation.ts";
+import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 
 test("health endpoint identifies the Worker", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/health"), {});
@@ -125,6 +125,12 @@ test("RPC validation permits the agreement loop with bounded inputs", () => {
     }),
     null,
   );
+});
+
+test("Worker allowlist excludes retired demo RPCs", () => {
+  assert.equal(isAllowedRpcMethod("simulate_partner"), false);
+  assert.equal(isAllowedRpcMethod("demo"), false);
+  assert.equal(isAllowedRpcMethod("create_room"), true);
 });
 
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {

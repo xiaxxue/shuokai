@@ -16,15 +16,15 @@ const room = {
 
 describe("account space status", () => {
   it("reports the real auth platform instead of offering a fake cross-platform logout", () => {
-    expect(accountPlatformSummary("h5", false, "person@example.test")).toMatchObject({
+    expect(accountPlatformSummary("h5", "person@example.test")).toMatchObject({
       identity: "person@example.test",
       loginStatus: "Supabase 会话已登录",
     });
-    expect(accountPlatformSummary("mp-weixin", false, "")).toMatchObject({
+    expect(accountPlatformSummary("mp-weixin", "")).toMatchObject({
       identity: "微信平台账号",
       loginStatus: "微信会话已连接",
     });
-    expect(accountPlatformSummary("mp-weixin", false, "").platformNote).toContain("没有可退出的 Supabase 邮箱会话");
+    expect(accountPlatformSummary("mp-weixin", "").platformNote).toContain("没有可退出的 Supabase 邮箱会话");
   });
 
   it("shows the saved room phase even while the welcome screen is visible", () => {

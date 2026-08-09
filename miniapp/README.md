@@ -12,9 +12,6 @@
 ```bash
 npm install
 
-# 微信小程序（监听构建）
-npm run dev:mp-weixin
-
 # H5（本地开发服务器）
 npm run dev:h5
 ```
@@ -28,17 +25,17 @@ npm run build:mp-weixin
 npm run build:h5
 ```
 
-微信开发者工具应导入本目录；`project.config.json` 会把小程序目录指向 `dist/build/mp-weixin/`。提交微信审核前，需要把其中的 `touristappid` 换成真实小程序 AppID。
+微信开发者工具应导入本目录；`project.config.json` 会把小程序目录指向 `dist/build/mp-weixin/`。仓库不提供游客 AppID，联调时必须在开发者工具中选择真实小程序 AppID。
 
-## Mock 与真实后端
+## 真实后端
 
-默认构建使用内置 mock 数据，便于本地演示，不会调用线上 AI 或数据库。
+客户端只支持真实测试环境，不提供 mock、游客或模拟参与者回退。缺少必要配置时构建会直接失败。
 
 微信小程序接入真实后端：
 
 ```bash
-SHUOKAI_API_MODE=live \
 SHUOKAI_API_BASE_URL=https://your-cloudflare-worker.example.com \
+SHUOKAI_WECHAT_APP_ID=wx_your_real_app_id \
 npm run build:mp-weixin
 ```
 
@@ -66,4 +63,4 @@ Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；
 
 微信登录只有在以下配置齐备后才算接通：真实 AppID、Worker 的 `WECHAT_APP_ID` / `WECHAT_APP_SECRET`、
 Supabase `SUPABASE_SERVICE_ROLE_KEY`，以及已应用的 `add_wechat_identity_bridge` migration。缺少任一项时，
-代码可以构建，但不能把 touristappid 或 mock token 当作真实微信认证结果。
+缺少任一项时只能运行静态检查，不能视为微信真实登录已经接通。

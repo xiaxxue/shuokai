@@ -16,8 +16,8 @@ const stageLabels: Record<ClientStage, string> = {
 
 export type DraftSaveState = "empty" | "saving" | "saved";
 
-export function accountPlatformSummary(platform: string, isMock: boolean, email: string) {
-  if (platform === "h5" && !isMock) {
+export function accountPlatformSummary(platform: string, email: string) {
+  if (platform === "h5") {
     return {
       identity: email || "邮箱账号",
       platformLabel: "H5 邮箱账号",
@@ -25,7 +25,7 @@ export function accountPlatformSummary(platform: string, isMock: boolean, email:
       platformNote: "",
     };
   }
-  if (platform === "mp-weixin" && !isMock) {
+  if (platform === "mp-weixin") {
     return {
       identity: "微信平台账号",
       platformLabel: "微信小程序账号",
@@ -34,10 +34,10 @@ export function accountPlatformSummary(platform: string, isMock: boolean, email:
     };
   }
   return {
-    identity: "本地演示账号",
-    platformLabel: "产品演示环境",
-    loginStatus: "演示会话已就绪",
-    platformNote: "演示环境没有真实 Supabase 账号，因此不会显示虚假的退出操作。",
+    identity: "平台账号",
+    platformLabel: "跨端客户端账号",
+    loginStatus: "真实会话已连接",
+    platformNote: "当前平台使用真实测试环境会话。",
   };
 }
 

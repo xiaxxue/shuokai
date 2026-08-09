@@ -2,7 +2,7 @@
   "miniprogramRoot": "dist/build/mp-weixin/",
   "projectname": "shuokai-miniapp",
   "description": "说开：结构化双人沟通工具",
-  "appid": "touristappid",
+  "appid": "",
   "setting": {
     "urlCheck": true,
     "es6": true,
