@@ -133,6 +133,7 @@ describe("private editor draft recovery", () => {
       role: "A" as const,
       transcript: "还没有提交的原话",
       clarification: "最希望对方理解的事",
+      editorStage: "NVC_NEED" as const,
       perspective: {
         fact: "观察到的事实",
         meaning: "我的感受",
@@ -155,6 +156,33 @@ describe("private editor draft recovery", () => {
       transcript: "a".repeat(12001),
       clarification: "",
       perspective: { fact: "", meaning: "", impact: "", request: "" },
+    });
+
+    expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();
+  });
+
+  it("migrates a legacy clarification into the feeling card", () => {
+    storage.set("shuokai.editor-draft.v1", {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A",
+      transcript: "旧版本保存的原话",
+      clarification: "旧版本保存的感受",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+    });
+
+    expect(
+      getEditorDraft("11111111-1111-4111-8111-111111111111", "A")?.perspective.meaning,
+    ).toBe("旧版本保存的感受");
+  });
+
+  it("rejects a cached draft that points outside the private editing flow", () => {
+    storage.set("shuokai.editor-draft.v1", {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A",
+      transcript: "尚未分享的原话",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      editorStage: "AGREEMENT",
     });
 
     expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();

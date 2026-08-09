@@ -15,13 +15,15 @@ describe("room state machine", () => {
 
   it("does not navigate before the welcome screen", () => {
     expect(previousStage("WELCOME")).toBe("WELCOME");
-    expect(previousStage("REVIEW")).toBe("CLARIFY");
+    expect(previousStage("NVC_FEELING")).toBe("NVC_OBSERVATION");
+    expect(previousStage("REVIEW")).toBe("NVC_REQUEST");
   });
 
   it("only allows local back navigation before a server transition", () => {
-    expect(canNavigateBack("CLARIFY")).toBe(true);
+    expect(canNavigateBack("NVC_OBSERVATION")).toBe(true);
+    expect(canNavigateBack("NVC_REQUEST")).toBe(true);
     expect(canNavigateBack("RECORD")).toBe(false);
-    expect(canNavigateBack("REVIEW")).toBe(false);
+    expect(canNavigateBack("REVIEW")).toBe(true);
   });
 
   it("routes each participant from the authoritative room state", () => {

@@ -34,8 +34,8 @@ describe("account space status", () => {
   });
 
   it("keeps the more precise visible editor stage", () => {
-    expect(accountStage("CLARIFY", { ...room, state: "A_DRAFTING" })).toBe("CLARIFY");
-    expect(roomPhaseLabel("CLARIFY", { ...room, state: "A_DRAFTING" })).toBe("抓住最重要的一点");
+    expect(accountStage("NVC_NEED", { ...room, state: "A_DRAFTING" })).toBe("NVC_NEED");
+    expect(roomPhaseLabel("NVC_NEED", { ...room, state: "A_DRAFTING" })).toBe("非暴力沟通 · 需要");
   });
 
   it("describes local and synced draft states without exposing storage details", () => {
