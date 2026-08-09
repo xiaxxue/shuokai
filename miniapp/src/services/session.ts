@@ -83,3 +83,8 @@ export function saveEditorDraft(draft: EditorDraft) {
 export function clearEditorDraft() {
   uni.removeStorageSync(EDITOR_DRAFT_KEY);
 }
+
+export function clearPrivateDeviceData() {
+  clearActiveRoom();
+  clearEditorDraft();
+}

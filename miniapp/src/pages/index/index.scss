@@ -86,18 +86,40 @@ $ochre: #eedfbd;
   letter-spacing: 2px;
 }
 
-.account-logout {
+.account-trigger {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 8px);
   right: 16px;
-  min-width: 50px;
-  padding: 4px 10px;
+  min-width: 88px;
+  min-height: 30px;
+  padding: 3px 10px 3px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 1px solid rgba(104, 114, 108, .28);
   border-radius: 999px;
   background: rgba(255, 253, 248, .72);
-  color: $muted;
+  color: $ink;
   font-size: 10px;
+  font-weight: 700;
   line-height: 1.6;
+}
+
+.account-trigger:active { background: rgba(223, 91, 63, .1); }
+.account-trigger[disabled] { opacity: .38; }
+
+.account-avatar {
+  width: 21px;
+  height: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: $ink;
+  color: #fff;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 9px;
 }
 
 .progress-track {
@@ -281,13 +303,41 @@ button::after { border: 0; }
   padding: 0 1px;
 }
 
+.welcome-account {
+  width: 100%;
+  min-height: 60px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(49, 91, 71, .14);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, .68);
+  text-align: left;
+}
+
+.welcome-account-copy { min-width: 0; }
+.account-copy,
+.account-identity { display: block; }
 .account-copy {
-  display: block;
-  margin-bottom: 10px;
   color: $green;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
 }
+
+.account-identity {
+  max-width: 230px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: $ink;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-account-link { display: flex; align-items: center; gap: 7px; color: $coral-dark; font-size: 10px; font-weight: 800; }
 
 .entry-panel .full { margin-top: 0; }
 

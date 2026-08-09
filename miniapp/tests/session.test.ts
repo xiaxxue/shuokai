@@ -16,6 +16,7 @@ import { loginForPlatform } from "../src/services/api";
 import {
   clearActiveRoom,
   clearEditorDraft,
+  clearPrivateDeviceData,
   getActiveRoom,
   getEditorDraft,
   saveActiveRoom,
@@ -157,5 +158,27 @@ describe("private editor draft recovery", () => {
     });
 
     expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();
+  });
+
+  it("clears the local room and private draft together on account exit", () => {
+    const room = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      code: "SAY2026",
+      role: "A" as const,
+      state: "A_DRAFTING" as const,
+    };
+    saveActiveRoom(room, freshSession.userId);
+    saveEditorDraft({
+      roomId: room.roomId,
+      role: room.role,
+      transcript: "只保存在本机的内容",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+    });
+
+    clearPrivateDeviceData();
+
+    expect(getActiveRoom(freshSession.userId)).toBeNull();
+    expect(getEditorDraft(room.roomId, room.role)).toBeNull();
   });
 });
