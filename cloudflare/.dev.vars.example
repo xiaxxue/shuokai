@@ -1,0 +1,11 @@
+# Public configuration
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me
+ALLOWED_ORIGINS=http://localhost:5173
+
+# Worker-only secrets. Set real values with `wrangler secret put` for a test
+# Worker; never expose or commit their values in frontend environment files.
+SUPABASE_SERVICE_ROLE_KEY=replace_me
+WECHAT_APP_ID=replace_me
+WECHAT_APP_SECRET=replace_me
+OPENAI_API_KEY=replace_me

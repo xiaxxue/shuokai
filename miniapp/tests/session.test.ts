@@ -16,6 +16,7 @@ import { loginForPlatform } from "../src/services/api";
 import {
   clearActiveRoom,
   clearEditorDraft,
+  clearPrivateDeviceData,
   getActiveRoom,
   getEditorDraft,
   saveActiveRoom,
@@ -92,10 +93,23 @@ describe("active room recovery", () => {
     };
 
     expect(getActiveRoom()).toBeNull();
-    saveActiveRoom(room);
-    expect(getActiveRoom()).toEqual(room);
+    saveActiveRoom(room, freshSession.userId);
+    expect(getActiveRoom(freshSession.userId)).toEqual(room);
     clearActiveRoom();
-    expect(getActiveRoom()).toBeNull();
+    expect(getActiveRoom(freshSession.userId)).toBeNull();
+  });
+
+  it("does not restore a room after switching to another authenticated user", () => {
+    const room = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      code: "SAY2026",
+      role: "A" as const,
+      state: "WAITING_FOR_B" as const,
+    };
+
+    saveActiveRoom(room, freshSession.userId);
+    expect(getActiveRoom("00000000-0000-4000-8000-000000000099")).toBeNull();
+    expect(getActiveRoom(freshSession.userId)).toEqual(room);
   });
 
   it("ignores malformed room data from local storage", () => {
@@ -120,10 +134,10 @@ describe("private editor draft recovery", () => {
       transcript: "还没有提交的原话",
       clarification: "最希望对方理解的事",
       perspective: {
-        fact: "可观察事实",
-        meaning: "我的理解",
-        impact: "对我的影响",
-        request: "我的请求",
+        fact: "观察到的事实",
+        meaning: "我的感受",
+        impact: "我的需要",
+        request: "具体请求",
       },
     };
 
@@ -144,5 +158,27 @@ describe("private editor draft recovery", () => {
     });
 
     expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();
+  });
+
+  it("clears the local room and private draft together on account exit", () => {
+    const room = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      code: "SAY2026",
+      role: "A" as const,
+      state: "A_DRAFTING" as const,
+    };
+    saveActiveRoom(room, freshSession.userId);
+    saveEditorDraft({
+      roomId: room.roomId,
+      role: room.role,
+      transcript: "只保存在本机的内容",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+    });
+
+    clearPrivateDeviceData();
+
+    expect(getActiveRoom(freshSession.userId)).toBeNull();
+    expect(getEditorDraft(room.roomId, room.role)).toBeNull();
   });
 });

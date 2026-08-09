@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isSupportedAudio } from "../src/handlers.ts";
-import { publicSupabaseConfig } from "../src/http.ts";
+import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
-import { validateRpcArgs } from "../src/rpc-validation.ts";
+import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 
 test("health endpoint identifies the Worker", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/health"), {});
@@ -40,6 +40,33 @@ test("business API rejects unauthenticated requests before touching Supabase", a
   );
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { message: "请先登录。" });
+});
+
+test("business API presents missing service configuration as a temporary outage", async () => {
+  const response = await handleRequest(
+    new Request("https://shuokai.example/miniapp-api", {
+      method: "POST",
+      headers: { authorization: "Bearer signed.jwt.value" },
+    }),
+    {},
+  );
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    message: "服务暂时不可用，请稍后再试。",
+    code: "SERVICE_NOT_CONFIGURED",
+  });
+});
+
+test("Bearer parsing rejects empty or ambiguous authorization values", () => {
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer signed.jwt.value" },
+  })), "Bearer signed.jwt.value");
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer " },
+  })), null);
+  assert.equal(bearerToken(new Request("https://shuokai.example", {
+    headers: { authorization: "Bearer first second" },
+  })), null);
 });
 
 test("Worker accepts current publishable keys and legacy anon keys", () => {
@@ -98,6 +125,12 @@ test("RPC validation permits the agreement loop with bounded inputs", () => {
     }),
     null,
   );
+});
+
+test("Worker allowlist excludes retired demo RPCs", () => {
+  assert.equal(isAllowedRpcMethod("simulate_partner"), false);
+  assert.equal(isAllowedRpcMethod("demo"), false);
+  assert.equal(isAllowedRpcMethod("create_room"), true);
 });
 
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {

@@ -32,6 +32,26 @@ $ochre: #eedfbd;
   backdrop-filter: blur(14px);
 }
 
+.room-back {
+  min-width: 62px;
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  border-radius: 999px;
+  background: rgba(255, 253, 248, .72);
+  color: $ink;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.room-back:active { background: rgba(223, 91, 63, .1); }
+.room-back[disabled] { opacity: .38; }
+.room-back-arrow { color: $coral-dark; font-size: 17px; line-height: 1; }
+.brand-lockup-room { margin-right: auto; margin-left: 10px; }
+
 .brand,
 .brand-en {
   display: block;
@@ -64,6 +84,42 @@ $ochre: #eedfbd;
   color: $coral-dark;
   font-weight: 700;
   letter-spacing: 2px;
+}
+
+.account-trigger {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: 16px;
+  min-width: 88px;
+  min-height: 30px;
+  padding: 3px 10px 3px 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(104, 114, 108, .28);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, .72);
+  color: $ink;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.account-trigger:active { background: rgba(223, 91, 63, .1); }
+.account-trigger[disabled] { opacity: .38; }
+
+.account-avatar {
+  width: 21px;
+  height: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: $ink;
+  color: #fff;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 9px;
 }
 
 .progress-track {
@@ -102,6 +158,29 @@ $ochre: #eedfbd;
   color: $green;
   font-size: 12px;
   line-height: 1.5;
+  overflow: hidden;
+  animation: notice-arrive .18s ease-out both;
+}
+
+@keyframes notice-arrive {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.notice-success::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(49, 91, 71, .34);
+  transform-origin: left;
+  animation: notice-lifetime 1.8s linear forwards;
+  content: "";
+}
+
+@keyframes notice-lifetime {
+  to { transform: scaleX(0); }
 }
 
 .notice-error {
@@ -247,7 +326,77 @@ button::after { border: 0; }
   padding: 0 1px;
 }
 
+.welcome-account {
+  width: 100%;
+  min-height: 60px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(49, 91, 71, .14);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, .68);
+  text-align: left;
+}
+
+.welcome-account-copy { min-width: 0; }
+.account-copy,
+.account-identity { display: block; }
+.account-copy {
+  color: $green;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.account-identity {
+  max-width: 230px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: $ink;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-account-link { display: flex; align-items: center; gap: 7px; color: $coral-dark; font-size: 10px; font-weight: 800; }
+
 .entry-panel .full { margin-top: 0; }
+
+.resume-room {
+  padding: 14px;
+  border: 1px solid rgba(49, 91, 71, .13);
+  border-radius: 13px;
+  background: rgba(255, 253, 248, .72);
+}
+
+.resume-room-copy {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.resume-room-label {
+  color: $green;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.resume-room-code {
+  color: $muted;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.new-room {
+  width: 100%;
+  margin-top: 9px;
+}
 
 .entry-divider {
   margin: 18px 0 13px;
@@ -454,7 +603,7 @@ button::after { border: 0; }
   line-height: 1.6;
 }
 
-.ai-card {
+.method-card {
   margin: 24px 0 20px;
   padding: 18px;
   border: 1px solid rgba(49, 91, 71, .09);
@@ -465,8 +614,8 @@ button::after { border: 0; }
   line-height: 1.75;
 }
 
-.ai-card text { display: block; }
-.ai-label { margin-bottom: 6px; font-size: 10px; font-weight: 800; letter-spacing: 2px; }
+.method-card text { display: block; }
+.method-label { margin-bottom: 6px; font-size: 10px; font-weight: 800; letter-spacing: 2px; }
 
 .card-list {
   margin-top: 24px;
@@ -495,6 +644,23 @@ button::after { border: 0; }
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 2px;
+}
+
+.card-stem {
+  display: block;
+  margin-top: 9px;
+  color: $ink;
+  font-family: serif;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.card-guide {
+  display: block;
+  margin-top: 5px;
+  color: rgba(28, 41, 35, .62);
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .perspective-card textarea {
@@ -564,8 +730,6 @@ button::after { border: 0; }
 }
 
 .refresh { width: 100%; margin-top: 12px; }
-.demo-action { border-style: dashed; color: $coral-dark; }
-
 .waiting-card {
   margin-top: 19px;
   padding: 14px 16px;

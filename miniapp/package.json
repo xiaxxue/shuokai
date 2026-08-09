@@ -4,12 +4,11 @@
   "private": true,
   "description": "说开跨端客户端（微信小程序、H5）",
   "scripts": {
-    "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin",
+    "build:mp-weixin": "node scripts/build-mp-weixin.mjs",
     "dev:h5": "uni",
     "build:h5": "uni build",
     "type-check": "vue-tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts && vitest run --config vitest.h5.config.ts"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5010520260709002",

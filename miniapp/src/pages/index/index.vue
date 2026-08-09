@@ -1,7 +1,17 @@
 <template>
   <view class="page-shell" :class="`stage-${stage.toLowerCase()}`">
     <view class="topbar">
-      <view class="brand-lockup">
+      <button
+        v-if="stage !== 'WELCOME'"
+        class="room-back"
+        aria-label="返回首页"
+        :disabled="busy"
+        @tap="returnToWelcome"
+      >
+        <text class="room-back-arrow">←</text>
+        <text>返回</text>
+      </button>
+      <view class="brand-lockup" :class="{ 'brand-lockup-room': stage !== 'WELCOME' }">
         <text class="brand">说开</text>
         <text class="brand-en">SHUOKAI</text>
       </view>
@@ -9,17 +19,40 @@
         <text class="progress-label">{{ currentPhaseLabel }}</text>
         <text class="progress-copy">{{ currentStep }} / {{ totalSteps }}</text>
       </view>
+      <button
+        v-if="authUserId"
+        class="account-trigger"
+        :disabled="busy"
+        aria-label="打开我的空间"
+        @tap="openAccountSpace"
+      ><text class="account-avatar">{{ accountMark }}</text><text>我的空间</text></button>
       <view v-if="stage !== 'WELCOME'" class="progress-track">
         <view class="progress-fill" :style="{ width: `${progressPercent}%` }" />
       </view>
     </view>
+
+    <AccountSpace
+      :open="accountOpen"
+      :platform-label="accountPlatform.platformLabel"
+      :identity="accountPlatform.identity"
+      :login-status="accountPlatform.loginStatus"
+      :room-code="room?.code ?? ''"
+      :room-phase="accountRoomPhase"
+      :room-role="accountRoomRole"
+      :draft-status="accountDraftStatus"
+      :can-sign-out="isLiveH5"
+      :platform-note="accountPlatform.platformNote"
+      :busy="busy"
+      @close="accountOpen = false"
+      @signout="requestH5Logout"
+    />
 
     <view
       v-if="notice"
       class="notice"
       :class="`notice-${notice.kind}`"
       role="status"
-      @tap="notice = null"
+      @tap="clearNotice"
     >
       <text class="notice-mark">{{ notice.kind === "error" ? "!" : notice.kind === "success" ? "✓" : "·" }}</text>
       <text class="notice-copy">{{ notice.message }}</text>
@@ -43,11 +76,37 @@
             换一个空间，
             <text class="hero-break">把话<text class="accent">说开</text>。</text>
           </view>
-          <text class="lead">不裁判谁对谁错。先把事实、理解、影响和请求分开，再一起看清真正的分歧。</text>
+          <text class="lead">不裁判谁对谁错。沿着观察、感受、需要、请求四步，再一起看清真正的分歧。</text>
         </view>
 
-        <view class="entry-panel">
-          <button class="primary full" :loading="busy" :disabled="busy" @tap="createRoom">
+        <H5AuthPanel
+          v-if="isLiveH5 && !authUserId"
+          :disabled="busy"
+          @authenticated="handleH5Authenticated"
+          @notice="setNotice"
+        />
+
+        <view v-else class="entry-panel">
+          <button v-if="authUserId" class="welcome-account" @tap="openAccountSpace">
+            <view class="welcome-account-copy">
+              <text class="account-copy">{{ accountPlatform.loginStatus }}</text>
+              <text class="account-identity">{{ accountPlatform.identity }}</text>
+            </view>
+            <view class="welcome-account-link"><text>我的空间</text><text>→</text></view>
+          </button>
+          <view v-if="room" class="resume-room">
+            <view class="resume-room-copy">
+              <text class="resume-room-label">当前沟通</text>
+              <text class="resume-room-code">{{ room.code }}</text>
+            </view>
+            <button class="primary full" :loading="busy" :disabled="busy" @tap="resumeCurrentRoom">
+              继续当前沟通
+            </button>
+            <button class="secondary new-room" :disabled="busy" @tap="createRoom">
+              发起新的沟通
+            </button>
+          </view>
+          <button v-else class="primary full" :loading="busy" :disabled="busy" @tap="createRoom">
             发起一次沟通
           </button>
           <view class="entry-divider"><text>或用房间码加入</text></view>
@@ -122,45 +181,47 @@
           :maxlength="12000"
           placeholder="也可以直接打字。试着描述具体发生了什么，以及它为什么让你在意。"
         />
-        <text class="privacy-note">🔒 当前内容已保存在此设备的私人草稿中</text>
+        <text class="privacy-note">🔒 {{ editorPrivacyNote }}</text>
       </view>
 
       <view v-else-if="stage === 'CLARIFY'" class="screen">
-        <text class="eyebrow">先抓住最重要的一点</text>
-        <text class="title">如果对方只能准确理解一件事，你最希望是哪一件？</text>
-        <view class="ai-card">
-          <text class="ai-label">整理提示</text>
-          <text>可以写下最让你在意的影响，也可以说明怎样的回应会让你觉得自己被听见。</text>
+        <text class="eyebrow">非暴力沟通 · 第二步</text>
+        <text class="title">当这件事发生时，你有什么感受？</text>
+        <view class="method-card">
+          <text class="method-label">感受，不是判断</text>
+          <text>试着写“难过、紧张、失望、安心”，而不是“被忽视、被针对、不被尊重”。</text>
         </view>
         <view class="field-heading">
-          <text>你的回答</text>
+          <text>你的感受</text>
           <text>{{ clarification.length }} / 3000</text>
         </view>
         <textarea
           v-model="clarification"
           class="transcript large"
           :maxlength="3000"
-          placeholder="用你自己的话回答……"
+          placeholder="例如：我感到焦虑、失望，也有些无助。"
         />
       </view>
 
       <view v-else-if="stage === 'REVIEW'" class="screen review-screen">
         <text class="eyebrow">发送前由你确认</text>
-        <text class="title">把你的表达整理成四部分</text>
-        <text class="description">请逐项检查和补全。只有以下四张卡会分享给对方，系统不会发送你的原始录音。</text>
+        <text class="title">用非暴力沟通四步整理</text>
+        <text class="description">依次检查观察、感受、需要和请求。只有你确认的四张卡会分享给对方，系统不会发送你的原始录音。</text>
         <view class="card-list">
           <view
-            v-for="(key, index) in perspectiveKeys"
-            :key="key"
+            v-for="(card, index) in nvcPerspectiveCards"
+            :key="card.key"
             class="perspective-card"
             :class="`tone-${index}`"
           >
             <view class="card-heading">
               <text class="card-number">0{{ index + 1 }}</text>
-              <text class="card-label">{{ perspectiveLabels[index] }}</text>
+              <text class="card-label">{{ card.label }}</text>
             </view>
-            <textarea v-model="perspective[key]" :maxlength="1000" :placeholder="perspectivePlaceholders[index]" />
-            <text class="card-count">{{ perspective[key].length }} / 1000</text>
+            <text class="card-stem">{{ card.stem }}</text>
+            <text class="card-guide">{{ card.guide }}</text>
+            <textarea v-model="perspective[card.key]" :maxlength="1000" :placeholder="card.placeholder" />
+            <text class="card-count">{{ perspective[card.key].length }} / 1000</text>
           </view>
         </view>
         <view class="approval-note"><text>✓</text><text>点击继续即表示你确认：这些内容准确代表你的意思。</text></view>
@@ -221,9 +282,9 @@
             <text class="speaker-avatar">{{ item.role }}</text>
             <text>{{ item.role === "A" ? "发起者" : "受邀者" }}的版本</text>
           </view>
-          <view v-for="(key, index) in perspectiveKeys" :key="key" class="perspective-row">
-            <text>{{ perspectiveLabels[index] }}</text>
-            <text>{{ item[key] }}</text>
+          <view v-for="card in nvcPerspectiveCards" :key="card.key" class="perspective-row">
+            <text>{{ card.label }}</text>
+            <text>{{ item[card.key] }}</text>
           </view>
         </view>
 
@@ -264,13 +325,6 @@
           :disabled="busy || ownAccepted"
           @tap="acceptAgreement"
         >{{ ownAccepted ? "我已确认，等待对方" : "我愿意尝试这个办法" }}</button>
-        <button
-          v-if="isMockApi && ownAccepted"
-          class="secondary refresh demo-action"
-          :loading="busy"
-          :disabled="busy"
-          @tap="simulatePartnerAgreement"
-        >演示：让对方确认</button>
         <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">刷新双方状态</button>
         <text class="privacy-note centered-note">只有双方都确认后，实验才会正式开始。</text>
       </view>
@@ -312,36 +366,38 @@ import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
 import { canNavigateBack, previousStage, stageForRoom } from "../../domain/room-state";
+import {
+  accountPlatformSummary,
+  draftStatusLabel,
+  roomPhaseLabel,
+  roomRoleLabel,
+  type DraftSaveState,
+} from "../../domain/account-status";
+import { nvcPerspectiveCards } from "../../domain/nvc";
 import { perspectiveFromDraft } from "../../domain/perspective";
 import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
+import AccountSpace from "../../components/AccountSpace.vue";
+import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
+import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
+import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
-  clearActiveRoom,
   clearEditorDraft,
+  clearPrivateDeviceData,
   getActiveRoom,
   getEditorDraft,
   saveActiveRoom,
   saveEditorDraft,
 } from "../../services/session";
 
-type Notice = { kind: "info" | "success" | "error"; message: string };
-
 const goals = [
-  { title: "让我被准确理解", description: "把最在意的事实和影响说清楚" },
+  { title: "让我被准确理解", description: "把观察、感受和真正的需要说清楚" },
   { title: "理解对方为什么这样想", description: "先听见对方行动背后的理由" },
   { title: "找到一个双方都能尝试的下一步", description: "从争论结论转向一个小实验" },
 ];
-const perspectiveKeys: Array<keyof Perspective> = ["fact", "meaning", "impact", "request"];
-const perspectiveLabels = ["可观察事实", "我的理解", "对我的影响", "我的请求"];
-const perspectivePlaceholders = [
-  "只写可以被观察或核对的事情，避免评价对方的人格。",
-  "这件事让你怎么理解当时的情况？",
-  "它对你的感受、时间或关系造成了什么影响？",
-  "你希望对方接下来具体做什么？",
-];
 const participantRoles = ["A", "B"] as const;
-const isMockApi = __USE_MOCK_API__;
+const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
@@ -368,9 +424,15 @@ const clarification = ref("");
 const agreementProposal = ref("");
 const reviewAt = ref(defaultReviewAt());
 const notice = ref<Notice | null>(null);
+const noticeController = createNoticeController((nextNotice) => { notice.value = nextNotice; });
+const authEmail = ref("");
+const authUserId = ref("");
+const accountOpen = ref(false);
+const draftSaveState = ref<DraftSaveState>("empty");
 const perspective = reactive<Perspective>({ fact: "", meaning: "", impact: "", request: "" });
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let workspaceGeneration = 0;
 
 watch(stage, () => {
   contentScrollTop.value = contentScrollTop.value === 0 ? 1 : 0;
@@ -401,6 +463,8 @@ watch(
 );
 
 onUnmounted(() => {
+  workspaceGeneration += 1;
+  noticeController.dispose();
   if (recordingTimer) clearInterval(recordingTimer);
   flushEditorDraft();
 });
@@ -431,6 +495,20 @@ const ownAccepted = computed(() => {
   if (!agreement || !room.value) return false;
   return room.value.role === "A" ? agreement.accepted_a : agreement.accepted_b;
 });
+const accountPlatform = computed(() => accountPlatformSummary(__PLATFORM__, authEmail.value));
+const accountMark = computed(() => accountPlatform.value.identity.slice(0, 1).toUpperCase() || "我");
+const accountRoomPhase = computed(() => roomPhaseLabel(stage.value, room.value));
+const accountRoomRole = computed(() => roomRoleLabel(room.value));
+const accountDraftStatus = computed(() => draftStatusLabel(
+  room.value,
+  draftSaveState.value,
+  Boolean(snapshot.value?.privateDraft),
+));
+const editorPrivacyNote = computed(() => {
+  if (draftSaveState.value === "saving") return "正在把当前内容保存到此设备";
+  if (draftSaveState.value === "saved") return "当前内容已保存在此设备的私人草稿中";
+  return "开始输入后，内容会自动保存为此设备的私人草稿";
+});
 
 function defaultReviewAt() {
   const date = new Date();
@@ -458,12 +536,32 @@ function message(error: unknown, fallback: string) {
 }
 
 function setNotice(kind: Notice["kind"], text: string) {
-  notice.value = { kind, message: text };
+  noticeController.show(kind, text);
+}
+
+function clearNotice() {
+  noticeController.clear();
 }
 
 function updateRoom(nextRoom: RoomSession) {
   room.value = nextRoom;
-  saveActiveRoom(nextRoom);
+  saveActiveRoom(nextRoom, authUserId.value || undefined);
+}
+
+function resetPrivateWorkspace() {
+  workspaceGeneration += 1;
+  if (recording.value) stopRecording();
+  recording.value = false;
+  if (editorSaveTimer) clearTimeout(editorSaveTimer);
+  editorSaveTimer = null;
+  room.value = null;
+  snapshot.value = null;
+  transcript.value = "";
+  clarification.value = "";
+  agreementProposal.value = "";
+  Object.assign(perspective, { fact: "", meaning: "", impact: "", request: "" });
+  reviewAt.value = defaultReviewAt();
+  draftSaveState.value = "empty";
 }
 
 function isEditorStage(value: ClientStage) {
@@ -481,10 +579,12 @@ function flushEditorDraft() {
     clarification: clarification.value,
     perspective: { ...perspective },
   });
+  draftSaveState.value = "saved";
 }
 
 function scheduleEditorDraftSave() {
   if (editorSaveTimer) clearTimeout(editorSaveTimer);
+  if (room.value && isEditorStage(stage.value)) draftSaveState.value = "saving";
   editorSaveTimer = setTimeout(flushEditorDraft, 250);
 }
 
@@ -495,6 +595,7 @@ function restoreEditorDraft(roomSession: RoomSession) {
   transcript.value = draft.transcript;
   clarification.value = draft.clarification;
   Object.assign(perspective, draft.perspective);
+  draftSaveState.value = "saved";
 }
 
 function applySnapshot(latest: RoomSnapshot) {
@@ -527,26 +628,60 @@ async function loadSnapshot(roomSession: RoomSession) {
   restoreEditorDraft(roomSession);
 }
 
-onLoad((options) => {
-  const incomingRoom = typeof options?.room === "string"
-    ? options.room.replace(/[^a-z0-9]/gi, "").slice(0, 7).toUpperCase()
-    : "";
-  if (incomingRoom) {
-    joinCode.value = incomingRoom;
-    return;
-  }
-  const savedRoom = getActiveRoom();
+async function restoreSavedRoom() {
+  const savedRoom = getActiveRoom(authUserId.value || undefined);
   if (!savedRoom) return;
   busy.value = true;
   room.value = savedRoom;
   stage.value = stageForRoom(savedRoom.role, savedRoom.state);
   restoreEditorDraft(savedRoom);
-  void loadSnapshot(savedRoom)
-    .then(() => setNotice("success", "已恢复上次的沟通进度。"))
-    .catch(() => {
-      setNotice("error", "暂时无法同步最新进展，房间信息已保留，可以稍后重试。 ");
-    })
-    .finally(() => { busy.value = false; });
+  try {
+    await loadSnapshot(savedRoom);
+    setNotice("success", "已恢复上次的沟通进度。");
+  } catch {
+    setNotice("error", "暂时无法同步最新进展，房间信息已保留，可以稍后重试。 ");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function initializePage(options: Record<string, unknown> | undefined) {
+  const incomingRoom = typeof options?.room === "string"
+    ? options.room.replace(/[^a-z0-9]/gi, "").slice(0, 7).toUpperCase()
+    : "";
+  if (incomingRoom) joinCode.value = incomingRoom;
+
+  if (isLiveH5) {
+    busy.value = true;
+    try {
+      const restored = await restoreH5Auth();
+      authUserId.value = restored.session?.userId ?? "";
+      authEmail.value = restored.email;
+    } catch (error) {
+      setNotice("error", message(error, "无法恢复登录状态，请重新登录。"));
+    } finally {
+      busy.value = false;
+    }
+    if (!authUserId.value || incomingRoom) return;
+  } else {
+    busy.value = true;
+    try {
+      const session = await loginForPlatform();
+      authUserId.value = session.userId;
+    } catch (error) {
+      setNotice("error", message(error, "当前平台登录失败，请稍后重试。"));
+      return;
+    } finally {
+      busy.value = false;
+    }
+    if (incomingRoom) return;
+  }
+
+  await restoreSavedRoom();
+}
+
+onLoad((options) => {
+  void initializePage(options);
 });
 
 onShareAppMessage(() => ({
@@ -560,12 +695,14 @@ function normalizeJoinCode(event: Event) {
 }
 
 async function createRoom() {
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
-    await loginForPlatform();
+    const session = await loginForPlatform();
+    authUserId.value = session.userId;
     const created = await roomApi.create();
-    clearEditorDraft();
+    clearPrivateDeviceData();
+    resetPrivateWorkspace();
     updateRoom(created);
     stage.value = stageForRoom(created.role, created.state);
     setNotice("success", "私人沟通空间已创建。先确认这次的意图。 ");
@@ -581,11 +718,14 @@ async function joinRoom() {
     setNotice("error", "请输入完整的 7 位房间码。 ");
     return;
   }
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
+    const session = await loginForPlatform();
+    authUserId.value = session.userId;
     const joined = await roomApi.join(joinCode.value);
-    clearEditorDraft();
+    clearPrivateDeviceData();
+    resetPrivateWorkspace();
     updateRoom(joined);
     const joinedStage = stageForRoom(joined.role, joined.state);
     if (["COMMON", "AGREEMENT", "COMPLETE"].includes(joinedStage)) await loadSnapshot(joined);
@@ -598,25 +738,83 @@ async function joinRoom() {
   }
 }
 
+async function handleH5Authenticated(result: H5AuthResult) {
+  if (!result.session) return;
+  authUserId.value = result.session.userId;
+  authEmail.value = result.email;
+  setNotice("success", "登录成功。");
+  await restoreSavedRoom();
+}
+
+function openAccountSpace() {
+  flushEditorDraft();
+  accountOpen.value = true;
+}
+
+function confirmLogoutImpact() {
+  return new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title: "退出当前设备？",
+      content: "退出后，这台设备保存的当前房间入口与未分享的私人草稿会被清除；其他设备不会退出。",
+      confirmText: "确认退出",
+      confirmColor: "#be442e",
+      cancelText: "继续使用",
+      success: ({ confirm }) => resolve(confirm),
+      fail: () => resolve(false),
+    });
+  });
+}
+
+async function requestH5Logout() {
+  if (!await confirmLogoutImpact()) return;
+  await logoutH5Account();
+}
+
+async function logoutH5Account() {
+  if (!isLiveH5 || !authUserId.value) return;
+  clearNotice();
+  busy.value = true;
+  try {
+    await signOutH5();
+    clearPrivateDeviceData();
+    resetPrivateWorkspace();
+    authUserId.value = "";
+    authEmail.value = "";
+    accountOpen.value = false;
+    stage.value = "WELCOME";
+    setNotice("success", "已退出，并清除本机保存的房间与私人草稿。");
+  } catch (error) {
+    setNotice("error", message(error, "退出失败，请稍后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function toggleRecording() {
-  notice.value = null;
+  clearNotice();
   try {
     if (!recording.value) {
       const { completion } = await startRecording();
+      const generation = workspaceGeneration;
       recording.value = true;
       void completion
         .then(async (audio) => {
+          if (generation !== workspaceGeneration) return;
           recording.value = false;
           busy.value = true;
           const text = await transcribeAudio(audio);
+          if (generation !== workspaceGeneration) return;
           transcript.value = transcript.value.trim() ? `${transcript.value.trim()}\n${text}` : text;
           setNotice("success", "转写完成，你可以继续修改文字。 ");
         })
         .catch((error) => {
+          if (generation !== workspaceGeneration) return;
           recording.value = false;
           setNotice("error", message(error, "录音失败，请改用文字输入。"));
         })
-        .finally(() => { busy.value = false; });
+        .finally(() => {
+          if (generation === workspaceGeneration) busy.value = false;
+        });
       return;
     }
     stopRecording();
@@ -628,7 +826,7 @@ async function toggleRecording() {
 
 async function next() {
   if (!room.value || !canContinue.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     if (stage.value === "GOAL") {
@@ -652,6 +850,7 @@ async function next() {
       if (editorSaveTimer) clearTimeout(editorSaveTimer);
       editorSaveTimer = null;
       clearEditorDraft();
+      draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: approved.state });
       if (stageForRoom(room.value.role, approved.state) === "COMMON") {
         await loadSnapshot(room.value);
@@ -675,7 +874,7 @@ async function next() {
 
 async function refreshRoom() {
   if (!room.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   const previousState = room.value.state;
   try {
@@ -719,7 +918,7 @@ function isAccepted(role: "A" | "B") {
 
 async function acceptAgreement() {
   if (!room.value || ownAccepted.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     const result = await roomApi.acceptAgreement(room.value.roomId);
@@ -736,38 +935,39 @@ async function acceptAgreement() {
   }
 }
 
-async function simulatePartnerAgreement() {
-  if (!room.value || !isMockApi) return;
-  notice.value = null;
+function goBack() {
+  clearNotice();
+  stage.value = previousStage(stage.value);
+}
+
+function returnToWelcome() {
+  if (recording.value) stopRecording();
+  recording.value = false;
+  flushEditorDraft();
+  clearNotice();
+  stage.value = "WELCOME";
+}
+
+async function resumeCurrentRoom() {
+  if (!room.value) return;
+  clearNotice();
   busy.value = true;
   try {
-    const result = await roomApi.simulatePartnerAcceptance();
-    updateRoom({ ...room.value, state: result.state });
     await loadSnapshot(room.value);
-    setNotice("success", "演示中的对方已独立确认，7 天实验现在开始。 ");
+    setNotice("success", "已回到当前沟通，之前的进度仍在。 ");
   } catch (error) {
-    setNotice("error", message(error, "无法完成对方确认演示。"));
+    stage.value = stageForRoom(room.value.role, room.value.state);
+    restoreEditorDraft(room.value);
+    setNotice("error", message(error, "暂时无法同步最新进展，已打开本机保存的进度。"));
   } finally {
     busy.value = false;
   }
 }
 
-function goBack() {
-  notice.value = null;
-  stage.value = previousStage(stage.value);
-}
-
 function startAnotherRoom() {
-  clearActiveRoom();
-  clearEditorDraft();
-  room.value = null;
-  snapshot.value = null;
-  transcript.value = "";
-  clarification.value = "";
-  agreementProposal.value = "";
-  Object.assign(perspective, { fact: "", meaning: "", impact: "", request: "" });
-  reviewAt.value = defaultReviewAt();
-  notice.value = null;
+  clearPrivateDeviceData();
+  resetPrivateWorkspace();
+  clearNotice();
   stage.value = "WELCOME";
 }
 </script>

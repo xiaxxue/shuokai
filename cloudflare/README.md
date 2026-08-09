@@ -11,7 +11,7 @@ npm run cloudflare:test
 npm run cloudflare:dev
 ```
 
-正式 H5 的 dry-run 必须显式提供客户端可公开的 Supabase 配置，避免生成 mock 包后被误部署：
+正式 H5 的 dry-run 必须显式提供客户端可公开的 Supabase 配置；缺失时构建会失败，不会生成降级包：
 
 ```bash
 SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
@@ -31,7 +31,11 @@ npm run cloudflare:dry-run
 - `OPENAI_API_KEY`（Secret）
 - `ALLOWED_ORIGINS`（可选，逗号分隔；H5 与 Worker 同域时无需填写）
 
-本地开发可放在 `cloudflare/.dev.vars`；该文件已被 Git 忽略。不要把任何真实密钥写入仓库。
+本地开发先复制 `cloudflare/.dev.vars.example` 为 `cloudflare/.dev.vars`；真实值文件已被 Git 忽略。不要把任何真实密钥写入仓库。
+
+业务 API 与转写入口会从 `Authorization: Bearer <jwt>` 中提取 JWT，并使用 Supabase
+`auth.getClaims(jwt)` 按当前项目 signing keys 验证签名与 claims。Worker 仍以同一个用户 JWT 调用
+PostgREST RPC，让数据库中的 `auth.uid()` 与 RLS 执行最终资源所有权检查。
 
 ## 部署
 
@@ -46,7 +50,6 @@ npm run cloudflare:deploy
 部署完成后，把 Worker 的 HTTPS 域名加入微信小程序的 `request` 和 `uploadFile` 合法域名。微信小程序正式构建时显式指定同一个域名：
 
 ```bash
-SHUOKAI_API_MODE=live \
 SHUOKAI_API_BASE_URL=https://your-worker.example.com \
 npm run miniapp:build
 ```
