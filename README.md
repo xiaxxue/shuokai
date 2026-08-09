@@ -85,6 +85,14 @@ SHUOKAI_SUPABASE_PUBLISHABLE_KEY=your-publishable-key \
 npm run cloudflare:dry-run
 ```
 
+共享测试环境只允许从已推送并与 `origin/main` 完全一致的干净 `main` 检出部署；功能分支不得直接覆盖共享测试环境。完整的 worktree、review、合并、推送和测试部署顺序见 [`docs/development-workflow.md`](./docs/development-workflow.md)。受保护的测试部署入口是：
+
+```bash
+npm run cloudflare:deploy:test:main
+```
+
+该入口固定使用 `cloudflare/wrangler.test.jsonc`；生产部署不属于默认流程。
+
 ## 本地运行跨端客户端
 
 ```bash
