@@ -1,5 +1,5 @@
 import type { AuthSession, Perspective, RoomSession } from "../domain/types";
-import { roomStates } from "../domain/room-state";
+import { isEditorClientStage, roomStates, type ClientStage } from "../domain/room-state";
 
 const SESSION_KEY = "shuokai.session.v2";
 const ACTIVE_ROOM_KEY = "shuokai.active-room.v1";
@@ -14,6 +14,7 @@ export type EditorDraft = {
   transcript: string;
   clarification: string;
   perspective: Perspective;
+  editorStage?: ClientStage;
 };
 
 export function getSession(): AuthSession | null {
@@ -67,13 +68,29 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     !roomIdPattern.test(roomId) ||
     !isBoundedText(candidate.transcript, 12000) ||
     !isBoundedText(candidate.clarification, 3000) ||
+    (candidate.editorStage !== undefined && !isEditorClientStage(candidate.editorStage)) ||
     !cards ||
     !isBoundedText(cards.fact, 1000) ||
     !isBoundedText(cards.meaning, 1000) ||
     !isBoundedText(cards.impact, 1000) ||
     !isBoundedText(cards.request, 1000)
   ) return null;
-  return candidate as EditorDraft;
+  const migratedMeaning = cards.meaning.trim()
+    ? cards.meaning
+    : candidate.clarification.trim().slice(0, 1000);
+  return {
+    roomId: candidate.roomId,
+    role: candidate.role,
+    transcript: candidate.transcript,
+    clarification: candidate.clarification,
+    perspective: {
+      fact: cards.fact,
+      meaning: migratedMeaning,
+      impact: cards.impact,
+      request: cards.request,
+    },
+    ...(candidate.editorStage ? { editorStage: candidate.editorStage } : {}),
+  };
 }
 
 export function saveEditorDraft(draft: EditorDraft) {

@@ -32,7 +32,10 @@ export type ClientStage =
   | "WELCOME"
   | "GOAL"
   | "RECORD"
-  | "CLARIFY"
+  | "NVC_OBSERVATION"
+  | "NVC_FEELING"
+  | "NVC_NEED"
+  | "NVC_REQUEST"
   | "REVIEW"
   | "INVITE"
   | "COMMON"
@@ -43,7 +46,10 @@ export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
   "GOAL",
   "RECORD",
-  "CLARIFY",
+  "NVC_OBSERVATION",
+  "NVC_FEELING",
+  "NVC_NEED",
+  "NVC_REQUEST",
   "REVIEW",
   "INVITE",
   "COMMON",
@@ -57,7 +63,26 @@ export function previousStage(stage: ClientStage): ClientStage {
 }
 
 export function canNavigateBack(stage: ClientStage) {
-  return stage === "CLARIFY";
+  return [
+    "NVC_OBSERVATION",
+    "NVC_FEELING",
+    "NVC_NEED",
+    "NVC_REQUEST",
+    "REVIEW",
+  ].includes(stage);
+}
+
+export const editorClientStages: readonly ClientStage[] = [
+  "RECORD",
+  "NVC_OBSERVATION",
+  "NVC_FEELING",
+  "NVC_NEED",
+  "NVC_REQUEST",
+  "REVIEW",
+];
+
+export function isEditorClientStage(stage: unknown): stage is ClientStage {
+  return typeof stage === "string" && editorClientStages.includes(stage as ClientStage);
 }
 
 export function stageForRoom(role: "A" | "B", state: RoomState): ClientStage {

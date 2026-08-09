@@ -184,48 +184,21 @@
         <text class="privacy-note">🔒 {{ editorPrivacyNote }}</text>
       </view>
 
-      <view v-else-if="stage === 'CLARIFY'" class="screen">
-        <text class="eyebrow">非暴力沟通 · 第二步</text>
-        <text class="title">当这件事发生时，你有什么感受？</text>
-        <view class="method-card">
-          <text class="method-label">感受，不是判断</text>
-          <text>试着写“难过、紧张、失望、安心”，而不是“被忽视、被针对、不被尊重”。</text>
-        </view>
-        <view class="field-heading">
-          <text>你的感受</text>
-          <text>{{ clarification.length }} / 3000</text>
-        </view>
-        <textarea
-          v-model="clarification"
-          class="transcript large"
-          :maxlength="3000"
-          placeholder="例如：我感到焦虑、失望，也有些无助。"
-        />
-      </view>
+      <NvcStepEditor
+        v-else-if="activeNvcCard"
+        :model-value="perspective[activeNvcCard.key]"
+        :card="activeNvcCard"
+        :index="activeNvcIndex"
+        :perspective="perspective"
+        :privacy-note="editorPrivacyNote"
+        @update:model-value="updateActiveNvcValue"
+      />
 
-      <view v-else-if="stage === 'REVIEW'" class="screen review-screen">
-        <text class="eyebrow">发送前由你确认</text>
-        <text class="title">用非暴力沟通四步整理</text>
-        <text class="description">依次检查观察、感受、需要和请求。只有你确认的四张卡会分享给对方，系统不会发送你的原始录音。</text>
-        <view class="card-list">
-          <view
-            v-for="(card, index) in nvcPerspectiveCards"
-            :key="card.key"
-            class="perspective-card"
-            :class="`tone-${index}`"
-          >
-            <view class="card-heading">
-              <text class="card-number">0{{ index + 1 }}</text>
-              <text class="card-label">{{ card.label }}</text>
-            </view>
-            <text class="card-stem">{{ card.stem }}</text>
-            <text class="card-guide">{{ card.guide }}</text>
-            <textarea v-model="perspective[card.key]" :maxlength="1000" :placeholder="card.placeholder" />
-            <text class="card-count">{{ perspective[card.key].length }} / 1000</text>
-          </view>
-        </view>
-        <view class="approval-note"><text>✓</text><text>点击继续即表示你确认：这些内容准确代表你的意思。</text></view>
-      </view>
+      <NvcReviewSummary
+        v-else-if="stage === 'REVIEW'"
+        :perspective="perspective"
+        @edit="editNvcCard"
+      />
 
       <view v-else-if="stage === 'INVITE'" class="screen invite-screen">
         <view class="completion-mark small">✓</view>
@@ -365,7 +338,7 @@
 import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
-import { canNavigateBack, previousStage, stageForRoom } from "../../domain/room-state";
+import { canNavigateBack, isEditorClientStage, previousStage, stageForRoom } from "../../domain/room-state";
 import {
   accountPlatformSummary,
   draftStatusLabel,
@@ -373,11 +346,18 @@ import {
   roomRoleLabel,
   type DraftSaveState,
 } from "../../domain/account-status";
-import { nvcPerspectiveCards } from "../../domain/nvc";
-import { perspectiveFromDraft } from "../../domain/perspective";
+import {
+  nextNvcStage,
+  nvcCardForStage,
+  nvcPerspectiveCards,
+  nvcStageForKey,
+} from "../../domain/nvc";
+import { createNvcPerspective } from "../../domain/perspective";
 import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
 import AccountSpace from "../../components/AccountSpace.vue";
 import H5AuthPanel from "../../components/H5AuthPanel.vue";
+import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
+import NvcStepEditor from "../../components/NvcStepEditor.vue";
 import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
@@ -402,7 +382,10 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
   RECORD: { step: 2, label: "表达" },
-  CLARIFY: { step: 2, label: "表达" },
+  NVC_OBSERVATION: { step: 2, label: "整理" },
+  NVC_FEELING: { step: 2, label: "整理" },
+  NVC_NEED: { step: 2, label: "整理" },
+  NVC_REQUEST: { step: 2, label: "整理" },
   REVIEW: { step: 3, label: "确认" },
   INVITE: { step: 3, label: "确认" },
   COMMON: { step: 4, label: "共视" },
@@ -420,7 +403,6 @@ const recording = ref(false);
 const recordingSeconds = ref(0);
 const busy = ref(false);
 const transcript = ref("");
-const clarification = ref("");
 const agreementProposal = ref("");
 const reviewAt = ref(defaultReviewAt());
 const notice = ref<Notice | null>(null);
@@ -429,7 +411,7 @@ const authEmail = ref("");
 const authUserId = ref("");
 const accountOpen = ref(false);
 const draftSaveState = ref<DraftSaveState>("empty");
-const perspective = reactive<Perspective>({ fact: "", meaning: "", impact: "", request: "" });
+const perspective = reactive<Perspective>(createNvcPerspective());
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let workspaceGeneration = 0;
@@ -452,7 +434,6 @@ watch(recording, (isRecording) => {
 watch(
   [
     transcript,
-    clarification,
     () => perspective.fact,
     () => perspective.meaning,
     () => perspective.impact,
@@ -476,15 +457,25 @@ const totalSteps = 5;
 const currentStep = computed(() => phaseByStage[stage.value].step);
 const currentPhaseLabel = computed(() => phaseByStage[stage.value].label);
 const progressPercent = computed(() => (currentStep.value / totalSteps) * 100);
-const showBottomBar = computed(() => ["GOAL", "RECORD", "CLARIFY", "REVIEW", "COMMON"].includes(stage.value));
+const activeNvcCard = computed(() => nvcCardForStage(stage.value));
+const activeNvcIndex = computed(() => activeNvcCard.value
+  ? nvcPerspectiveCards.findIndex((card) => card.key === activeNvcCard.value?.key)
+  : -1);
+const showBottomBar = computed(() => ["GOAL", "RECORD", "REVIEW", "COMMON"].includes(stage.value) || Boolean(activeNvcCard.value));
 const canContinue = computed(() => {
   if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
-  if (stage.value === "CLARIFY") return clarification.value.trim().length > 0;
+  if (activeNvcCard.value) return perspective[activeNvcCard.value.key].trim().length > 0;
   if (stage.value === "REVIEW") return Object.values(perspective).every((value) => value.trim().length > 0);
   if (stage.value === "COMMON") return agreementProposal.value.trim().length > 0;
   return true;
 });
 const nextLabel = computed(() => {
+  if (stage.value === "RECORD") return "开始四步整理";
+  if (activeNvcCard.value) {
+    const nextStage = nextNvcStage(activeNvcCard.value.stage);
+    const nextCard = nextStage ? nvcCardForStage(nextStage) : null;
+    return nextCard ? `下一步：${nextCard.label}` : "查看四步总览";
+  }
   if (stage.value === "REVIEW") return "确认并分享";
   if (stage.value === "COMMON") return "提出 7 天实验";
   return "继续";
@@ -557,15 +548,18 @@ function resetPrivateWorkspace() {
   room.value = null;
   snapshot.value = null;
   transcript.value = "";
-  clarification.value = "";
   agreementProposal.value = "";
-  Object.assign(perspective, { fact: "", meaning: "", impact: "", request: "" });
+  Object.assign(perspective, createNvcPerspective());
   reviewAt.value = defaultReviewAt();
   draftSaveState.value = "empty";
 }
 
 function isEditorStage(value: ClientStage) {
-  return value === "RECORD" || value === "CLARIFY" || value === "REVIEW";
+  return isEditorClientStage(value);
+}
+
+function roomIsDrafting(roomSession: RoomSession) {
+  return roomSession.state === (roomSession.role === "A" ? "A_DRAFTING" : "B_DRAFTING");
 }
 
 function flushEditorDraft() {
@@ -576,8 +570,9 @@ function flushEditorDraft() {
     roomId: room.value.roomId,
     role: room.value.role,
     transcript: transcript.value,
-    clarification: clarification.value,
+    clarification: perspective.meaning,
     perspective: { ...perspective },
+    editorStage: stage.value,
   });
   draftSaveState.value = "saved";
 }
@@ -593,8 +588,8 @@ function restoreEditorDraft(roomSession: RoomSession) {
   const draft = getEditorDraft(roomSession.roomId, roomSession.role);
   if (!draft) return;
   transcript.value = draft.transcript;
-  clarification.value = draft.clarification;
   Object.assign(perspective, draft.perspective);
+  if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
   draftSaveState.value = "saved";
 }
 
@@ -605,7 +600,6 @@ function applySnapshot(latest: RoomSnapshot) {
   if (latest.room.goal) goal.value = latest.room.goal;
   if (latest.privateDraft) {
     transcript.value = latest.privateDraft.transcript;
-    clarification.value = latest.privateDraft.clarification ?? "";
   }
   if (latest.ownPerspective) {
     Object.assign(perspective, latest.ownPerspective);
@@ -615,7 +609,7 @@ function applySnapshot(latest: RoomSnapshot) {
   ) {
     Object.assign(
       perspective,
-      perspectiveFromDraft(latest.privateDraft.transcript, latest.privateDraft.clarification ?? ""),
+      createNvcPerspective(latest.privateDraft.clarification ?? ""),
     );
   }
   if (latest.agreement) agreementProposal.value = latest.agreement.proposal;
@@ -834,13 +828,19 @@ async function next() {
       updateRoom({ ...room.value, state: result.state });
       stage.value = "RECORD";
     } else if (stage.value === "RECORD") {
-      stage.value = "CLARIFY";
-    } else if (stage.value === "CLARIFY") {
-      const result = await roomApi.saveDraft(room.value.roomId, transcript.value.trim(), clarification.value.trim());
-      updateRoom({ ...room.value, state: result.state });
-      Object.assign(perspective, perspectiveFromDraft(transcript.value, clarification.value));
-      stage.value = "REVIEW";
+      stage.value = "NVC_OBSERVATION";
+    } else if (activeNvcCard.value) {
+      const nextStage = nextNvcStage(activeNvcCard.value.stage);
+      stage.value = nextStage ?? "REVIEW";
     } else if (stage.value === "REVIEW") {
+      if (roomIsDrafting(room.value)) {
+        const result = await roomApi.saveDraft(
+          room.value.roomId,
+          transcript.value.trim(),
+          perspective.meaning.trim(),
+        );
+        updateRoom({ ...room.value, state: result.state });
+      }
       const approved = await roomApi.approvePerspective(room.value.roomId, {
         fact: perspective.fact.trim(),
         meaning: perspective.meaning.trim(),
@@ -914,6 +914,16 @@ async function shareInvite() {
 function isAccepted(role: "A" | "B") {
   const agreement = snapshot.value?.agreement;
   return role === "A" ? Boolean(agreement?.accepted_a) : Boolean(agreement?.accepted_b);
+}
+
+function editNvcCard(key: keyof Perspective) {
+  clearNotice();
+  stage.value = nvcStageForKey(key);
+}
+
+function updateActiveNvcValue(value: string) {
+  if (!activeNvcCard.value) return;
+  perspective[activeNvcCard.value.key] = value;
 }
 
 async function acceptAgreement() {

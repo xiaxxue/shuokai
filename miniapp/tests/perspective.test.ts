@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { nvcPerspectiveCards } from "../src/domain/nvc";
-import { perspectiveFromDraft } from "../src/domain/perspective";
+import {
+  nextNvcStage,
+  nvcCardForStage,
+  nvcPerspectiveCards,
+  nvcStageForKey,
+} from "../src/domain/nvc";
+import { createNvcPerspective } from "../src/domain/perspective";
 
 describe("perspective draft", () => {
   it("uses the four canonical nonviolent communication steps in order", () => {
@@ -12,9 +17,16 @@ describe("perspective draft", () => {
     ]);
   });
 
-  it("uses the participant's words instead of canned content", () => {
-    expect(perspectiveFromDraft("  真实发生的事  ", "  我感到难过  ")).toEqual({
-      fact: "真实发生的事",
+  it("maps every card to the same four-step guided flow", () => {
+    expect(nvcCardForStage("NVC_OBSERVATION")?.key).toBe("fact");
+    expect(nextNvcStage("NVC_OBSERVATION")).toBe("NVC_FEELING");
+    expect(nextNvcStage("NVC_REQUEST")).toBeNull();
+    expect(nvcStageForKey("impact")).toBe("NVC_NEED");
+  });
+
+  it("does not mislabel an unstructured expression as an observation", () => {
+    expect(createNvcPerspective("  我感到难过  ")).toEqual({
+      fact: "",
       meaning: "我感到难过",
       impact: "",
       request: "",
@@ -22,7 +34,6 @@ describe("perspective draft", () => {
   });
 
   it("keeps generated fields inside the database limit", () => {
-    expect(perspectiveFromDraft("a".repeat(1200), "b".repeat(1200)).fact).toHaveLength(1000);
-    expect(perspectiveFromDraft("a", "b".repeat(1200)).meaning).toHaveLength(1000);
+    expect(createNvcPerspective("b".repeat(1200)).meaning).toHaveLength(1000);
   });
 });
