@@ -11,7 +11,7 @@ npm run cloudflare:test
 npm run cloudflare:dev
 ```
 
-正式 H5 的 dry-run 必须显式提供客户端可公开的 Supabase 配置，避免生成 mock 包后被误部署：
+正式 H5 的 dry-run 必须显式提供客户端可公开的 Supabase 配置；缺失时构建会失败，不会生成降级包：
 
 ```bash
 SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
@@ -50,7 +50,6 @@ npm run cloudflare:deploy
 部署完成后，把 Worker 的 HTTPS 域名加入微信小程序的 `request` 和 `uploadFile` 合法域名。微信小程序正式构建时显式指定同一个域名：
 
 ```bash
-SHUOKAI_API_MODE=live \
 SHUOKAI_API_BASE_URL=https://your-worker.example.com \
 npm run miniapp:build
 ```

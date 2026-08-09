@@ -10,9 +10,8 @@ import {
   parseStateResult,
 } from "../domain/room-validation";
 import type { RecordedAudio } from "./recorder";
-import { createMockApi } from "./mock-api";
 import { requireH5Session } from "./auth";
-import { clearSession, getActiveRoom, getSession, saveSession } from "./session";
+import { clearSession, getSession, saveSession } from "./session";
 
 type RpcArgs = Record<string, string | number | boolean | null>;
 
@@ -74,17 +73,6 @@ function parseAuthSession(data: unknown): AuthSession {
 }
 
 async function requestPlatformSession(): Promise<AuthSession> {
-  if (__USE_MOCK_API__) {
-    const mock = {
-      accessToken: "mock-access-token",
-      refreshToken: "mock-refresh-token",
-      expiresAt: Math.floor(Date.now() / 1000) + 3600,
-      userId: "00000000-0000-4000-8000-000000000001",
-    };
-    saveSession(mock);
-    return mock;
-  }
-
   const code = await wechatLogin();
   const response = await request<unknown>({
     url: apiUrl("/wechat-login"),
@@ -102,7 +90,6 @@ async function requestPlatformSession(): Promise<AuthSession> {
 }
 
 async function refreshSession(session: AuthSession): Promise<AuthSession> {
-  if (__USE_MOCK_API__) return session;
   const response = await request<unknown>({
     url: apiUrl("/wechat-login"),
     method: "POST",
@@ -119,7 +106,7 @@ async function refreshSession(session: AuthSession): Promise<AuthSession> {
 let pendingSession: Promise<AuthSession> | null = null;
 
 async function resolveSession() {
-  if (!__USE_MOCK_API__ && __PLATFORM__ === "h5") return requireH5Session();
+  if (__PLATFORM__ === "h5") return requireH5Session();
   const session = getSession();
   if (!session) return requestPlatformSession();
   if (session.expiresAt > Math.floor(Date.now() / 1000) + 60) return session;
@@ -144,15 +131,7 @@ async function activeSession() {
   return loginForPlatform();
 }
 
-let mockApi: ReturnType<typeof createMockApi> | null = null;
-
-function activeMockApi() {
-  if (!mockApi) mockApi = createMockApi(getActiveRoom() ?? undefined);
-  return mockApi;
-}
-
 async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
-  if (__USE_MOCK_API__) return activeMockApi().call<T>(name, args);
   const session = await activeSession();
   const response = await request<T>({
     url: apiUrl("/miniapp-api"),
@@ -205,10 +184,6 @@ export const roomApi = {
       "accept_agreement",
       { p_room_id: roomId },
     )),
-  simulatePartnerAcceptance: () => {
-    if (!__USE_MOCK_API__) throw new Error("模拟操作只在本地演示模式可用。");
-    return Promise.resolve(activeMockApi().simulatePartnerAcceptance());
-  },
   snapshot: async (roomId: string) =>
     parseRoomSnapshot(await rpc<unknown>("get_room_snapshot", { p_room_id: roomId })),
 };
@@ -241,9 +216,6 @@ async function uploadBlob(audio: Extract<RecordedAudio, { kind: "blob" }>, acces
 }
 
 export async function transcribeAudio(audio: RecordedAudio) {
-  if (__USE_MOCK_API__) {
-    return "昨晚你临时改变了周末安排，我是到很晚才知道。我难过的不只是计划取消，而是觉得自己没有被提前考虑。";
-  }
   const session = await activeSession();
   const result = audio.kind === "blob"
     ? await uploadBlob(audio, session.accessToken)

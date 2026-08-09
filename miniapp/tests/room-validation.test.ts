@@ -5,7 +5,6 @@ import {
   parseRoomSnapshot,
   parseStateResult,
 } from "../src/domain/room-validation";
-import { createMockApi } from "../src/services/mock-api";
 
 describe("room API response validation", () => {
   it("accepts valid room sessions and snapshots", () => {
@@ -15,10 +14,23 @@ describe("room API response validation", () => {
       role: "B" as const,
       state: "COMMON_VIEW_READY" as const,
     };
-    const mock = createMockApi(session);
+    const snapshot = {
+      room: {
+        id: session.roomId,
+        code: session.code,
+        state: session.state,
+        goal: "让我被准确理解",
+      },
+      me: { id: "participant-b", role: "B", display_name: "我" },
+      privateDraft: null,
+      ownPerspective: null,
+      approvedPerspectives: [],
+      sharedView: null,
+      agreement: null,
+    };
 
     expect(parseRoomSession(session)).toEqual(session);
-    expect(parseRoomSnapshot(mock.snapshot()).room.state).toBe("COMMON_VIEW_READY");
+    expect(parseRoomSnapshot(snapshot).room.state).toBe("COMMON_VIEW_READY");
   });
 
   it("rejects malformed successful responses before they reach page state", () => {

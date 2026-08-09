@@ -5,7 +5,7 @@ site_url = "https://shuokai-supabase-test.shuokai.workers.dev/"
 additional_redirect_urls = ["https://shuokai-supabase-test.shuokai.workers.dev/"]
 enable_manual_linking = true
 enable_signup = true
-enable_anonymous_sign_ins = true
+enable_anonymous_sign_ins = false
 
 [auth.email]
 enable_signup = true

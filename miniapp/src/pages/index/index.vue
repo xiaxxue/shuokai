@@ -325,13 +325,6 @@
           :disabled="busy || ownAccepted"
           @tap="acceptAgreement"
         >{{ ownAccepted ? "我已确认，等待对方" : "我愿意尝试这个办法" }}</button>
-        <button
-          v-if="isMockApi && ownAccepted"
-          class="secondary refresh demo-action"
-          :loading="busy"
-          :disabled="busy"
-          @tap="simulatePartnerAgreement"
-        >演示：让对方确认</button>
         <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">刷新双方状态</button>
         <text class="privacy-note centered-note">只有双方都确认后，实验才会正式开始。</text>
       </view>
@@ -404,8 +397,7 @@ const goals = [
   { title: "找到一个双方都能尝试的下一步", description: "从争论结论转向一个小实验" },
 ];
 const participantRoles = ["A", "B"] as const;
-const isMockApi = __USE_MOCK_API__;
-const isLiveH5 = !__USE_MOCK_API__ && __PLATFORM__ === "h5";
+const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
@@ -503,7 +495,7 @@ const ownAccepted = computed(() => {
   if (!agreement || !room.value) return false;
   return room.value.role === "A" ? agreement.accepted_a : agreement.accepted_b;
 });
-const accountPlatform = computed(() => accountPlatformSummary(__PLATFORM__, isMockApi, authEmail.value));
+const accountPlatform = computed(() => accountPlatformSummary(__PLATFORM__, authEmail.value));
 const accountMark = computed(() => accountPlatform.value.identity.slice(0, 1).toUpperCase() || "我");
 const accountRoomPhase = computed(() => roomPhaseLabel(stage.value, room.value));
 const accountRoomRole = computed(() => roomRoleLabel(room.value));
@@ -671,7 +663,7 @@ async function initializePage(options: Record<string, unknown> | undefined) {
       busy.value = false;
     }
     if (!authUserId.value || incomingRoom) return;
-  } else if (!__USE_MOCK_API__) {
+  } else {
     busy.value = true;
     try {
       const session = await loginForPlatform();
@@ -938,22 +930,6 @@ async function acceptAgreement() {
     );
   } catch (error) {
     setNotice("error", message(error, "确认失败，请稍后重试。"));
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function simulatePartnerAgreement() {
-  if (!room.value || !isMockApi) return;
-  clearNotice();
-  busy.value = true;
-  try {
-    const result = await roomApi.simulatePartnerAcceptance();
-    updateRoom({ ...room.value, state: result.state });
-    await loadSnapshot(room.value);
-    setNotice("success", "演示中的对方已独立确认，7 天实验现在开始。 ");
-  } catch (error) {
-    setNotice("error", message(error, "无法完成对方确认演示。"));
   } finally {
     busy.value = false;
   }

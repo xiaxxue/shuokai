@@ -1,7 +1,12 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(11);
+
+select ok(
+  to_regprocedure('public.simulate_partner(uuid)') is null,
+  'retired demo RPC is absent'
+);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -9,7 +14,7 @@ insert into auth.users (
 ) values
   ('10000000-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'a@example.test', '', now(), '{"provider":"email","providers":["email"]}', '{}', now(), now()),
   ('10000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'b@example.test', '', now(), '{"provider":"email","providers":["email"]}', '{}', now(), now()),
-  ('10000000-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'c@example.test', '', now(), '{"provider":"email","providers":["email"]}', '{}', now(), now());
+  ('10000000-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'c@example.test', '', now(), '{"provider":"email","providers":["email"]}', '{}', now(), now());
 
 create temporary table test_context (room_id uuid, room_code text);
 grant all on table test_context to authenticated;

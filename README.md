@@ -2,18 +2,17 @@
 
 一个以微信小程序与移动 H5 为客户端、Supabase 为数据层的结构化沟通产品：当普通聊天陷入重复、误解或升级，帮助双方先分别表达，再沿着非暴力沟通的观察、感受、需要、请求四步看见真实分歧。
 
-仓库中的 Next.js 页面是可分享的早期作品演示；正式产品代码位于 [`miniapp/`](./miniapp)，使用 `uni-app + Vue 3 + TypeScript`，同一套代码分别构建为微信小程序原生产物和移动 H5。
+正式产品代码位于 [`miniapp/`](./miniapp)，使用 `uni-app + Vue 3 + TypeScript`，同一套代码分别构建为微信小程序原生产物和移动 H5。仓库根目录的 Next.js 入口只负责把旧网址跳转到真实 H5，不再提供另一套产品流程。
 
-## 原型覆盖的流程
+## 产品流程
 
 - 选择本次沟通目标
 - 语音表达与本地录音预览
-- AI 单问题澄清（模拟内容）
+- 单问题澄清
 - 本人审核并批准观点卡
 - 低压力邀请对方加入
 - 双方共同视图与分歧定位
 - 创建可逆、可复盘的 7 天实验
-- 工程视图展示状态机事件
 
 ## 正式客户端架构
 
@@ -59,7 +58,7 @@ publishable/legacy anon key；`service_role`、微信 AppSecret 与 OpenAI Key �
 应用数据库变更时按文件名顺序执行 `supabase/migrations/`，先在独立测试项目或 Supabase Branch
 验证，再执行 Advisor 与 RLS 隔离测试。不要在未确认环境性质时直接向已有数据的项目 push migration。
 
-## 本地运行 Web 演示
+## 检查旧 Web 入口
 
 ```bash
 npm install
@@ -73,7 +72,7 @@ npm run lint
 npm test
 ```
 
-当前录音仍保留在浏览器本机，不上传服务器。房间、双方批准记录和状态事件会持久化。AI 转写与观点卡生成仍使用演示内容，正式接入模型时会继续沿用同一套“生成—本人修改—本人批准”的权限边界。
+旧入口只会跳转到 `SHUOKAI_H5_URL`；未设置时使用专用测试 H5。它不包含房间、录音或数据库调用能力。
 
 ## Cloudflare Worker
 
@@ -90,10 +89,8 @@ npm run cloudflare:dry-run
 
 ```bash
 npm install --prefix miniapp
-npm run miniapp:build
-npm run miniapp:build:h5
 npm run miniapp:type-check
 npm run miniapp:test
 ```
 
-在微信开发者工具中导入 `miniapp/`。默认使用 `touristappid` 和 mock API；真实联调所需的 AppID、微信 AppSecret、合法域名与 H5 Supabase 配置见 [`miniapp/README.md`](./miniapp/README.md)。
+构建必须提供真实测试环境配置；没有 mock 或游客模式回退。微信 AppID、微信 AppSecret、合法域名与 H5 Supabase 配置见 [`miniapp/README.md`](./miniapp/README.md)。

@@ -47,5 +47,6 @@ next-env.d.ts
 /cloudflare/.wrangler/
 /cloudflare/.dev.vars*
 !/cloudflare/.dev.vars.example
+/supabase/.temp/
 /outputs/
 /work/
