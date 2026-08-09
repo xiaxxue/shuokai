@@ -4,7 +4,7 @@
       <button :class="{ active: mode === 'login' }" @tap="mode = 'login'">登录</button>
       <button :class="{ active: mode === 'register' }" @tap="mode = 'register'">注册</button>
     </view>
-    <text class="auth-heading">{{ mode === "login" ? "继续上次的沟通" : "创建测试账号" }}</text>
+    <text class="auth-heading">{{ mode === "login" ? "继续上次的沟通" : "创建账号" }}</text>
     <text class="auth-description">使用 Supabase Auth 邮箱账号。会话会安全续期，退出时会清除本机房间与私人草稿。</text>
     <input
       v-model="email"
