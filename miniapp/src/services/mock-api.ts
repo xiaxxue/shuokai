@@ -27,8 +27,8 @@ export function createMockApi(initialRoom: RoomSession = defaultRoom) {
       ownPerspective: null,
       approvedPerspectives: isShared
         ? [
-            { role: "A", fact: "双方的计划发生了变化。", meaning: "我希望被提前告知。", impact: "我感到失落。", request: "变化时先告诉我。" },
-            { role: "B", fact: "我在确认后告知了变化。", meaning: "我想避免过早制造焦虑。", impact: "我感到有解释压力。", request: "允许我先确认情况。" },
+            { role: "A", fact: "计划改变后，我在第二天收到消息。", meaning: "我感到失落和焦虑。", impact: "我需要及时的信息和确定感。", request: "变化当天，是否愿意先告诉我仍有不确定？" },
+            { role: "B", fact: "我在确认变化后发送了消息。", meaning: "我感到紧张和为难。", impact: "我需要核实信息的空间，也需要被信任。", request: "信息未确认时，是否愿意允许我标注为待定？" },
           ]
         : [],
       sharedView: isShared

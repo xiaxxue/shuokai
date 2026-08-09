@@ -134,10 +134,10 @@ describe("private editor draft recovery", () => {
       transcript: "还没有提交的原话",
       clarification: "最希望对方理解的事",
       perspective: {
-        fact: "可观察事实",
-        meaning: "我的理解",
-        impact: "对我的影响",
-        request: "我的请求",
+        fact: "观察到的事实",
+        meaning: "我的感受",
+        impact: "我的需要",
+        request: "具体请求",
       },
     };
 

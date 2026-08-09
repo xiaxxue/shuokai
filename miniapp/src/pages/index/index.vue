@@ -76,7 +76,7 @@
             换一个空间，
             <text class="hero-break">把话<text class="accent">说开</text>。</text>
           </view>
-          <text class="lead">不裁判谁对谁错。先把事实、理解、影响和请求分开，再一起看清真正的分歧。</text>
+          <text class="lead">不裁判谁对谁错。沿着观察、感受、需要、请求四步，再一起看清真正的分歧。</text>
         </view>
 
         <H5AuthPanel
@@ -185,41 +185,43 @@
       </view>
 
       <view v-else-if="stage === 'CLARIFY'" class="screen">
-        <text class="eyebrow">先抓住最重要的一点</text>
-        <text class="title">如果对方只能准确理解一件事，你最希望是哪一件？</text>
-        <view class="ai-card">
-          <text class="ai-label">整理提示</text>
-          <text>可以写下最让你在意的影响，也可以说明怎样的回应会让你觉得自己被听见。</text>
+        <text class="eyebrow">非暴力沟通 · 第二步</text>
+        <text class="title">当这件事发生时，你有什么感受？</text>
+        <view class="method-card">
+          <text class="method-label">感受，不是判断</text>
+          <text>试着写“难过、紧张、失望、安心”，而不是“被忽视、被针对、不被尊重”。</text>
         </view>
         <view class="field-heading">
-          <text>你的回答</text>
+          <text>你的感受</text>
           <text>{{ clarification.length }} / 3000</text>
         </view>
         <textarea
           v-model="clarification"
           class="transcript large"
           :maxlength="3000"
-          placeholder="用你自己的话回答……"
+          placeholder="例如：我感到焦虑、失望，也有些无助。"
         />
       </view>
 
       <view v-else-if="stage === 'REVIEW'" class="screen review-screen">
         <text class="eyebrow">发送前由你确认</text>
-        <text class="title">把你的表达整理成四部分</text>
-        <text class="description">请逐项检查和补全。只有以下四张卡会分享给对方，系统不会发送你的原始录音。</text>
+        <text class="title">用非暴力沟通四步整理</text>
+        <text class="description">依次检查观察、感受、需要和请求。只有你确认的四张卡会分享给对方，系统不会发送你的原始录音。</text>
         <view class="card-list">
           <view
-            v-for="(key, index) in perspectiveKeys"
-            :key="key"
+            v-for="(card, index) in nvcPerspectiveCards"
+            :key="card.key"
             class="perspective-card"
             :class="`tone-${index}`"
           >
             <view class="card-heading">
               <text class="card-number">0{{ index + 1 }}</text>
-              <text class="card-label">{{ perspectiveLabels[index] }}</text>
+              <text class="card-label">{{ card.label }}</text>
             </view>
-            <textarea v-model="perspective[key]" :maxlength="1000" :placeholder="perspectivePlaceholders[index]" />
-            <text class="card-count">{{ perspective[key].length }} / 1000</text>
+            <text class="card-stem">{{ card.stem }}</text>
+            <text class="card-guide">{{ card.guide }}</text>
+            <textarea v-model="perspective[card.key]" :maxlength="1000" :placeholder="card.placeholder" />
+            <text class="card-count">{{ perspective[card.key].length }} / 1000</text>
           </view>
         </view>
         <view class="approval-note"><text>✓</text><text>点击继续即表示你确认：这些内容准确代表你的意思。</text></view>
@@ -280,9 +282,9 @@
             <text class="speaker-avatar">{{ item.role }}</text>
             <text>{{ item.role === "A" ? "发起者" : "受邀者" }}的版本</text>
           </view>
-          <view v-for="(key, index) in perspectiveKeys" :key="key" class="perspective-row">
-            <text>{{ perspectiveLabels[index] }}</text>
-            <text>{{ item[key] }}</text>
+          <view v-for="card in nvcPerspectiveCards" :key="card.key" class="perspective-row">
+            <text>{{ card.label }}</text>
+            <text>{{ item[card.key] }}</text>
           </view>
         </view>
 
@@ -378,6 +380,7 @@ import {
   roomRoleLabel,
   type DraftSaveState,
 } from "../../domain/account-status";
+import { nvcPerspectiveCards } from "../../domain/nvc";
 import { perspectiveFromDraft } from "../../domain/perspective";
 import type { Perspective, RoomSession, RoomSnapshot } from "../../domain/types";
 import AccountSpace from "../../components/AccountSpace.vue";
@@ -396,17 +399,9 @@ import {
 } from "../../services/session";
 
 const goals = [
-  { title: "让我被准确理解", description: "把最在意的事实和影响说清楚" },
+  { title: "让我被准确理解", description: "把观察、感受和真正的需要说清楚" },
   { title: "理解对方为什么这样想", description: "先听见对方行动背后的理由" },
   { title: "找到一个双方都能尝试的下一步", description: "从争论结论转向一个小实验" },
-];
-const perspectiveKeys: Array<keyof Perspective> = ["fact", "meaning", "impact", "request"];
-const perspectiveLabels = ["可观察事实", "我的理解", "对我的影响", "我的请求"];
-const perspectivePlaceholders = [
-  "只写可以被观察或核对的事情，避免评价对方的人格。",
-  "这件事让你怎么理解当时的情况？",
-  "它对你的感受、时间或关系造成了什么影响？",
-  "你希望对方接下来具体做什么？",
 ];
 const participantRoles = ["A", "B"] as const;
 const isMockApi = __USE_MOCK_API__;
