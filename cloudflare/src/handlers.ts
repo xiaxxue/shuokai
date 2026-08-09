@@ -46,7 +46,12 @@ export async function handleMiniappApi(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const supabaseConfig = publicSupabaseConfig(env);
-  if (!supabaseConfig) return json(request, env, { message: "数据服务尚未配置。" }, 503);
+  if (!supabaseConfig) {
+    return json(request, env, {
+      message: "服务暂时不可用，请稍后再试。",
+      code: "SERVICE_NOT_CONFIGURED",
+    }, 503);
+  }
 
   let payload: unknown;
   try {

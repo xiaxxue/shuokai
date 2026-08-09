@@ -52,7 +52,7 @@
       class="notice"
       :class="`notice-${notice.kind}`"
       role="status"
-      @tap="notice = null"
+      @tap="clearNotice"
     >
       <text class="notice-mark">{{ notice.kind === "error" ? "!" : notice.kind === "success" ? "✓" : "·" }}</text>
       <text class="notice-copy">{{ notice.message }}</text>
@@ -384,6 +384,7 @@ import AccountSpace from "../../components/AccountSpace.vue";
 import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
+import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearEditorDraft,
@@ -393,8 +394,6 @@ import {
   saveActiveRoom,
   saveEditorDraft,
 } from "../../services/session";
-
-type Notice = { kind: "info" | "success" | "error"; message: string };
 
 const goals = [
   { title: "让我被准确理解", description: "把最在意的事实和影响说清楚" },
@@ -438,6 +437,7 @@ const clarification = ref("");
 const agreementProposal = ref("");
 const reviewAt = ref(defaultReviewAt());
 const notice = ref<Notice | null>(null);
+const noticeController = createNoticeController((nextNotice) => { notice.value = nextNotice; });
 const authEmail = ref("");
 const authUserId = ref("");
 const accountOpen = ref(false);
@@ -477,6 +477,7 @@ watch(
 
 onUnmounted(() => {
   workspaceGeneration += 1;
+  noticeController.dispose();
   if (recordingTimer) clearInterval(recordingTimer);
   flushEditorDraft();
 });
@@ -548,7 +549,11 @@ function message(error: unknown, fallback: string) {
 }
 
 function setNotice(kind: Notice["kind"], text: string) {
-  notice.value = { kind, message: text };
+  noticeController.show(kind, text);
+}
+
+function clearNotice() {
+  noticeController.clear();
 }
 
 function updateRoom(nextRoom: RoomSession) {
@@ -703,7 +708,7 @@ function normalizeJoinCode(event: Event) {
 }
 
 async function createRoom() {
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     const session = await loginForPlatform();
@@ -726,7 +731,7 @@ async function joinRoom() {
     setNotice("error", "请输入完整的 7 位房间码。 ");
     return;
   }
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     const session = await loginForPlatform();
@@ -780,7 +785,7 @@ async function requestH5Logout() {
 
 async function logoutH5Account() {
   if (!isLiveH5 || !authUserId.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     await signOutH5();
@@ -799,7 +804,7 @@ async function logoutH5Account() {
 }
 
 async function toggleRecording() {
-  notice.value = null;
+  clearNotice();
   try {
     if (!recording.value) {
       const { completion } = await startRecording();
@@ -834,7 +839,7 @@ async function toggleRecording() {
 
 async function next() {
   if (!room.value || !canContinue.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     if (stage.value === "GOAL") {
@@ -882,7 +887,7 @@ async function next() {
 
 async function refreshRoom() {
   if (!room.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   const previousState = room.value.state;
   try {
@@ -926,7 +931,7 @@ function isAccepted(role: "A" | "B") {
 
 async function acceptAgreement() {
   if (!room.value || ownAccepted.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     const result = await roomApi.acceptAgreement(room.value.roomId);
@@ -945,7 +950,7 @@ async function acceptAgreement() {
 
 async function simulatePartnerAgreement() {
   if (!room.value || !isMockApi) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     const result = await roomApi.simulatePartnerAcceptance();
@@ -960,7 +965,7 @@ async function simulatePartnerAgreement() {
 }
 
 function goBack() {
-  notice.value = null;
+  clearNotice();
   stage.value = previousStage(stage.value);
 }
 
@@ -968,13 +973,13 @@ function returnToWelcome() {
   if (recording.value) stopRecording();
   recording.value = false;
   flushEditorDraft();
-  notice.value = null;
+  clearNotice();
   stage.value = "WELCOME";
 }
 
 async function resumeCurrentRoom() {
   if (!room.value) return;
-  notice.value = null;
+  clearNotice();
   busy.value = true;
   try {
     await loadSnapshot(room.value);
@@ -991,7 +996,7 @@ async function resumeCurrentRoom() {
 function startAnotherRoom() {
   clearPrivateDeviceData();
   resetPrivateWorkspace();
-  notice.value = null;
+  clearNotice();
   stage.value = "WELCOME";
 }
 </script>

@@ -42,6 +42,21 @@ test("business API rejects unauthenticated requests before touching Supabase", a
   assert.deepEqual(await response.json(), { message: "请先登录。" });
 });
 
+test("business API presents missing service configuration as a temporary outage", async () => {
+  const response = await handleRequest(
+    new Request("https://shuokai.example/miniapp-api", {
+      method: "POST",
+      headers: { authorization: "Bearer signed.jwt.value" },
+    }),
+    {},
+  );
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    message: "服务暂时不可用，请稍后再试。",
+    code: "SERVICE_NOT_CONFIGURED",
+  });
+});
+
 test("Bearer parsing rejects empty or ambiguous authorization values", () => {
   assert.equal(bearerToken(new Request("https://shuokai.example", {
     headers: { authorization: "Bearer signed.jwt.value" },

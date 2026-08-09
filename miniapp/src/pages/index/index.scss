@@ -158,6 +158,29 @@ $ochre: #eedfbd;
   color: $green;
   font-size: 12px;
   line-height: 1.5;
+  overflow: hidden;
+  animation: notice-arrive .18s ease-out both;
+}
+
+@keyframes notice-arrive {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.notice-success::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgba(49, 91, 71, .34);
+  transform-origin: left;
+  animation: notice-lifetime 1.8s linear forwards;
+  content: "";
+}
+
+@keyframes notice-lifetime {
+  to { transform: scaleX(0); }
 }
 
 .notice-error {
