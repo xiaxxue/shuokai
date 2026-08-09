@@ -1,7 +1,17 @@
 <template>
   <view class="page-shell" :class="`stage-${stage.toLowerCase()}`">
     <view class="topbar">
-      <view class="brand-lockup">
+      <button
+        v-if="stage !== 'WELCOME'"
+        class="room-back"
+        aria-label="返回首页"
+        :disabled="busy"
+        @tap="returnToWelcome"
+      >
+        <text class="room-back-arrow">←</text>
+        <text>返回</text>
+      </button>
+      <view class="brand-lockup" :class="{ 'brand-lockup-room': stage !== 'WELCOME' }">
         <text class="brand">说开</text>
         <text class="brand-en">SHUOKAI</text>
       </view>
@@ -61,7 +71,19 @@
 
         <view v-else class="entry-panel">
           <text v-if="isLiveH5" class="account-copy">已登录 · {{ authEmail }}</text>
-          <button class="primary full" :loading="busy" :disabled="busy" @tap="createRoom">
+          <view v-if="room" class="resume-room">
+            <view class="resume-room-copy">
+              <text class="resume-room-label">当前沟通</text>
+              <text class="resume-room-code">{{ room.code }}</text>
+            </view>
+            <button class="primary full" :loading="busy" :disabled="busy" @tap="resumeCurrentRoom">
+              继续当前沟通
+            </button>
+            <button class="secondary new-room" :disabled="busy" @tap="createRoom">
+              发起新的沟通
+            </button>
+          </view>
+          <button v-else class="primary full" :loading="busy" :disabled="busy" @tap="createRoom">
             发起一次沟通
           </button>
           <view class="entry-divider"><text>或用房间码加入</text></view>
@@ -840,6 +862,30 @@ async function simulatePartnerAgreement() {
 function goBack() {
   notice.value = null;
   stage.value = previousStage(stage.value);
+}
+
+function returnToWelcome() {
+  if (recording.value) stopRecording();
+  recording.value = false;
+  flushEditorDraft();
+  notice.value = null;
+  stage.value = "WELCOME";
+}
+
+async function resumeCurrentRoom() {
+  if (!room.value) return;
+  notice.value = null;
+  busy.value = true;
+  try {
+    await loadSnapshot(room.value);
+    setNotice("success", "已回到当前沟通，之前的进度仍在。 ");
+  } catch (error) {
+    stage.value = stageForRoom(room.value.role, room.value.state);
+    restoreEditorDraft(room.value);
+    setNotice("error", message(error, "暂时无法同步最新进展，已打开本机保存的进度。"));
+  } finally {
+    busy.value = false;
+  }
 }
 
 function startAnotherRoom() {

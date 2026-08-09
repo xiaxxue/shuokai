@@ -32,6 +32,26 @@ $ochre: #eedfbd;
   backdrop-filter: blur(14px);
 }
 
+.room-back {
+  min-width: 62px;
+  height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  border-radius: 999px;
+  background: rgba(255, 253, 248, .72);
+  color: $ink;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.room-back:active { background: rgba(223, 91, 63, .1); }
+.room-back[disabled] { opacity: .38; }
+.room-back-arrow { color: $coral-dark; font-size: 17px; line-height: 1; }
+.brand-lockup-room { margin-right: auto; margin-left: 10px; }
+
 .brand,
 .brand-en {
   display: block;
@@ -270,6 +290,40 @@ button::after { border: 0; }
 }
 
 .entry-panel .full { margin-top: 0; }
+
+.resume-room {
+  padding: 14px;
+  border: 1px solid rgba(49, 91, 71, .13);
+  border-radius: 13px;
+  background: rgba(255, 253, 248, .72);
+}
+
+.resume-room-copy {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.resume-room-label {
+  color: $green;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.resume-room-code {
+  color: $muted;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.new-room {
+  width: 100%;
+  margin-top: 9px;
+}
 
 .entry-divider {
   margin: 18px 0 13px;
