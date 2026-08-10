@@ -4,7 +4,9 @@
 
 依赖：[AI 协商产品规格](./ai-negotiation-product-spec.md)
 
-当前阶段：M0 产品基线
+技术设计：[AI 协商技术设计](./ai-negotiation-technical-design.md)
+
+当前阶段：M1 技术设计待评审，尚未授权 schema 实施
 
 ## 1. 当前实现基线
 
