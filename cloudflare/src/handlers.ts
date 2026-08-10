@@ -8,12 +8,14 @@ import {
   type WorkerEnv,
 } from "./http.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
+import { isSupportedExpressionMode } from "./expression-ai.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
   "42501": "你没有执行这个操作的权限。",
   P0001: "提交的内容不符合当前操作要求。",
   P0002: "沟通房间不存在或已经失效。",
+  P0003: "AI 整理请求过于频繁，请稍后再试。",
   "23505": "这个房间已经有另一位参与者。",
   "55000": "当前沟通阶段不能执行这个操作。",
 };
@@ -39,6 +41,104 @@ async function verifiedUserId(
   const { data, error } = await supabase.auth.getClaims(jwt);
   const subject = data?.claims?.sub;
   return error || typeof subject !== "string" ? null : subject;
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function handleExpressionJob(request: Request, env: WorkerEnv) {
+  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+  const authorization = bearerToken(request);
+  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  const config = publicSupabaseConfig(env);
+  if (!config || !env.AI_JOBS_QUEUE) {
+    return json(request, env, {
+      message: "AI 整理服务尚未配置，请先手动填写。",
+      code: "AI_SERVICE_NOT_CONFIGURED",
+    }, 503);
+  }
+  let body: unknown;
+  try {
+    body = await readJson(request, 32 * 1024);
+  } catch (error) {
+    return json(request, env, { message: "请求格式无效。" }, error instanceof RangeError ? 413 : 400);
+  }
+  if (!body || typeof body !== "object") return json(request, env, { message: "请求格式无效。" }, 400);
+  const input = body as {
+    roomId?: unknown;
+    expectedRevision?: unknown;
+    sourceText?: unknown;
+    selectedMode?: unknown;
+    manualPayload?: unknown;
+  };
+  if (typeof input.roomId !== "string" || !uuidPattern.test(input.roomId) ||
+    typeof input.expectedRevision !== "number" || !Number.isSafeInteger(input.expectedRevision) ||
+    input.expectedRevision < 0 || typeof input.sourceText !== "string" ||
+    !input.sourceText.trim() || input.sourceText.length > 12000 ||
+    !isSupportedExpressionMode(input.selectedMode) ||
+    (input.manualPayload !== undefined && (
+      !input.manualPayload || typeof input.manualPayload !== "object" || Array.isArray(input.manualPayload)
+    ))) {
+    return json(request, env, { message: "操作参数无效。" }, 400);
+  }
+
+  const supabase = userClient(config, authorization);
+  if (!await verifiedUserId(supabase, authorization)) {
+    return json(request, env, { message: "登录已失效。" }, 401);
+  }
+  const normalizedSource = input.sourceText.trim();
+  const { data: saved, error: saveError } = await supabase.rpc("save_expression_workspace_v2", {
+    p_room_id: input.roomId,
+    p_expected_revision: input.expectedRevision,
+    p_source_text: normalizedSource,
+    p_selected_mode: input.selectedMode,
+    p_manual_payload: input.manualPayload ?? {},
+  });
+  let revision = saved && typeof saved === "object" ? (saved as { revision?: unknown }).revision : null;
+  if (saveError?.code === "40001") {
+    const { data: current } = await supabase.rpc("get_expression_workspace_v2", { p_room_id: input.roomId });
+    const sameSavedRequest = current && typeof current === "object" &&
+      (current as { sourceText?: unknown }).sourceText === normalizedSource &&
+      (current as { selectedMode?: unknown }).selectedMode === input.selectedMode;
+    revision = sameSavedRequest ? (current as { revision?: unknown }).revision : null;
+  } else if (saveError) {
+    const code = saveError.code ?? "SAVE_FAILED";
+    return json(request, env, {
+      message: safeDatabaseMessages[code] ?? "表达草稿没有保存，请稍后重试。",
+      code,
+    }, 400);
+  }
+  if (typeof revision !== "number") {
+    if (saveError?.code === "40001") {
+      return json(request, env, {
+        message: safeDatabaseMessages["40001"],
+        code: "40001",
+      }, 409);
+    }
+    return json(request, env, { message: "数据服务返回了无效结果。" }, 502);
+  }
+  const { data: job, error: jobError } = await supabase.rpc("request_understanding_job_v2", {
+    p_room_id: input.roomId,
+    p_expected_revision: revision,
+  });
+  const jobId = job && typeof job === "object" ? (job as { jobId?: unknown }).jobId : null;
+  if (jobError) {
+    return json(request, env, {
+      message: safeDatabaseMessages[jobError.code] ?? "AI 整理任务没有创建，请稍后重试。",
+      code: jobError.code,
+    }, jobError.code === "P0003" ? 429 : 502);
+  }
+  if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
+    return json(request, env, { message: "AI 整理任务没有创建，请稍后重试。" }, 502);
+  }
+  try {
+    await env.AI_JOBS_QUEUE.send({ jobId });
+  } catch {
+    return json(request, env, {
+      message: "AI 整理任务暂时未进入队列，请重试或手动填写。",
+      code: "AI_QUEUE_UNAVAILABLE",
+    }, 503);
+  }
+  return json(request, env, { jobId, revision, status: (job as { status?: unknown }).status }, 202);
 }
 
 export async function handleMiniappApi(request: Request, env: WorkerEnv) {

@@ -6,6 +6,8 @@ export type WorkerEnv = {
   WECHAT_APP_ID?: string;
   WECHAT_APP_SECRET?: string;
   OPENAI_API_KEY?: string;
+  OPENAI_TEXT_MODEL?: string;
+  AI_JOBS_QUEUE?: { send(message: { jobId: string }): Promise<void> };
   ALLOWED_ORIGINS?: string;
 };
 

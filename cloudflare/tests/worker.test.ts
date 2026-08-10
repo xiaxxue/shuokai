@@ -4,6 +4,12 @@ import { isSupportedAudio } from "../src/handlers.ts";
 import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
+import {
+  expressionResultSchema,
+  generateExpressionCandidate,
+  isExpressionResult,
+  parseQueueMessage,
+} from "../src/expression-ai.ts";
 
 test("health endpoint identifies the Worker", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/health"), {});
@@ -127,10 +133,110 @@ test("RPC validation permits the agreement loop with bounded inputs", () => {
   );
 });
 
+test("RPC validation bounds user-confirmed expression payloads", () => {
+  const roomId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(validateRpcArgs("confirm_expression_version_v2", {
+    p_room_id: roomId,
+    p_expected_revision: 2,
+    p_payload: { mode: "NVC", observation: "周日仍未收到消息" },
+  }), {
+    p_room_id: roomId,
+    p_expected_revision: 2,
+    p_payload: { mode: "NVC", observation: "周日仍未收到消息" },
+  });
+  assert.equal(validateRpcArgs("confirm_expression_version_v2", {
+    p_room_id: roomId,
+    p_expected_revision: -1,
+    p_payload: {},
+  }), null);
+});
+
 test("Worker allowlist excludes retired demo RPCs", () => {
   assert.equal(isAllowedRpcMethod("simulate_partner"), false);
   assert.equal(isAllowedRpcMethod("demo"), false);
   assert.equal(isAllowedRpcMethod("create_room"), true);
+  assert.equal(isAllowedRpcMethod("get_ai_job_status_v2"), true);
+});
+
+test("AI expression endpoint fails honestly when the test queue is not configured", async () => {
+  const response = await handleRequest(new Request("https://shuokai.example/ai/expression", {
+    method: "POST",
+    headers: { authorization: "Bearer signed.jwt.value" },
+  }), {});
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    message: "AI 整理服务尚未配置，请先手动填写。",
+    code: "AI_SERVICE_NOT_CONFIGURED",
+  });
+});
+
+test("queue messages contain only a bounded job identifier", () => {
+  const jobId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(parseQueueMessage({ jobId }), { jobId });
+  assert.equal(parseQueueMessage({ jobId, sourceText: "不应进入队列" }), null);
+  assert.equal(parseQueueMessage({ jobId: "not-an-id" }), null);
+});
+
+test("each AI schema is strict and path-specific", () => {
+  const nvc = expressionResultSchema("NVC");
+  assert.equal(nvc.additionalProperties, false);
+  assert.deepEqual(nvc.properties.fields.required, ["observation", "feeling", "need", "request"]);
+  const dispute = expressionResultSchema("FACT_DISPUTE");
+  assert.deepEqual(dispute.properties.fields.required, ["claim", "basis", "verificationRequest"]);
+});
+
+test("AI output validation rejects missing and invented expression fields", () => {
+  const valid = {
+    mode: "BOUNDARY",
+    fields: { boundary: "不查看手机", reason: "", acceptableRange: "可以询问", selfProtectiveAction: "结束谈话" },
+    uncertainties: [],
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
+  assert.equal(isExpressionResult(valid, "BOUNDARY"), true);
+  assert.equal(isExpressionResult({
+    ...valid,
+    fields: { ...valid.fields, diagnosis: "控制欲" },
+  }, "BOUNDARY"), false);
+});
+
+test("OpenAI request uses Structured Outputs and disables response storage", async (context) => {
+  const captured: { requestBody?: Record<string, unknown> } = {};
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    captured.requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      output: [{
+        type: "message",
+        content: [{
+          type: "output_text",
+          text: JSON.stringify({
+            mode: "NVC",
+            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+            uncertainties: [],
+            safetyDisposition: "ALLOW",
+            safetyMessage: "",
+          }),
+        }],
+      }],
+      usage: { input_tokens: 10, output_tokens: 20 },
+    }), { status: 200, headers: { "x-request-id": "req_test" } });
+  };
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const generated = await generateExpressionCandidate({ OPENAI_API_KEY: "test-only" }, {
+    mode: "NVC",
+    sourceText: "我们约好周五确认，但周日还没有消息。",
+  });
+  assert.equal(generated.providerRequestRef, "req_test");
+  assert.equal((generated.result as { mode?: unknown }).mode, "NVC");
+  assert.equal(captured.requestBody?.store, false);
+  assert.equal(
+    ((captured.requestBody?.text as { format?: { type?: string } }).format?.type),
+    "json_schema",
+  );
 });
 
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {
