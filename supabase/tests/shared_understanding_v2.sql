@@ -108,7 +108,9 @@ select is(
   'accuracy confirmation remains distinct from agreeing to an action'
 ) from test_m3_context;
 
-set local role service_role;
+-- Test fixtures may seed private jobs as the database owner, but the worker
+-- path itself must still be exercised only through the service-role RPCs.
+reset role;
 with inputs as (
   select context.room_id,
     participant_a.id requester_id,
@@ -131,6 +133,7 @@ with inputs as (
   returning id
 )
 update test_m3_context context set blocked_job_id = inserted.id from inserted;
+set local role service_role;
 select public.internal_claim_ai_job_v2(blocked_job_id, 'm3-safety-worker') from test_m3_context;
 select is(
   (public.internal_complete_consensus_job_v2(
@@ -140,6 +143,7 @@ select is(
   'FAILED_FINAL',
   'a generator safety block ends the chain before review'
 ) from test_m3_context;
+reset role;
 select ok(
   not exists (
     select 1 from private.ai_jobs review
