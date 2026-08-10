@@ -161,6 +161,34 @@ describe("private editor draft recovery", () => {
     expect(getEditorDraft("11111111-1111-4111-8111-111111111111", "A")).toBeNull();
   });
 
+  it("restores a private v2 expression candidate without exposing it as room state", () => {
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "我们约好周五确认，但周日仍没有消息。",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      editorStage: "EXPRESSION_REVIEW" as const,
+      selectedMode: "NVC" as const,
+      editableExpression: {
+        mode: "NVC" as const,
+        fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+        uncertainties: [],
+        safetyDisposition: "ALLOW" as const,
+        safetyMessage: "",
+      },
+      workspaceRevision: 2,
+      aiJobId: "22222222-2222-4222-8222-222222222222",
+    };
+    saveEditorDraft(draft);
+    expect(getEditorDraft(draft.roomId, "A")).toMatchObject({
+      selectedMode: "NVC",
+      workspaceRevision: 2,
+      aiJobId: draft.aiJobId,
+      editableExpression: draft.editableExpression,
+    });
+  });
+
   it("migrates a legacy clarification into the feeling card", () => {
     storage.set("shuokai.editor-draft.v1", {
       roomId: "11111111-1111-4111-8111-111111111111",

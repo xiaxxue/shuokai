@@ -184,6 +184,42 @@
         <text class="privacy-note">🔒 {{ editorPrivacyNote }}</text>
       </view>
 
+      <ExpressionModeChooser
+        v-else-if="stage === 'MODE_SELECT'"
+        v-model="selectedMode"
+        @manual="beginManualExpression"
+      />
+
+      <view v-else-if="stage === 'AI_PENDING'" class="screen ai-pending-screen">
+        <view class="ai-orbit"><text class="ai-orbit-core">AI</text></view>
+        <text class="eyebrow">{{ aiJobId ? "私人整理中" : "双方表达已确认" }}</text>
+        <text class="title">{{ aiJobId ? "正在把原话放进你选择的表达路径。" : "共同理解能力将在下一阶段接入。" }}</text>
+        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "当前版本已安全保存双方确认的表达卡，但不会伪装已生成共同理解。你可以先离开，后续会从这里继续。" }}</text>
+        <view v-if="aiJobId" class="ai-steps">
+          <view class="ai-step done"><text>✓</text><text>读取本次原话</text></view>
+          <view class="ai-step active"><text class="processing-dot" /><text>整理表达卡</text></view>
+          <view class="ai-step"><text>3</text><text>等待本人确认</text></view>
+        </view>
+        <button v-if="aiJobId" class="secondary refresh" @tap="useManualExpression">不等了，改为手动填写</button>
+        <button v-else class="primary full" @tap="returnToWelcome">回到首页</button>
+      </view>
+
+      <ExpressionReview
+        v-else-if="stage === 'EXPRESSION_REVIEW'"
+        :model-value="editableExpression"
+        :source-text="transcript"
+        @update-field="updateExpressionField"
+        @change-mode="changeExpressionMode"
+      />
+
+      <view v-else-if="stage === 'PAUSED'" class="screen paused-screen">
+        <view class="pause-mark">Ⅱ</view>
+        <text class="eyebrow">沟通已暂停</text>
+        <text class="title">现在不继续，也是一种清楚的选择。</text>
+        <text class="description centered">系统不会生成双方共识，也不会把私人原话分享给对方。房间会真实显示为“已暂停”。</text>
+        <button class="primary full" @tap="returnToWelcome">回到首页</button>
+      </view>
+
       <NvcStepEditor
         v-else-if="activeNvcCard"
         :model-value="perspective[activeNvcCard.key]"
@@ -358,7 +394,22 @@ import AccountSpace from "../../components/AccountSpace.vue";
 import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
 import NvcStepEditor from "../../components/NvcStepEditor.vue";
-import { loginForPlatform, roomApi, transcribeAudio } from "../../services/api";
+import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
+import ExpressionReview from "../../components/ExpressionReview.vue";
+import {
+  createEditableExpression,
+  expressionIsComplete,
+  expressionSharePayload,
+  parseAiExpressionCandidate,
+  type EditableExpression,
+  type ExpressionMode,
+} from "../../domain/expression";
+import {
+  loginForPlatform,
+  requestExpressionOrganization,
+  roomApi,
+  transcribeAudio,
+} from "../../services/api";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
@@ -382,6 +433,10 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
   RECORD: { step: 2, label: "表达" },
+  MODE_SELECT: { step: 2, label: "路径" },
+  AI_PENDING: { step: 2, label: "AI 整理" },
+  EXPRESSION_REVIEW: { step: 3, label: "确认" },
+  PAUSED: { step: 2, label: "暂停" },
   NVC_OBSERVATION: { step: 2, label: "整理" },
   NVC_FEELING: { step: 2, label: "整理" },
   NVC_NEED: { step: 2, label: "整理" },
@@ -412,8 +467,13 @@ const authUserId = ref("");
 const accountOpen = ref(false);
 const draftSaveState = ref<DraftSaveState>("empty");
 const perspective = reactive<Perspective>(createNvcPerspective());
+const selectedMode = ref<ExpressionMode | null>("NVC");
+const editableExpression = ref<EditableExpression>(createEditableExpression("NVC"));
+const workspaceRevision = ref(0);
+const aiJobId = ref("");
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
 let workspaceGeneration = 0;
 
 watch(stage, () => {
@@ -438,6 +498,8 @@ watch(
     () => perspective.meaning,
     () => perspective.impact,
     () => perspective.request,
+    selectedMode,
+    () => JSON.stringify(editableExpression.value),
   ],
   scheduleEditorDraftSave,
   { flush: "post" },
@@ -447,6 +509,7 @@ onUnmounted(() => {
   workspaceGeneration += 1;
   noticeController.dispose();
   if (recordingTimer) clearInterval(recordingTimer);
+  if (aiPollTimer) clearTimeout(aiPollTimer);
   flushEditorDraft();
 });
 
@@ -461,16 +524,26 @@ const activeNvcCard = computed(() => nvcCardForStage(stage.value));
 const activeNvcIndex = computed(() => activeNvcCard.value
   ? nvcPerspectiveCards.findIndex((card) => card.key === activeNvcCard.value?.key)
   : -1);
-const showBottomBar = computed(() => ["GOAL", "RECORD", "REVIEW", "COMMON"].includes(stage.value) || Boolean(activeNvcCard.value));
+const showBottomBar = computed(() => [
+  "GOAL", "RECORD", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON",
+].includes(stage.value) || Boolean(activeNvcCard.value));
 const canContinue = computed(() => {
   if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
+  if (stage.value === "MODE_SELECT") return Boolean(selectedMode.value);
+  if (stage.value === "EXPRESSION_REVIEW") {
+    return expressionIsComplete(editableExpression.value) &&
+      editableExpression.value.safetyDisposition !== "BLOCK_SHARE" &&
+      editableExpression.value.safetyDisposition !== "PAUSE";
+  }
   if (activeNvcCard.value) return perspective[activeNvcCard.value.key].trim().length > 0;
   if (stage.value === "REVIEW") return Object.values(perspective).every((value) => value.trim().length > 0);
   if (stage.value === "COMMON") return agreementProposal.value.trim().length > 0;
   return true;
 });
 const nextLabel = computed(() => {
-  if (stage.value === "RECORD") return "开始四步整理";
+  if (stage.value === "RECORD") return "选择表达路径";
+  if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
+  if (stage.value === "EXPRESSION_REVIEW") return "确认并分享这些卡片";
   if (activeNvcCard.value) {
     const nextStage = nextNvcStage(activeNvcCard.value.stage);
     const nextCard = nextStage ? nvcCardForStage(nextStage) : null;
@@ -550,6 +623,12 @@ function resetPrivateWorkspace() {
   transcript.value = "";
   agreementProposal.value = "";
   Object.assign(perspective, createNvcPerspective());
+  selectedMode.value = "NVC";
+  editableExpression.value = createEditableExpression("NVC");
+  workspaceRevision.value = 0;
+  aiJobId.value = "";
+  if (aiPollTimer) clearTimeout(aiPollTimer);
+  aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
   draftSaveState.value = "empty";
 }
@@ -573,6 +652,10 @@ function flushEditorDraft() {
     clarification: perspective.meaning,
     perspective: { ...perspective },
     editorStage: stage.value,
+    selectedMode: selectedMode.value,
+    editableExpression: editableExpression.value,
+    workspaceRevision: workspaceRevision.value,
+    aiJobId: aiJobId.value,
   });
   draftSaveState.value = "saved";
 }
@@ -583,14 +666,22 @@ function scheduleEditorDraftSave() {
   editorSaveTimer = setTimeout(flushEditorDraft, 250);
 }
 
-function restoreEditorDraft(roomSession: RoomSession) {
+function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision = 0) {
   if (!isEditorStage(stage.value)) return;
   const draft = getEditorDraft(roomSession.roomId, roomSession.role);
   if (!draft) return;
+  if ((draft.workspaceRevision ?? 0) < minimumWorkspaceRevision) return;
   transcript.value = draft.transcript;
   Object.assign(perspective, draft.perspective);
+  if (draft.selectedMode !== undefined) selectedMode.value = draft.selectedMode;
+  if (draft.editableExpression) editableExpression.value = draft.editableExpression;
+  if (draft.workspaceRevision !== undefined) workspaceRevision.value = draft.workspaceRevision;
+  if (draft.aiJobId) aiJobId.value = draft.aiJobId;
   if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
   draftSaveState.value = "saved";
+  if (draft.editorStage === "AI_PENDING" && draft.aiJobId) {
+    void pollExpressionJob(draft.aiJobId);
+  }
 }
 
 function applySnapshot(latest: RoomSnapshot) {
@@ -618,8 +709,37 @@ function applySnapshot(latest: RoomSnapshot) {
 async function loadSnapshot(roomSession: RoomSession) {
   const latest = await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
-  stage.value = stageForRoom(roomSession.role, latest.room.state);
-  restoreEditorDraft(roomSession);
+  stage.value = stageForCurrentRoom(roomSession, latest.room.state);
+  let authoritativeEditorStage: ClientStage | null = null;
+  let minimumWorkspaceRevision = 0;
+  if (roomSession.workflowVersion === 2 && ["A_DRAFTING", "B_DRAFTING", "A_REVIEWING", "B_REVIEWING"].includes(latest.room.state)) {
+    const workspace = await roomApi.expressionWorkspace(roomSession.roomId);
+    minimumWorkspaceRevision = workspace.revision;
+    workspaceRevision.value = workspace.revision;
+    transcript.value = workspace.sourceText || transcript.value;
+    selectedMode.value = workspace.selectedMode;
+    if (workspace.flowState === "PAUSED") authoritativeEditorStage = "PAUSED";
+    else if (workspace.selectedMode && workspace.selectedMode !== "PAUSE" && workspace.aiCandidate) {
+      editableExpression.value = parseAiExpressionCandidate(workspace.aiCandidate, workspace.selectedMode);
+      authoritativeEditorStage = "EXPRESSION_REVIEW";
+    }
+  }
+  restoreEditorDraft(roomSession, minimumWorkspaceRevision);
+  if (authoritativeEditorStage) stage.value = authoritativeEditorStage;
+}
+
+function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
+  if (roomSession.workflowVersion !== 2) return stageForRoom(roomSession.role, state);
+  if (state === "COMPLETED") return "COMPLETE";
+  if (state === "AGREEMENT_PENDING") return "AGREEMENT";
+  if (state === "COMMON_VIEW_READY") return "AI_PENDING";
+  if (roomSession.role === "A") {
+    if (state === "GOAL_SETTING") return "GOAL";
+    if (state === "A_DRAFTING" || state === "A_REVIEWING") return "RECORD";
+    return "INVITE";
+  }
+  if (state === "B_DRAFTING" || state === "B_REVIEWING") return "RECORD";
+  return "WELCOME";
 }
 
 async function restoreSavedRoom() {
@@ -627,7 +747,7 @@ async function restoreSavedRoom() {
   if (!savedRoom) return;
   busy.value = true;
   room.value = savedRoom;
-  stage.value = stageForRoom(savedRoom.role, savedRoom.state);
+  stage.value = stageForCurrentRoom(savedRoom);
   restoreEditorDraft(savedRoom);
   try {
     await loadSnapshot(savedRoom);
@@ -698,7 +818,7 @@ async function createRoom() {
     clearPrivateDeviceData();
     resetPrivateWorkspace();
     updateRoom(created);
-    stage.value = stageForRoom(created.role, created.state);
+    stage.value = stageForCurrentRoom(created);
     setNotice("success", "私人沟通空间已创建。先确认这次的意图。 ");
   } catch (error) {
     setNotice("error", message(error, "创建失败，请稍后重试。"));
@@ -721,7 +841,7 @@ async function joinRoom() {
     clearPrivateDeviceData();
     resetPrivateWorkspace();
     updateRoom(joined);
-    const joinedStage = stageForRoom(joined.role, joined.state);
+    const joinedStage = stageForCurrentRoom(joined);
     if (["COMMON", "AGREEMENT", "COMPLETE"].includes(joinedStage)) await loadSnapshot(joined);
     else stage.value = joinedStage;
     setNotice("success", "已进入沟通房间。你的草稿不会直接分享给对方。 ");
@@ -818,6 +938,94 @@ async function toggleRecording() {
   }
 }
 
+function updateExpressionField(key: string, value: string) {
+  editableExpression.value = {
+    ...editableExpression.value,
+    fields: { ...editableExpression.value.fields, [key]: value },
+  };
+}
+
+function changeExpressionMode() {
+  if (aiPollTimer) clearTimeout(aiPollTimer);
+  aiPollTimer = null;
+  aiJobId.value = "";
+  stage.value = "MODE_SELECT";
+}
+
+function useManualExpression() {
+  if (!selectedMode.value || selectedMode.value === "PAUSE") return;
+  if (aiPollTimer) clearTimeout(aiPollTimer);
+  aiPollTimer = null;
+  editableExpression.value = createEditableExpression(selectedMode.value);
+  stage.value = "EXPRESSION_REVIEW";
+  setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
+}
+
+async function beginManualExpression() {
+  if (!room.value || !selectedMode.value || selectedMode.value === "PAUSE" || busy.value) return;
+  clearNotice();
+  busy.value = true;
+  try {
+    const empty = createEditableExpression(selectedMode.value);
+    const saved = await roomApi.saveExpressionWorkspace(
+      room.value.roomId,
+      workspaceRevision.value,
+      transcript.value.trim(),
+      selectedMode.value,
+      empty.fields,
+    );
+    workspaceRevision.value = saved.revision;
+    editableExpression.value = empty;
+    stage.value = "EXPRESSION_REVIEW";
+    setNotice("info", "已进入手动填写，AI 不会读取这次原话。 ");
+  } catch (error) {
+    setNotice("error", message(error, "私人草稿没有保存，请稍后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function pollExpressionJob(jobId: string) {
+  if (!room.value || aiJobId.value !== jobId) return;
+  try {
+    const status = await roomApi.aiJobStatus(jobId);
+    if (aiJobId.value !== jobId) return;
+    if (status.status === "SUCCEEDED") {
+      if (!selectedMode.value || selectedMode.value === "PAUSE") return;
+      editableExpression.value = parseAiExpressionCandidate(status.result, selectedMode.value);
+      stage.value = "EXPRESSION_REVIEW";
+      busy.value = false;
+      setNotice("success", "AI 已整理成可编辑草稿，请逐项确认。 ");
+      return;
+    }
+    if (["FAILED_FINAL", "STALE", "CANCELED"].includes(status.status)) {
+      busy.value = false;
+      useManualExpression();
+      setNotice("error", "AI 本次没有完成整理，已保留原话并切换为手动填写。 ");
+      return;
+    }
+    aiPollTimer = setTimeout(() => void pollExpressionJob(jobId), 1200);
+  } catch (error) {
+    busy.value = false;
+    useManualExpression();
+    setNotice("error", message(error, "AI 状态暂时无法读取，已切换为手动填写。"));
+  }
+}
+
+function confirmPause() {
+  return new Promise<boolean>((resolve) => {
+    uni.showModal({
+      title: "暂停这次沟通？",
+      content: "暂停后不会生成双方共识，也不会分享你的私人原话。房间会向双方真实显示为已暂停。",
+      confirmText: "确认暂停",
+      confirmColor: "#9d4c3d",
+      cancelText: "继续整理",
+      success: ({ confirm }) => resolve(confirm),
+      fail: () => resolve(false),
+    });
+  });
+}
+
 async function next() {
   if (!room.value || !canContinue.value) return;
   clearNotice();
@@ -825,10 +1033,50 @@ async function next() {
   try {
     if (stage.value === "GOAL") {
       const result = await roomApi.setGoal(room.value.roomId, goal.value);
-      updateRoom({ ...room.value, state: result.state });
+      updateRoom({ ...room.value, state: result.state, phaseV2: "PRIVATE_EXPRESSION" });
       stage.value = "RECORD";
     } else if (stage.value === "RECORD") {
-      stage.value = "NVC_OBSERVATION";
+      stage.value = "MODE_SELECT";
+    } else if (stage.value === "MODE_SELECT") {
+      if (selectedMode.value === "PAUSE") {
+        busy.value = false;
+        if (!await confirmPause()) return;
+        busy.value = true;
+        await roomApi.pause(room.value.roomId);
+        updateRoom({ ...room.value, phaseV2: "PAUSED" });
+        stage.value = "PAUSED";
+        clearEditorDraft();
+        draftSaveState.value = "empty";
+        setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
+      } else if (selectedMode.value) {
+        editableExpression.value = createEditableExpression(selectedMode.value);
+        const job = await requestExpressionOrganization(
+          room.value.roomId,
+          workspaceRevision.value,
+          transcript.value.trim(),
+          selectedMode.value,
+        );
+        workspaceRevision.value = job.revision;
+        aiJobId.value = job.jobId;
+        stage.value = "AI_PENDING";
+        void pollExpressionJob(job.jobId);
+        return;
+      }
+    } else if (stage.value === "EXPRESSION_REVIEW") {
+      const confirmed = await roomApi.confirmExpression(
+        room.value.roomId,
+        workspaceRevision.value,
+        expressionSharePayload(editableExpression.value),
+      );
+      clearEditorDraft();
+      aiJobId.value = "";
+      draftSaveState.value = "empty";
+      updateRoom({ ...room.value, state: confirmed.state });
+      if (room.value.role === "B") updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
+      stage.value = room.value.role === "A" ? "INVITE" : "AI_PENDING";
+      setNotice("success", room.value.role === "A"
+        ? "你的表达卡已确认，私人原话没有分享。 "
+        : "双方表达卡已确认，正在等待共同理解生成。 ");
     } else if (activeNvcCard.value) {
       const nextStage = nextNvcStage(activeNvcCard.value.stage);
       stage.value = nextStage ?? "REVIEW";
@@ -852,7 +1100,7 @@ async function next() {
       clearEditorDraft();
       draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: approved.state });
-      if (stageForRoom(room.value.role, approved.state) === "COMMON") {
+      if (stageForCurrentRoom(room.value, approved.state) === "COMMON") {
         await loadSnapshot(room.value);
         setNotice("success", "双方都已确认，现在可以查看共同视图。 ");
       } else {
@@ -966,7 +1214,7 @@ async function resumeCurrentRoom() {
     await loadSnapshot(room.value);
     setNotice("success", "已回到当前沟通，之前的进度仍在。 ");
   } catch (error) {
-    stage.value = stageForRoom(room.value.role, room.value.state);
+    stage.value = stageForCurrentRoom(room.value);
     restoreEditorDraft(room.value);
     setNotice("error", message(error, "暂时无法同步最新进展，已打开本机保存的进度。"));
   } finally {
