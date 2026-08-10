@@ -259,8 +259,8 @@ export function parseQueueMessage(value: unknown): QueueMessage | null {
 }
 
 function adminClient(env: WorkerEnv) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SECRET_KEY) return null;
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }

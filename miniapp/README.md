@@ -62,5 +62,5 @@ Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；
 微信正式发布还需要真实 AppID、微信 AppSecret、已备案的 HTTPS API 域名，并在小程序后台配置 `request` 与 `uploadFile` 合法域名。开发者工具的 `urlCheck` 保持开启，避免把只在本地能工作的网络配置误当成可发布状态。
 
 微信登录只有在以下配置齐备后才算接通：真实 AppID、Worker 的 `WECHAT_APP_ID` / `WECHAT_APP_SECRET`、
-Supabase `SUPABASE_SERVICE_ROLE_KEY`，以及已应用的 `add_wechat_identity_bridge` migration。缺少任一项时，
-缺少任一项时只能运行静态检查，不能视为微信真实登录已经接通。
+Supabase `SUPABASE_SECRET_KEY`，以及已应用的 `add_wechat_identity_bridge` migration。缺少任一项时，
+只能运行静态检查，不能视为微信真实登录已经接通。

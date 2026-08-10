@@ -27,8 +27,8 @@ function userClient(config: { url: string; key: string }, authorization: string)
   });
 }
 
-function adminClient(env: Required<Pick<WorkerEnv, "SUPABASE_URL" | "SUPABASE_SERVICE_ROLE_KEY">>) {
-  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+function adminClient(env: Required<Pick<WorkerEnv, "SUPABASE_URL" | "SUPABASE_SECRET_KEY">>) {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
@@ -50,7 +50,7 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SERVICE_ROLE_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
     return json(request, env, {
       message: "AI 整理服务尚未配置，请先手动填写。",
       code: "AI_SERVICE_NOT_CONFIGURED",
@@ -146,7 +146,7 @@ export async function handleUnderstandingJob(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SERVICE_ROLE_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
     return json(request, env, {
       message: "共同理解服务尚未配置。双方已确认的表达仍会保留。",
       code: "AI_SERVICE_NOT_CONFIGURED",
@@ -267,7 +267,7 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
   if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
   const configured = requireEnv(env, [
     "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
     "WECHAT_APP_ID",
     "WECHAT_APP_SECRET",
   ] as const);
@@ -423,7 +423,7 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const configured = requireEnv(env, [
     "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
     "OPENAI_API_KEY",
   ] as const);
   const supabaseConfig = publicSupabaseConfig(env);
