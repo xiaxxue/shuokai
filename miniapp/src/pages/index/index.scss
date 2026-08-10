@@ -832,6 +832,10 @@ button::after { border: 0; }
 .ai-step.done { color: #406957; }
 .ai-step.active { background: #edf3ed; color: #214b3a; font-weight: 700; }
 .ai-step .processing-dot { width: 8px; height: 8px; }
+.understanding-failure { display: flex; flex-direction: column; gap: 10rpx; margin-top: 28rpx; padding: 26rpx; border: 1rpx solid #dbb6a8; border-radius: 24rpx; background: #fbebe4; color: #75564c; font-size: 23rpx; line-height: 1.65; text-align: left; }
+.understanding-failure text:first-child { color: #9f412f; font-weight: 800; }
+.understanding-recovery-actions { display: flex; width: 100%; flex-direction: column; gap: 8rpx; }
+.understanding-recovery-actions .subtle { border-color: transparent; background: transparent; color: $muted; }
 
 .pause-mark {
   width: 92px;

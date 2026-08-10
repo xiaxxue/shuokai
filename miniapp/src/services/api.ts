@@ -4,6 +4,7 @@ import type {
   RoomSession,
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
+import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
   parseAcceptanceResult,
   parseApprovalResult,
@@ -205,6 +206,26 @@ export const roomApi = {
       result: unknown;
       errorCode: string | null;
     }>("get_ai_job_status_v2", { p_job_id: jobId }),
+  understandingStatus: async (roomId: string) =>
+    parseUnderstandingStatus(await rpc<unknown>("get_understanding_status_v2", { p_room_id: roomId })),
+  confirmUnderstanding: async (
+    roomId: string,
+    resultId: string,
+    candidateHash: string,
+    decision: "ACCURATE" | "INACCURATE",
+    feedbackText = "",
+  ) => parseUnderstandingConfirmation(await rpc<unknown>("confirm_understanding_v2", {
+    p_room_id: roomId,
+    p_result_id: resultId,
+    p_candidate_hash: candidateHash,
+    p_decision: decision,
+    p_feedback_text: feedbackText,
+  })),
+  reopenExpression: async (roomId: string) =>
+    rpc<{ state: RoomSession["state"]; phase: "PRIVATE_EXPRESSION" }>(
+      "reopen_expression_v2",
+      { p_room_id: roomId },
+    ),
   confirmExpression: async (roomId: string, revision: number, payload: Record<string, unknown>) =>
     rpc<{ state: RoomSession["state"]; version: number; expressionId: string }>(
       "confirm_expression_version_v2",
@@ -229,6 +250,38 @@ export const roomApi = {
     },
   ),
 };
+
+export async function requestSharedUnderstanding(roomId: string) {
+  const session = await activeSession();
+  const response = await request<unknown>({
+    url: apiUrl("/ai/understanding"),
+    method: "POST",
+    header: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "content-type": "application/json",
+    },
+    data: { roomId },
+    timeout: 25000,
+  });
+  if (![200, 202].includes(response.statusCode) || !response.data || typeof response.data !== "object") {
+    throw new UnderstandingRequestError(
+      errorMessage(response.data, "共同理解任务没有创建，双方表达仍已安全保留。"),
+      response.statusCode >= 500,
+    );
+  }
+  const result = response.data as { jobId?: unknown; status?: unknown };
+  return {
+    jobId: typeof result.jobId === "string" ? result.jobId : "",
+    status: typeof result.status === "string" ? result.status : "SUCCEEDED",
+  };
+}
+
+export class UnderstandingRequestError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = "UnderstandingRequestError";
+  }
+}
 
 export async function requestExpressionOrganization(
   roomId: string,

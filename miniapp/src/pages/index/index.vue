@@ -192,16 +192,31 @@
 
       <view v-else-if="stage === 'AI_PENDING'" class="screen ai-pending-screen">
         <view class="ai-orbit"><text class="ai-orbit-core">AI</text></view>
-        <text class="eyebrow">{{ aiJobId ? "私人整理中" : "双方表达已确认" }}</text>
-        <text class="title">{{ aiJobId ? "正在把原话放进你选择的表达路径。" : "共同理解能力将在下一阶段接入。" }}</text>
-        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "当前版本已安全保存双方确认的表达卡，但不会伪装已生成共同理解。你可以先离开，后续会从这里继续。" }}</text>
+        <text class="eyebrow">{{ aiJobId ? "私人整理中" : "理解层生成中" }}</text>
+        <text class="title">{{ aiJobId ? "正在把原话放进你选择的表达路径。" : "正在对齐共同点，也保留真正的不同。" }}</text>
+        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "共识 Agent 只读取双方已经确认分享的表达卡；审查 Agent 会检查虚假共识、争议事实和边界弱化。" }}</text>
         <view v-if="aiJobId" class="ai-steps">
           <view class="ai-step done"><text>✓</text><text>读取本次原话</text></view>
           <view class="ai-step active"><text class="processing-dot" /><text>整理表达卡</text></view>
           <view class="ai-step"><text>3</text><text>等待本人确认</text></view>
         </view>
+        <view v-else class="ai-steps">
+          <view class="ai-step done"><text>✓</text><text>双方表达已确认</text></view>
+          <view class="ai-step active"><text class="processing-dot" /><text>生成并独立审查共同理解</text></view>
+          <view class="ai-step"><text>3</text><text>双方分别确认是否准确</text></view>
+        </view>
+        <view v-if="understandingFailure" class="understanding-failure">
+          <text>本次没有生成可安全展示的共同理解</text>
+          <text>{{ understandingFailure }}</text>
+          <text>系统不会展示未经审查的半成品，双方已经确认的表达仍然保留。</text>
+        </view>
         <button v-if="aiJobId" class="secondary refresh" @tap="useManualExpression">不等了，改为手动填写</button>
-        <button v-else class="primary full" @tap="returnToWelcome">回到首页</button>
+        <button v-else-if="understandingFailure && understandingRetryAllowed" class="secondary refresh" @tap="ensureSharedUnderstanding">重新尝试</button>
+        <view v-else-if="understandingFailure" class="understanding-recovery-actions">
+          <button class="secondary refresh" @tap="editOwnExpression">修改我的表达</button>
+          <button class="secondary refresh subtle" @tap="pauseFromUnderstanding">暂停这次沟通</button>
+        </view>
+        <button v-else class="secondary refresh" @tap="pollUnderstanding">检查生成进展</button>
       </view>
 
       <ExpressionReview
@@ -262,9 +277,20 @@
       </view>
 
       <view v-else-if="stage === 'COMMON'" class="screen common-screen">
-        <text class="eyebrow">双方都已确认</text>
-        <text class="title">理解，不必同意。</text>
-        <text class="description">共同视图只使用双方本人确认过的内容。先看见重叠，再看见真正不同的地方。</text>
+        <SharedUnderstanding
+          v-if="isV2Room && understandingStatus?.result"
+          :result="understandingStatus.result.payload"
+          :own-decision="understandingStatus.ownDecision"
+          :accurate-count="understandingStatus.accurateCount"
+          :busy="busy"
+          @decide="decideUnderstanding"
+          @edit-own="editOwnExpression"
+          @pause="pauseFromUnderstanding"
+        />
+        <template v-else>
+          <text class="eyebrow">双方都已确认</text>
+          <text class="title">理解，不必同意。</text>
+          <text class="description">共同视图只使用双方本人确认过的内容。先看见重叠，再看见真正不同的地方。</text>
 
         <view v-if="snapshot?.sharedView" class="shared-view">
           <view class="shared-section common-ground">
@@ -297,7 +323,7 @@
           </view>
         </view>
 
-        <view class="agreement-draft">
+          <view class="agreement-draft">
           <text class="card-label">把理解变成一次小实验</text>
           <text class="agreement-intro">不承诺永久改变，只写下一个双方都能尝试、7 天后可以复盘的做法。</text>
           <textarea
@@ -307,7 +333,8 @@
             placeholder="例如：计划可能发生变化时，先发送一个“待定”信号，并约定下一次更新时间。"
           />
           <view class="review-date"><text>复盘时间</text><text>{{ reviewDateLabel }}</text></view>
-        </view>
+          </view>
+        </template>
       </view>
 
       <view v-else-if="stage === 'AGREEMENT'" class="screen agreement-screen">
@@ -396,6 +423,7 @@ import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
 import NvcStepEditor from "../../components/NvcStepEditor.vue";
 import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
+import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
 import {
   createEditableExpression,
   expressionIsComplete,
@@ -407,9 +435,11 @@ import {
 import {
   loginForPlatform,
   requestExpressionOrganization,
+  requestSharedUnderstanding,
   roomApi,
   transcribeAudio,
 } from "../../services/api";
+import { useSharedUnderstanding } from "../../composables/use-shared-understanding";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
@@ -474,6 +504,18 @@ const aiJobId = ref("");
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
+const sharedUnderstanding = useSharedUnderstanding({
+  room, stage, busy, transcript, selectedMode, workspaceRevision,
+  updateRoom, setNotice, clearNotice, formatError: message, confirmPause,
+});
+const understandingStatus = sharedUnderstanding.status;
+const understandingFailure = sharedUnderstanding.failure;
+const understandingRetryAllowed = sharedUnderstanding.retryAllowed;
+const ensureSharedUnderstanding = sharedUnderstanding.ensure;
+const pollUnderstanding = sharedUnderstanding.poll;
+const decideUnderstanding = sharedUnderstanding.decide;
+const editOwnExpression = sharedUnderstanding.editOwnExpression;
+const pauseFromUnderstanding = sharedUnderstanding.pause;
 let workspaceGeneration = 0;
 
 watch(stage, () => {
@@ -510,10 +552,14 @@ onUnmounted(() => {
   noticeController.dispose();
   if (recordingTimer) clearInterval(recordingTimer);
   if (aiPollTimer) clearTimeout(aiPollTimer);
+  sharedUnderstanding.stop();
   flushEditorDraft();
 });
 
-onHide(flushEditorDraft);
+onHide(() => {
+  sharedUnderstanding.stop();
+  flushEditorDraft();
+});
 onUnload(flushEditorDraft);
 
 const totalSteps = 5;
@@ -524,9 +570,11 @@ const activeNvcCard = computed(() => nvcCardForStage(stage.value));
 const activeNvcIndex = computed(() => activeNvcCard.value
   ? nvcPerspectiveCards.findIndex((card) => card.key === activeNvcCard.value?.key)
   : -1);
-const showBottomBar = computed(() => [
-  "GOAL", "RECORD", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON",
-].includes(stage.value) || Boolean(activeNvcCard.value));
+const showBottomBar = computed(() => {
+  if (stage.value === "COMMON" && isV2Room.value) return false;
+  return ["GOAL", "RECORD", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON"]
+    .includes(stage.value) || Boolean(activeNvcCard.value);
+});
 const canContinue = computed(() => {
   if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
   if (stage.value === "MODE_SELECT") return Boolean(selectedMode.value);
@@ -560,6 +608,7 @@ const ownAccepted = computed(() => {
   return room.value.role === "A" ? agreement.accepted_a : agreement.accepted_b;
 });
 const accountPlatform = computed(() => accountPlatformSummary(__PLATFORM__, authEmail.value));
+const isV2Room = computed(() => room.value?.workflowVersion === 2);
 const accountMark = computed(() => accountPlatform.value.identity.slice(0, 1).toUpperCase() || "我");
 const accountRoomPhase = computed(() => roomPhaseLabel(stage.value, room.value));
 const accountRoomRole = computed(() => roomRoleLabel(room.value));
@@ -627,6 +676,7 @@ function resetPrivateWorkspace() {
   editableExpression.value = createEditableExpression("NVC");
   workspaceRevision.value = 0;
   aiJobId.value = "";
+  sharedUnderstanding.reset();
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
@@ -710,6 +760,9 @@ async function loadSnapshot(roomSession: RoomSession) {
   const latest = await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
   stage.value = stageForCurrentRoom(roomSession, latest.room.state);
+  if (roomSession.workflowVersion === 2 && latest.room.state === "COMMON_VIEW_READY") {
+    void ensureSharedUnderstanding();
+  }
   let authoritativeEditorStage: ClientStage | null = null;
   let minimumWorkspaceRevision = 0;
   if (roomSession.workflowVersion === 2 && ["A_DRAFTING", "B_DRAFTING", "A_REVIEWING", "B_REVIEWING"].includes(latest.room.state)) {
@@ -730,6 +783,7 @@ async function loadSnapshot(roomSession: RoomSession) {
 
 function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
   if (roomSession.workflowVersion !== 2) return stageForRoom(roomSession.role, state);
+  if (roomSession.phaseV2 === "PAUSED") return "PAUSED";
   if (state === "COMPLETED") return "COMPLETE";
   if (state === "AGREEMENT_PENDING") return "AGREEMENT";
   if (state === "COMMON_VIEW_READY") return "AI_PENDING";
@@ -1072,11 +1126,22 @@ async function next() {
       aiJobId.value = "";
       draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: confirmed.state });
-      if (room.value.role === "B") updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
-      stage.value = room.value.role === "A" ? "INVITE" : "AI_PENDING";
-      setNotice("success", room.value.role === "A"
-        ? "你的表达卡已确认，私人原话没有分享。 "
-        : "双方表达卡已确认，正在等待共同理解生成。 ");
+      if (room.value.role === "B") {
+        updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
+        setNotice("success", "双方表达卡已确认，正在生成并审查共同理解。 ");
+        await ensureSharedUnderstanding();
+      } else {
+        stage.value = "INVITE";
+        try {
+          await requestSharedUnderstanding(room.value.roomId);
+          updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
+          setNotice("success", "双方表达卡已重新确认，正在生成新的共同理解。 ");
+          void pollUnderstanding();
+          stage.value = "AI_PENDING";
+        } catch {
+          setNotice("success", "你的表达卡已确认，私人原话没有分享。 ");
+        }
+      }
     } else if (activeNvcCard.value) {
       const nextStage = nextNvcStage(activeNvcCard.value.stage);
       stage.value = nextStage ?? "REVIEW";
