@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { isSupportedAudio } from "../src/handlers.ts";
 import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
@@ -7,8 +8,13 @@ import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 import {
   expressionResultSchema,
   generateExpressionCandidate,
+  generateSharedUnderstanding,
   isExpressionResult,
+  isUnderstandingResult,
+  isUnderstandingReview,
   parseQueueMessage,
+  understandingResultSchema,
+  understandingReviewSchema,
 } from "../src/expression-ai.ts";
 
 test("health endpoint identifies the Worker", async () => {
@@ -170,6 +176,24 @@ test("AI expression endpoint fails honestly when the test queue is not configure
   });
 });
 
+test("shared understanding endpoint fails honestly before any database call", async () => {
+  const response = await handleRequest(new Request("https://shuokai.example/ai/understanding", {
+    method: "POST",
+    headers: { authorization: "Bearer signed.jwt.value" },
+  }), {});
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    message: "共同理解服务尚未配置。双方已确认的表达仍会保留。",
+    code: "AI_SERVICE_NOT_CONFIGURED",
+  });
+});
+
+test("test deployment routes both AI endpoints through the Worker", async () => {
+  const configText = await readFile(new URL("../wrangler.test.jsonc", import.meta.url), "utf8");
+  assert.match(configText, /"\/ai\/expression\*"/);
+  assert.match(configText, /"\/ai\/understanding\*"/);
+});
+
 test("queue messages contain only a bounded job identifier", () => {
   const jobId = "11111111-1111-4111-8111-111111111111";
   assert.deepEqual(parseQueueMessage({ jobId }), { jobId });
@@ -198,6 +222,74 @@ test("AI output validation rejects missing and invented expression fields", () =
     ...valid,
     fields: { ...valid.fields, diagnosis: "控制欲" },
   }, "BOUNDARY"), false);
+});
+
+test("shared understanding schemas are strict, traceable, and independently reviewed", () => {
+  assert.equal(understandingResultSchema.additionalProperties, false);
+  assert.equal(understandingReviewSchema.additionalProperties, false);
+  const valid = {
+    schemaVersion: 1,
+    commonGround: [{ text: "双方都希望提前知道变化", sources: ["A.need", "B.request"] }],
+    differences: [{
+      topic: "何时告知",
+      sideA: "发现可能变化时告知",
+      sideB: "确认变化后告知",
+      sources: ["A.request", "B.request"],
+    }],
+    unverifiedFacts: [{ text: "消息是否已经发送", sources: ["A.observation"] }],
+    boundaries: [],
+    candidateUnderstanding: [{ text: "unused", sources: ["A.need"] }],
+    coreQuestion: { text: "怎样定义足够早", sources: ["A.request", "B.request"] },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
+  const corrected = {
+    ...valid,
+    candidateUnderstanding: { text: "双方都在寻找更可预期的通知方式", sources: ["A.need", "B.request"] },
+  };
+  assert.equal(isUnderstandingResult(corrected), true);
+  assert.equal(isUnderstandingResult({
+    ...corrected,
+    commonGround: [{ text: "他故意忽略我", sources: ["A.diagnosis"] }],
+  }), false);
+  assert.equal(isUnderstandingReview({
+    verdict: "PASS", issues: [], safetyDisposition: "ALLOW", safetyMessage: "",
+  }), true);
+  assert.equal(isUnderstandingReview({
+    verdict: "PASS",
+    issues: [{ code: "FALSE_CONSENSUS", message: "共同点只有单方依据", sources: ["A.need"] }],
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }), false);
+  assert.equal(isUnderstandingReview({
+    verdict: "REVISE", issues: [], safetyDisposition: "ALLOW", safetyMessage: "",
+  }), false);
+});
+
+test("understanding confirmation validation binds the exact reviewed hash", () => {
+  const roomId = "11111111-1111-4111-8111-111111111111";
+  const resultId = "22222222-2222-4222-8222-222222222222";
+  const hash = "a".repeat(64);
+  assert.deepEqual(validateRpcArgs("confirm_understanding_v2", {
+    p_room_id: roomId,
+    p_result_id: resultId,
+    p_candidate_hash: hash,
+    p_decision: "ACCURATE",
+    p_feedback_text: "",
+  }), {
+    p_room_id: roomId,
+    p_result_id: resultId,
+    p_candidate_hash: hash,
+    p_decision: "ACCURATE",
+    p_feedback_text: "",
+  });
+  assert.equal(validateRpcArgs("confirm_understanding_v2", {
+    p_room_id: roomId,
+    p_result_id: resultId,
+    p_candidate_hash: hash,
+    p_decision: "INACCURATE",
+    p_feedback_text: "   ",
+  }), null);
 });
 
 test("OpenAI request uses Structured Outputs and disables response storage", async (context) => {
@@ -237,6 +329,39 @@ test("OpenAI request uses Structured Outputs and disables response storage", asy
     ((captured.requestBody?.text as { format?: { type?: string } }).format?.type),
     "json_schema",
   );
+});
+
+test("consensus Agent sends only confirmed cards and keeps response storage disabled", async (context) => {
+  const captured: { requestBody?: Record<string, unknown> } = {};
+  const originalFetch = globalThis.fetch;
+  const result = {
+    schemaVersion: 1,
+    commonGround: [{ text: "双方都希望减少临时变化带来的不确定", sources: ["A.need", "B.need"] }],
+    differences: [{
+      topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
+      sources: ["A.request", "B.request"],
+    }],
+    unverifiedFacts: [], boundaries: [],
+    candidateUnderstanding: { text: "双方对通知时点的期待不同", sources: ["A.request", "B.request"] },
+    coreQuestion: { text: "哪个时点既及时又足够确定", sources: ["A.request", "B.request"] },
+    safetyDisposition: "ALLOW", safetyMessage: "",
+  };
+  globalThis.fetch = async (_input, init) => {
+    captured.requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(result) }] }],
+      usage: { input_tokens: 20, output_tokens: 30 },
+    }), { status: 200 });
+  };
+  context.after(() => { globalThis.fetch = originalFetch; });
+  await generateSharedUnderstanding({ OPENAI_API_KEY: "test-only" }, {
+    expressionA: { mode: "NVC", payload: { need: "确定感", request: "可能变化时告诉我" } },
+    expressionB: { mode: "NVC", payload: { need: "准确", request: "确认变化后告诉你" } },
+  });
+  assert.equal(captured.requestBody?.store, false);
+  const requestText = JSON.stringify(captured.requestBody);
+  assert.equal(requestText.includes("sourceText"), false);
+  assert.equal(requestText.includes("raw transcript"), false);
 });
 
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {

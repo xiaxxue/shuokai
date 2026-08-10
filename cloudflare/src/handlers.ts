@@ -50,7 +50,7 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SERVICE_ROLE_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
     return json(request, env, {
       message: "AI 整理服务尚未配置，请先手动填写。",
       code: "AI_SERVICE_NOT_CONFIGURED",
@@ -139,6 +139,67 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
     }, 503);
   }
   return json(request, env, { jobId, revision, status: (job as { status?: unknown }).status }, 202);
+}
+
+export async function handleUnderstandingJob(request: Request, env: WorkerEnv) {
+  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+  const authorization = bearerToken(request);
+  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  const config = publicSupabaseConfig(env);
+  if (!config || !env.SUPABASE_SERVICE_ROLE_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
+    return json(request, env, {
+      message: "共同理解服务尚未配置。双方已确认的表达仍会保留。",
+      code: "AI_SERVICE_NOT_CONFIGURED",
+    }, 503);
+  }
+  let body: unknown;
+  try {
+    body = await readJson(request, 4 * 1024);
+  } catch (error) {
+    return json(request, env, { message: "请求格式无效。" }, error instanceof RangeError ? 413 : 400);
+  }
+  const roomId = body && typeof body === "object" && !Array.isArray(body) &&
+    Object.keys(body).length === 1 && "roomId" in body
+    ? (body as { roomId?: unknown }).roomId
+    : null;
+  if (typeof roomId !== "string" || !uuidPattern.test(roomId)) {
+    return json(request, env, { message: "操作参数无效。" }, 400);
+  }
+  const supabase = userClient(config, authorization);
+  if (!await verifiedUserId(supabase, authorization)) {
+    return json(request, env, { message: "登录已失效。" }, 401);
+  }
+  const { data: job, error } = await supabase.rpc("request_consensus_job_v2", { p_room_id: roomId });
+  if (error) {
+    return json(request, env, {
+      message: safeDatabaseMessages[error.code] ?? "共同理解任务没有创建，请稍后重试。",
+      code: error.code,
+    }, 400);
+  }
+  const status = job && typeof job === "object" ? (job as { status?: unknown }).status : null;
+  const jobId = job && typeof job === "object" ? (job as { jobId?: unknown }).jobId : null;
+  if (status === "SUCCEEDED" && typeof jobId !== "string") {
+    return json(request, env, { status: "SUCCEEDED" }, 200);
+  }
+  if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
+    return json(request, env, { message: "共同理解任务没有创建，请稍后重试。" }, 502);
+  }
+  if (["FAILED_FINAL", "CANCELED", "STALE"].includes(String(status))) {
+    return json(request, env, {
+      message: "当前表达没有生成可展示的共同理解，请修改表达后再试。",
+      code: "UNDERSTANDING_REQUIRES_REVISION",
+      status,
+    }, 409);
+  }
+  try {
+    await env.AI_JOBS_QUEUE.send({ jobId });
+  } catch {
+    return json(request, env, {
+      message: "任务暂时没有进入队列，双方表达已安全保留。",
+      code: "AI_QUEUE_UNAVAILABLE",
+    }, 503);
+  }
+  return json(request, env, { jobId, status }, 202);
 }
 
 export async function handleMiniappApi(request: Request, env: WorkerEnv) {

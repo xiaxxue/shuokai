@@ -16,6 +16,7 @@
       "/wechat-login*",
       "/miniapp-api*",
       "/ai/expression*",
+      "/ai/understanding*",
       "/transcribe*"
     ]
   },

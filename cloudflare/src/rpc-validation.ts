@@ -30,6 +30,9 @@ const specs = {
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
+  get_understanding_status_v2: { required: { p_room_id: 36 } },
+  confirm_understanding_v2: { required: { p_room_id: 36 } },
+  reopen_expression_v2: { required: { p_room_id: 36 } },
   confirm_expression_version_v2: { required: { p_room_id: 36 } },
   pause_room_v2: { required: { p_room_id: 36 } },
   save_expression_workspace_v2: { required: { p_room_id: 36 } },
@@ -47,6 +50,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcArgs | null {
   if (!isRecord(input)) return null;
+  if (method === "confirm_understanding_v2") {
+    const {
+      p_room_id: roomId,
+      p_result_id: resultId,
+      p_candidate_hash: candidateHash,
+      p_decision: decision,
+      p_feedback_text: feedbackText,
+    } = input;
+    if (Object.keys(input).some((key) => ![
+      "p_room_id", "p_result_id", "p_candidate_hash", "p_decision", "p_feedback_text",
+    ].includes(key)) || Object.keys(input).length < 4 ||
+      typeof roomId !== "string" || !uuidPattern.test(roomId) ||
+      typeof resultId !== "string" || !uuidPattern.test(resultId) ||
+      typeof candidateHash !== "string" || !/^[a-f0-9]{64}$/.test(candidateHash) ||
+      !["ACCURATE", "INACCURATE"].includes(String(decision)) ||
+      (feedbackText !== undefined && (typeof feedbackText !== "string" || feedbackText.length > 3000)) ||
+      (decision === "INACCURATE" && (typeof feedbackText !== "string" || !feedbackText.trim()))) return null;
+    return {
+      p_room_id: roomId,
+      p_result_id: resultId,
+      p_candidate_hash: candidateHash,
+      p_decision: decision,
+      p_feedback_text: typeof feedbackText === "string" ? feedbackText.trim() : null,
+    };
+  }
   if (method === "confirm_expression_version_v2") {
     const { p_room_id: roomId, p_expected_revision: revision, p_payload: payload } = input;
     if (Object.keys(input).length !== 3 || typeof roomId !== "string" || !uuidPattern.test(roomId) ||
