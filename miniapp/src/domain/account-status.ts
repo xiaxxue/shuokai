@@ -6,6 +6,10 @@ const stageLabels: Record<ClientStage, string> = {
   WELCOME: "准备开始",
   GOAL: "确认沟通意图",
   RECORD: "整理自己的表达",
+  MODE_SELECT: "选择表达路径",
+  AI_PENDING: "AI 整理处理中",
+  EXPRESSION_REVIEW: "本人确认表达卡",
+  PAUSED: "本次沟通已暂停",
   NVC_OBSERVATION: "非暴力沟通 · 观察",
   NVC_FEELING: "非暴力沟通 · 感受",
   NVC_NEED: "非暴力沟通 · 需要",
@@ -46,11 +50,21 @@ export function accountPlatformSummary(platform: string, email: string) {
 
 export function accountStage(stage: ClientStage, room: RoomSession | null): ClientStage {
   if (!room || stage !== "WELCOME") return stage;
+  if (room.workflowVersion === 2) {
+    if (room.phaseV2 === "PAUSED") return "PAUSED";
+    if (room.phaseV2 === "UNDERSTANDING_GENERATING" || room.state === "COMMON_VIEW_READY") return "AI_PENDING";
+    if (room.role === "A" && room.state === "WAITING_FOR_B") return "INVITE";
+    if (room.state === "GOAL_SETTING") return "GOAL";
+    if (["A_DRAFTING", "A_REVIEWING", "B_DRAFTING", "B_REVIEWING"].includes(room.state)) return "RECORD";
+  }
   return stageForRoom(room.role, room.state);
 }
 
 export function roomPhaseLabel(stage: ClientStage, room: RoomSession | null) {
   if (!room) return "暂无进行中的沟通";
+  if (stage === "WELCOME" && room.workflowVersion === 2 && room.phaseV2 === "UNDERSTANDING_GENERATING") {
+    return "双方表达已确认 · 共同理解待接入";
+  }
   return stageLabels[accountStage(stage, room)];
 }
 

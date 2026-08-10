@@ -38,6 +38,20 @@ describe("account space status", () => {
     expect(roomPhaseLabel("NVC_NEED", { ...room, state: "A_DRAFTING" })).toBe("非暴力沟通 · 需要");
   });
 
+  it("shows truthful v2 pause and unfinished joint-generation states", () => {
+    expect(roomPhaseLabel("WELCOME", {
+      ...room,
+      workflowVersion: 2,
+      phaseV2: "PAUSED",
+    })).toBe("本次沟通已暂停");
+    expect(roomPhaseLabel("WELCOME", {
+      ...room,
+      workflowVersion: 2,
+      state: "COMMON_VIEW_READY",
+      phaseV2: "UNDERSTANDING_GENERATING",
+    })).toBe("双方表达已确认 · 共同理解待接入");
+  });
+
   it("describes local and synced draft states without exposing storage details", () => {
     expect(draftStatusLabel(room, "saving", false)).toBe("正在保存到此设备");
     expect(draftStatusLabel(room, "saved", false)).toBe("已保存到此设备");
