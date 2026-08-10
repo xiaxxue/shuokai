@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseKeys } from "../_shared/supabase-keys.ts";
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -17,12 +18,10 @@ async function digest(value: string) {
 Deno.serve(async (request) => {
   if (request.method !== "POST") return json({ message: "Method not allowed" }, 405);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY");
+  const { url: supabaseUrl, publishableKey, secretKey } = getSupabaseKeys();
   const appId = Deno.env.get("WECHAT_APP_ID");
   const appSecret = Deno.env.get("WECHAT_APP_SECRET");
-  if (!supabaseUrl || !serviceKey || !publishableKey || !appId || !appSecret) {
+  if (!supabaseUrl || !secretKey || !publishableKey || !appId || !appSecret) {
     return json({ message: "微信登录尚未配置。" }, 503);
   }
 
@@ -65,7 +64,7 @@ Deno.serve(async (request) => {
     return json({ message: "微信身份校验失败，请重新进入小程序。" }, 401);
   }
 
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const admin = createClient(supabaseUrl, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   const { data: knownUser, error: lookupError } = await admin.rpc(

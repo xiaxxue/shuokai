@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseKeys } from "../_shared/supabase-keys.ts";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
@@ -12,10 +13,8 @@ Deno.serve(async (request) => {
   const authorization = request.headers.get("authorization");
   if (!authorization?.startsWith("Bearer ")) return json({ message: "请先登录。" }, 401);
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !publishableKey || !serviceKey) {
+  const { url: supabaseUrl, publishableKey, secretKey } = getSupabaseKeys();
+  if (!supabaseUrl || !publishableKey || !secretKey) {
     return json({ message: "语音服务尚未配置。" }, 503);
   }
   const supabase = createClient(
@@ -57,7 +56,7 @@ Deno.serve(async (request) => {
   const openAIKey = Deno.env.get("OPENAI_API_KEY");
   if (!openAIKey) return json({ message: "语音转写尚未配置。" }, 503);
 
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const admin = createClient(supabaseUrl, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
   const { data: allowed, error: quotaError } = await admin.rpc(

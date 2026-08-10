@@ -81,7 +81,7 @@ test("Bearer parsing rejects empty or ambiguous authorization values", () => {
   })), null);
 });
 
-test("Worker accepts current publishable keys and legacy anon keys", () => {
+test("Worker accepts a modern publishable key and does not fall back to legacy keys", () => {
   assert.deepEqual(
     publicSupabaseConfig({
       SUPABASE_URL: "https://project.supabase.co",
@@ -89,13 +89,7 @@ test("Worker accepts current publishable keys and legacy anon keys", () => {
     }),
     { url: "https://project.supabase.co", key: "sb_publishable_test" },
   );
-  assert.deepEqual(
-    publicSupabaseConfig({
-      SUPABASE_URL: "https://project.supabase.co",
-      SUPABASE_ANON_KEY: "legacy-anon-key",
-    }),
-    { url: "https://project.supabase.co", key: "legacy-anon-key" },
-  );
+  assert.equal(publicSupabaseConfig({ SUPABASE_URL: "https://project.supabase.co" }), null);
 });
 
 test("RPC validation normalizes safe inputs and rejects extra fields", () => {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseKeys } from "../_shared/supabase-keys.ts";
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const allowedMethods = new Set([
@@ -27,6 +28,10 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return json({ message: "Method not allowed" }, 405);
   const authorization = request.headers.get("authorization");
   if (!authorization?.startsWith("Bearer ")) return json({ message: "请先登录。" }, 401);
+  const { url: supabaseUrl, publishableKey } = getSupabaseKeys();
+  if (!supabaseUrl || !publishableKey) {
+    return json({ message: "服务暂时不可用，请稍后再试。" }, 503);
+  }
 
   const payload: unknown = await request.json().catch(() => null);
   if (!payload || typeof payload !== "object") return json({ message: "请求格式无效。" }, 400);
@@ -38,8 +43,8 @@ Deno.serve(async (request) => {
   }
 
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
+    supabaseUrl,
+    publishableKey,
     {
       global: { headers: { Authorization: authorization } },
       auth: { autoRefreshToken: false, persistSession: false },

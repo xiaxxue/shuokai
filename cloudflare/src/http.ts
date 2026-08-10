@@ -1,8 +1,7 @@
 export type WorkerEnv = {
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
-  SUPABASE_ANON_KEY?: string;
-  SUPABASE_SERVICE_ROLE_KEY?: string;
+  SUPABASE_SECRET_KEY?: string;
   WECHAT_APP_ID?: string;
   WECHAT_APP_SECRET?: string;
   OPENAI_API_KEY?: string;
@@ -13,7 +12,7 @@ export type WorkerEnv = {
 
 export function publicSupabaseConfig(env: WorkerEnv) {
   const url = env.SUPABASE_URL;
-  const key = env.SUPABASE_PUBLISHABLE_KEY ?? env.SUPABASE_ANON_KEY;
+  const key = env.SUPABASE_PUBLISHABLE_KEY;
   return url && key ? { url, key } : null;
 }
 

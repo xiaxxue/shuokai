@@ -24,8 +24,8 @@ npm run cloudflare:dry-run
 在 Cloudflare Dashboard 或 Wrangler 中配置：
 
 - `SUPABASE_URL`
-- `SUPABASE_PUBLISHABLE_KEY`（推荐；也兼容旧项目的 `SUPABASE_ANON_KEY`）
-- `SUPABASE_SERVICE_ROLE_KEY`（Secret，绝不能进入客户端）
+- `SUPABASE_PUBLISHABLE_KEY`（`sb_publishable_…`，仅用于公共客户端请求）
+- `SUPABASE_SECRET_KEY`（`sb_secret_…`，仅用于 Worker，绝不能进入客户端）
 - `WECHAT_APP_ID`
 - `WECHAT_APP_SECRET`（Secret）
 - `OPENAI_API_KEY`（Secret）

@@ -24,3 +24,11 @@ verify_enabled = true
 # WeChat code itself and must therefore be reachable before JWT issuance.
 [functions.wechat-login]
 verify_jwt = false
+
+# Modern publishable keys are not JWTs. Each function validates the user's
+# access token with supabase.auth.getUser() instead of the legacy gateway check.
+[functions.miniapp-api]
+verify_jwt = false
+
+[functions.transcribe]
+verify_jwt = false
