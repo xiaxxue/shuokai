@@ -772,6 +772,91 @@ button::after { border: 0; }
 .acceptance-status { color: $muted; font-size: 10px; }
 .centered-note { text-align: center; }
 
+.ai-pending-screen,
+.paused-screen {
+  padding-top: 62px;
+  align-items: center;
+  text-align: center;
+}
+
+.ai-orbit {
+  width: 126px;
+  height: 126px;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(38, 76, 60, .24);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, rgba(216, 232, 220, .92) 0 38%, transparent 39%),
+    conic-gradient(from 30deg, transparent, rgba(199, 75, 52, .32), transparent 45%, rgba(37, 78, 61, .24), transparent 80%);
+  animation: orbit-breathe 2.4s ease-in-out infinite;
+}
+
+.ai-orbit-core {
+  width: 54px;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: $ink;
+  color: #fffdf7;
+  font-family: Georgia, serif;
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+
+.ai-steps {
+  width: 100%;
+  margin: 30px 0 22px;
+  overflow: hidden;
+  border: 1px solid $line;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .58);
+  text-align: left;
+}
+
+.ai-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 17px;
+  color: #909791;
+  font-size: 12px;
+}
+
+.ai-step + .ai-step { border-top: 1px solid #e6e1d8; }
+.ai-step > text:first-child { width: 20px; color: #999f9a; text-align: center; }
+.ai-step.done { color: #406957; }
+.ai-step.active { background: #edf3ed; color: #214b3a; font-weight: 700; }
+.ai-step .processing-dot { width: 8px; height: 8px; }
+.understanding-failure { display: flex; flex-direction: column; gap: 10rpx; margin-top: 28rpx; padding: 26rpx; border: 1rpx solid #dbb6a8; border-radius: 24rpx; background: #fbebe4; color: #75564c; font-size: 23rpx; line-height: 1.65; text-align: left; }
+.understanding-failure text:first-child { color: #9f412f; font-weight: 800; }
+.understanding-recovery-actions { display: flex; width: 100%; flex-direction: column; gap: 8rpx; }
+.understanding-recovery-actions .subtle { border-color: transparent; background: transparent; color: $muted; }
+
+.pause-mark {
+  width: 92px;
+  height: 92px;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #aab5b1;
+  border-radius: 50%;
+  background: #e7ece9;
+  color: #385248;
+  font-family: Georgia, serif;
+  font-size: 27px;
+}
+
+@keyframes orbit-breathe {
+  0%, 100% { transform: scale(.96) rotate(-4deg); opacity: .78; }
+  50% { transform: scale(1.03) rotate(4deg); opacity: 1; }
+}
+
 .complete-screen { padding-top: 60px; text-align: center; }
 .complete-title { margin-top: 19px; font-size: 28px; }
 

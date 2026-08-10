@@ -15,7 +15,23 @@
       "/health*",
       "/wechat-login*",
       "/miniapp-api*",
+      "/ai/expression*",
+      "/ai/understanding*",
       "/transcribe*"
+    ]
+  },
+  "queues": {
+    "producers": [
+      { "binding": "AI_JOBS_QUEUE", "queue": "shuokai-ai-jobs-test" }
+    ],
+    "consumers": [
+      {
+        "queue": "shuokai-ai-jobs-test",
+        "dead_letter_queue": "shuokai-ai-jobs-test-dlq",
+        "max_batch_size": 5,
+        "max_concurrency": 3,
+        "max_retries": 3
+      }
     ]
   }
 }

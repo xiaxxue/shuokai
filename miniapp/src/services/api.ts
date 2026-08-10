@@ -1,7 +1,10 @@
 import type {
   AuthSession,
   Perspective,
+  RoomSession,
 } from "../domain/types";
+import type { EditableExpression, ExpressionMode } from "../domain/expression";
+import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
   parseAcceptanceResult,
   parseApprovalResult,
@@ -13,7 +16,7 @@ import type { RecordedAudio } from "./recorder";
 import { requireH5Session } from "./auth";
 import { clearSession, getSession, saveSession } from "./session";
 
-type RpcArgs = Record<string, string | number | boolean | null>;
+type RpcArgs = Record<string, unknown>;
 
 type ApiResponse<T> = {
   statusCode: number;
@@ -151,11 +154,11 @@ async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
 
 export const roomApi = {
   create: async (displayName = "我") =>
-    parseRoomSession(await rpc<unknown>("create_room", { p_display_name: displayName })),
+    parseRoomSession(await rpc<unknown>("create_room_v2", { p_display_name: displayName })),
   join: async (code: string, displayName = "我") =>
-    parseRoomSession(await rpc<unknown>("join_room", { p_code: code, p_display_name: displayName })),
+    parseRoomSession(await rpc<unknown>("join_room_v2", { p_code: code, p_display_name: displayName })),
   setGoal: async (roomId: string, goal: string) =>
-    parseStateResult(await rpc<unknown>("set_room_goal", {
+    parseStateResult(await rpc<unknown>("set_room_goal_v2", {
       p_room_id: roomId,
       p_goal: goal,
     }), ["A_DRAFTING"] as const),
@@ -186,7 +189,127 @@ export const roomApi = {
     )),
   snapshot: async (roomId: string) =>
     parseRoomSnapshot(await rpc<unknown>("get_room_snapshot", { p_room_id: roomId })),
+  expressionWorkspace: async (roomId: string) =>
+    rpc<{
+      revision: number;
+      flowState: string;
+      sourceText: string;
+      selectedMode: ExpressionMode | null;
+      manualPayload: Record<string, string>;
+      aiCandidate: unknown;
+    }>("get_expression_workspace_v2", { p_room_id: roomId }),
+  aiJobStatus: async (jobId: string) =>
+    rpc<{
+      jobId: string;
+      status: "QUEUED" | "PROCESSING" | "SUCCEEDED" | "FAILED_RETRYABLE" | "FAILED_FINAL" | "STALE" | "CANCELED";
+      draftRevision: number;
+      result: unknown;
+      errorCode: string | null;
+    }>("get_ai_job_status_v2", { p_job_id: jobId }),
+  understandingStatus: async (roomId: string) =>
+    parseUnderstandingStatus(await rpc<unknown>("get_understanding_status_v2", { p_room_id: roomId })),
+  confirmUnderstanding: async (
+    roomId: string,
+    resultId: string,
+    candidateHash: string,
+    decision: "ACCURATE" | "INACCURATE",
+    feedbackText = "",
+  ) => parseUnderstandingConfirmation(await rpc<unknown>("confirm_understanding_v2", {
+    p_room_id: roomId,
+    p_result_id: resultId,
+    p_candidate_hash: candidateHash,
+    p_decision: decision,
+    p_feedback_text: feedbackText,
+  })),
+  reopenExpression: async (roomId: string) =>
+    rpc<{ state: RoomSession["state"]; phase: "PRIVATE_EXPRESSION" }>(
+      "reopen_expression_v2",
+      { p_room_id: roomId },
+    ),
+  confirmExpression: async (roomId: string, revision: number, payload: Record<string, unknown>) =>
+    rpc<{ state: RoomSession["state"]; version: number; expressionId: string }>(
+      "confirm_expression_version_v2",
+      { p_room_id: roomId, p_expected_revision: revision, p_payload: payload },
+    ),
+  pause: async (roomId: string) =>
+    rpc<{ phase: "PAUSED"; paused: true }>("pause_room_v2", { p_room_id: roomId }),
+  saveExpressionWorkspace: async (
+    roomId: string,
+    expectedRevision: number,
+    sourceText: string,
+    selectedMode: ExpressionMode,
+    manualPayload: Record<string, string>,
+  ) => rpc<{ revision: number; sourceHash: string; selectedMode: ExpressionMode }>(
+    "save_expression_workspace_v2",
+    {
+      p_room_id: roomId,
+      p_expected_revision: expectedRevision,
+      p_source_text: sourceText,
+      p_selected_mode: selectedMode,
+      p_manual_payload: manualPayload,
+    },
+  ),
 };
+
+export async function requestSharedUnderstanding(roomId: string) {
+  const session = await activeSession();
+  const response = await request<unknown>({
+    url: apiUrl("/ai/understanding"),
+    method: "POST",
+    header: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "content-type": "application/json",
+    },
+    data: { roomId },
+    timeout: 25000,
+  });
+  if (![200, 202].includes(response.statusCode) || !response.data || typeof response.data !== "object") {
+    throw new UnderstandingRequestError(
+      errorMessage(response.data, "共同理解任务没有创建，双方表达仍已安全保留。"),
+      response.statusCode >= 500,
+    );
+  }
+  const result = response.data as { jobId?: unknown; status?: unknown };
+  return {
+    jobId: typeof result.jobId === "string" ? result.jobId : "",
+    status: typeof result.status === "string" ? result.status : "SUCCEEDED",
+  };
+}
+
+export class UnderstandingRequestError extends Error {
+  constructor(message: string, readonly retryable: boolean) {
+    super(message);
+    this.name = "UnderstandingRequestError";
+  }
+}
+
+export async function requestExpressionOrganization(
+  roomId: string,
+  expectedRevision: number,
+  sourceText: string,
+  selectedMode: Exclude<ExpressionMode, "PAUSE">,
+  manualPayload: EditableExpression["fields"] = {},
+) {
+  const session = await activeSession();
+  const response = await request<unknown>({
+    url: apiUrl("/ai/expression"),
+    method: "POST",
+    header: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "content-type": "application/json",
+    },
+    data: { roomId, expectedRevision, sourceText, selectedMode, manualPayload },
+    timeout: 25000,
+  });
+  if (response.statusCode !== 202 || !response.data || typeof response.data !== "object") {
+    throw new Error(errorMessage(response.data, "AI 整理任务没有创建，请改为手动填写。"));
+  }
+  const result = response.data as { jobId?: unknown; revision?: unknown };
+  if (typeof result.jobId !== "string" || typeof result.revision !== "number") {
+    throw new Error("AI 整理服务返回了无效任务，请改为手动填写。");
+  }
+  return { jobId: result.jobId, revision: result.revision };
+}
 
 async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {
   return new Promise<{ statusCode: number; data: string }>((resolve, reject) => {

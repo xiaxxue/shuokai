@@ -32,6 +32,10 @@ export type ClientStage =
   | "WELCOME"
   | "GOAL"
   | "RECORD"
+  | "MODE_SELECT"
+  | "AI_PENDING"
+  | "EXPRESSION_REVIEW"
+  | "PAUSED"
   | "NVC_OBSERVATION"
   | "NVC_FEELING"
   | "NVC_NEED"
@@ -46,6 +50,10 @@ export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
   "GOAL",
   "RECORD",
+  "MODE_SELECT",
+  "AI_PENDING",
+  "EXPRESSION_REVIEW",
+  "PAUSED",
   "NVC_OBSERVATION",
   "NVC_FEELING",
   "NVC_NEED",
@@ -58,6 +66,9 @@ export const clientStageOrder: readonly ClientStage[] = [
 ];
 
 export function previousStage(stage: ClientStage): ClientStage {
+  if (stage === "MODE_SELECT") return "RECORD";
+  if (stage === "AI_PENDING" || stage === "EXPRESSION_REVIEW" || stage === "PAUSED") return "MODE_SELECT";
+  if (stage === "NVC_OBSERVATION") return "RECORD";
   const index = clientStageOrder.indexOf(stage);
   return clientStageOrder[Math.max(0, index - 1)];
 }
@@ -69,11 +80,16 @@ export function canNavigateBack(stage: ClientStage) {
     "NVC_NEED",
     "NVC_REQUEST",
     "REVIEW",
+    "MODE_SELECT",
+    "EXPRESSION_REVIEW",
   ].includes(stage);
 }
 
 export const editorClientStages: readonly ClientStage[] = [
   "RECORD",
+  "MODE_SELECT",
+  "AI_PENDING",
+  "EXPRESSION_REVIEW",
   "NVC_OBSERVATION",
   "NVC_FEELING",
   "NVC_NEED",

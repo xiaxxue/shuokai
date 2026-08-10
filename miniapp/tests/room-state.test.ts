@@ -17,6 +17,8 @@ describe("room state machine", () => {
     expect(previousStage("WELCOME")).toBe("WELCOME");
     expect(previousStage("NVC_FEELING")).toBe("NVC_OBSERVATION");
     expect(previousStage("REVIEW")).toBe("NVC_REQUEST");
+    expect(previousStage("MODE_SELECT")).toBe("RECORD");
+    expect(previousStage("EXPRESSION_REVIEW")).toBe("MODE_SELECT");
   });
 
   it("only allows local back navigation before a server transition", () => {
@@ -24,6 +26,8 @@ describe("room state machine", () => {
     expect(canNavigateBack("NVC_REQUEST")).toBe(true);
     expect(canNavigateBack("RECORD")).toBe(false);
     expect(canNavigateBack("REVIEW")).toBe(true);
+    expect(canNavigateBack("MODE_SELECT")).toBe(true);
+    expect(canNavigateBack("EXPRESSION_REVIEW")).toBe(true);
   });
 
   it("routes each participant from the authoritative room state", () => {

@@ -1,4 +1,10 @@
 import type { AuthSession, Perspective, RoomSession } from "../domain/types";
+import {
+  expressionModes,
+  parseAiExpressionCandidate,
+  type EditableExpression,
+  type ExpressionMode,
+} from "../domain/expression";
 import { isEditorClientStage, roomStates, type ClientStage } from "../domain/room-state";
 
 const SESSION_KEY = "shuokai.session.v2";
@@ -15,6 +21,10 @@ export type EditorDraft = {
   clarification: string;
   perspective: Perspective;
   editorStage?: ClientStage;
+  selectedMode?: ExpressionMode | null;
+  editableExpression?: EditableExpression;
+  workspaceRevision?: number;
+  aiJobId?: string;
 };
 
 export function getSession(): AuthSession | null {
@@ -39,6 +49,11 @@ export function getActiveRoom(ownerUserId?: string): RoomSession | null {
     typeof candidate.roomId !== "string" || !roomIdPattern.test(candidate.roomId) ||
     typeof candidate.code !== "string" || !roomCodePattern.test(candidate.code) ||
     (candidate.role !== "A" && candidate.role !== "B") ||
+    (candidate.workflowVersion !== undefined && candidate.workflowVersion !== 1 && candidate.workflowVersion !== 2) ||
+    (candidate.phaseV2 !== undefined && ![
+      "SETUP", "PRIVATE_EXPRESSION", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
+      "ACTION_GENERATING", "ACTION_CONFIRMING", "PAUSED", "COMPLETED", "ENDED",
+    ].includes(candidate.phaseV2)) ||
     !roomStates.includes(candidate.state as RoomSession["state"])
   ) return null;
   return candidate as RoomSession;
@@ -78,6 +93,26 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const migratedMeaning = cards.meaning.trim()
     ? cards.meaning
     : candidate.clarification.trim().slice(0, 1000);
+  let selectedMode: ExpressionMode | null | undefined;
+  let editableExpression: EditableExpression | undefined;
+  if (candidate.selectedMode === null) selectedMode = null;
+  else if (expressionModes.includes(candidate.selectedMode as ExpressionMode)) {
+    selectedMode = candidate.selectedMode as ExpressionMode;
+  }
+  if (selectedMode && candidate.editableExpression) {
+    try {
+      editableExpression = parseAiExpressionCandidate(candidate.editableExpression, selectedMode);
+    } catch {
+      editableExpression = undefined;
+    }
+  }
+  const workspaceRevision = typeof candidate.workspaceRevision === "number" &&
+    Number.isSafeInteger(candidate.workspaceRevision) && candidate.workspaceRevision >= 0
+    ? candidate.workspaceRevision
+    : undefined;
+  const aiJobId = typeof candidate.aiJobId === "string" && roomIdPattern.test(candidate.aiJobId)
+    ? candidate.aiJobId
+    : undefined;
   return {
     roomId: candidate.roomId,
     role: candidate.role,
@@ -90,6 +125,10 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
       request: cards.request,
     },
     ...(candidate.editorStage ? { editorStage: candidate.editorStage } : {}),
+    ...(selectedMode !== undefined ? { selectedMode } : {}),
+    ...(editableExpression ? { editableExpression } : {}),
+    ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
+    ...(aiJobId ? { aiJobId } : {}),
   };
 }
 

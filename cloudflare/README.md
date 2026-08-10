@@ -29,6 +29,7 @@ npm run cloudflare:dry-run
 - `WECHAT_APP_ID`
 - `WECHAT_APP_SECRET`（Secret）
 - `OPENAI_API_KEY`（Secret）
+- `OPENAI_TEXT_MODEL`（可选；默认使用支持 Structured Outputs 的固定模型版本）
 - `ALLOWED_ORIGINS`（可选，逗号分隔；H5 与 Worker 同域时无需填写）
 
 本地开发先复制 `cloudflare/.dev.vars.example` 为 `cloudflare/.dev.vars`；真实值文件已被 Git 忽略。不要把任何真实密钥写入仓库。
@@ -37,9 +38,17 @@ npm run cloudflare:dry-run
 `auth.getClaims(jwt)` 按当前项目 signing keys 验证签名与 claims。Worker 仍以同一个用户 JWT 调用
 PostgREST RPC，让数据库中的 `auth.uid()` 与 RLS 执行最终资源所有权检查。
 
+AI 表达整理使用 Cloudflare Queue。测试配置绑定 `shuokai-ai-jobs-test`，消息体只包含 `jobId`；
+原始表达由消费者以 service role 从私有 schema 读取，不写 Worker 日志。模型调用使用 Responses API
+Structured Outputs，并显式设置 `store: false`。生产配置当前没有 Queue 绑定，因此不会伪装 AI 可用。
+
 ## 部署
 
 H5 的 Supabase URL 与 publishable key 会进入浏览器构建，这是正常的；数据库安全由用户 JWT 和 RLS 负责。
+
+测试环境部署顺序必须是：先在测试 Supabase 应用并通过
+`20260810021611_add_ai_expression_v2.sql` 与 pgTAP，再创建测试 Queue / DLQ，最后从干净的 GitHub
+`main` 部署 Worker。任一前置项缺失时停止部署；不要把这套配置复制到生产。
 
 ```bash
 SHUOKAI_SUPABASE_URL=https://your-project.supabase.co \
