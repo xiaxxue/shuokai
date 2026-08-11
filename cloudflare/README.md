@@ -4,6 +4,10 @@
 
 同一个 Worker 也托管 `miniapp/dist/build/h5`，因此 H5 默认使用同源 API，不需要开放任意来源的 CORS。
 
+Worker 为每个 API 请求生成 `x-request-id`，并输出隐私最小化的结构化 JSON 日志。请求头、请求体、
+用户/房间/任务 ID、凭据和沟通正文禁止进入应用日志。完整字段、保留期和排障流程见
+[`docs/logging-and-audit-policy.md`](../docs/logging-and-audit-policy.md)。
+
 ## 本地检查
 
 ```bash
@@ -23,6 +27,7 @@ npm run cloudflare:dry-run
 
 在 Cloudflare Dashboard 或 Wrangler 中配置：
 
+- `APP_ENVIRONMENT`（非敏感环境名；配置文件固定为 `test` 或 `production`）
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`（`sb_publishable_…`，仅用于公共客户端请求）
 - `SUPABASE_SECRET_KEY`（`sb_secret_…`，仅用于 Worker，绝不能进入客户端）

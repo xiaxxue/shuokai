@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { requestStructuredOutput, REVIEW_MODEL } from "./cloudflare-ai.ts";
 import type { WorkerEnv } from "./http.ts";
+import { logQueueBatch } from "./observability.ts";
 
 export const supportedExpressionModes = ["NVC", "FACT_DISPUTE", "BOUNDARY"] as const;
 export type SupportedExpressionMode = typeof supportedExpressionModes[number];
@@ -37,6 +38,8 @@ type QueueMessageEnvelope = {
   ack(): void;
   retry(): void;
 };
+
+type QueueOutcome = "succeeded" | "retried" | "discarded";
 
 export type QueueBatch = {
   messages: QueueMessageEnvelope[];
@@ -508,12 +511,12 @@ export function reviewSharedUnderstanding(env: WorkerEnv, input: {
   });
 }
 
-async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope) {
+async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope): Promise<QueueOutcome> {
   const parsed = parseQueueMessage(message.body);
   const admin = adminClient(env);
   if (!parsed || !admin) {
     message.ack();
-    return;
+    return "discarded";
   }
   const workerId = crypto.randomUUID();
   const { data: claim, error: claimError } = await admin.rpc("internal_claim_ai_job_v2", {
@@ -522,18 +525,20 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope) {
   });
   if (claimError) {
     message.retry();
-    return;
+    return "retried";
   }
   if (!claim || typeof claim !== "object") {
     message.ack();
-    return;
+    return "discarded";
   }
   if (!(claim as { claimed?: unknown }).claimed) {
     const status = (claim as { status?: unknown }).status;
     if (status === "QUEUED" || status === "PROCESSING" || status === "FAILED_RETRYABLE") {
       message.retry();
-    } else message.ack();
-    return;
+      return "retried";
+    }
+    message.ack();
+    return "discarded";
   }
   const input = claim as ClaimPayload | UnderstandingClaimPayload;
   try {
@@ -586,6 +591,7 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope) {
     const nextJobId = isRecord(completed) ? completed.nextJobId : null;
     if (typeof nextJobId === "string") await env.AI_JOBS_QUEUE?.send({ jobId: nextJobId });
     message.ack();
+    return "succeeded";
   } catch (error) {
     const code = error instanceof Error ? error.message : "AI_UNKNOWN_ERROR";
     const retryable = code === "CLOUDFLARE_AI_RETRYABLE" || code === "COMPLETE_JOB_FAILED";
@@ -595,11 +601,35 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope) {
       p_error_code: code,
       p_retryable: retryable,
     });
-    if (retryable) message.retry();
-    else message.ack();
+    if (retryable) {
+      message.retry();
+      return "retried";
+    }
+    message.ack();
+    return "discarded";
   }
 }
 
 export async function processExpressionQueue(batch: QueueBatch, env: WorkerEnv) {
-  await Promise.all(batch.messages.map((message) => processMessage(env, message)));
+  const startedAt = Date.now();
+  try {
+    const outcomes = await Promise.all(batch.messages.map((message) => processMessage(env, message)));
+    logQueueBatch(env, {
+      batchSize: outcomes.length,
+      succeeded: outcomes.filter((outcome) => outcome === "succeeded").length,
+      retried: outcomes.filter((outcome) => outcome === "retried").length,
+      discarded: outcomes.filter((outcome) => outcome === "discarded").length,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    logQueueBatch(env, {
+      batchSize: batch.messages.length,
+      succeeded: 0,
+      retried: 0,
+      discarded: 0,
+      durationMs: Date.now() - startedAt,
+      failed: true,
+    });
+    throw error;
+  }
 }
