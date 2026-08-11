@@ -9,6 +9,7 @@ import {
 } from "./http.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
+import { transcribeAudio } from "./cloudflare-ai.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
@@ -50,7 +51,7 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SECRET_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
     return json(request, env, {
       message: "AI 整理服务尚未配置，请先手动填写。",
       code: "AI_SERVICE_NOT_CONFIGURED",
@@ -146,7 +147,7 @@ export async function handleUnderstandingJob(request: Request, env: WorkerEnv) {
   const authorization = bearerToken(request);
   if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SECRET_KEY || !env.OPENAI_API_KEY || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
     return json(request, env, {
       message: "共同理解服务尚未配置。双方已确认的表达仍会保留。",
       code: "AI_SERVICE_NOT_CONFIGURED",
@@ -424,10 +425,9 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
   const configured = requireEnv(env, [
     "SUPABASE_URL",
     "SUPABASE_SECRET_KEY",
-    "OPENAI_API_KEY",
   ] as const);
   const supabaseConfig = publicSupabaseConfig(env);
-  if (!configured || !supabaseConfig) {
+  if (!configured || !supabaseConfig || !env.AI) {
     return json(request, env, { message: "语音服务尚未配置。" }, 503);
   }
 
@@ -460,25 +460,9 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
   if (quotaError) return json(request, env, { message: "暂时无法确认语音额度，请稍后重试。" }, 503);
   if (!allowed) return json(request, env, { message: "本小时转写次数已用完，请稍后再试。" }, 429);
 
-  const openAIForm = new FormData();
-  openAIForm.append("file", file, file.name || "recording.mp3");
-  openAIForm.append("model", "gpt-4o-mini-transcribe");
-  openAIForm.append("language", "zh");
-
-  let response: Response;
   try {
-    response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${configured.OPENAI_API_KEY}` },
-      body: openAIForm,
-      signal: AbortSignal.timeout(90000),
-    });
+    return json(request, env, { text: await transcribeAudio(env, file) });
   } catch {
     return json(request, env, { message: "录音转写暂时不可用，请改用文字输入。" }, 502);
   }
-  const result = await response.json().catch(() => ({})) as { text?: string };
-  if (!response.ok || !result.text) {
-    return json(request, env, { message: "录音转写暂时不可用，请改用文字输入。" }, 502);
-  }
-  return json(request, env, { text: result.text });
 }

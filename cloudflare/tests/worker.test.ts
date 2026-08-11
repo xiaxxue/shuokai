@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "../src/cloudflare-ai.ts";
 import { isSupportedAudio } from "../src/handlers.ts";
 import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
@@ -9,6 +11,7 @@ import {
   expressionResultSchema,
   generateExpressionCandidate,
   generateSharedUnderstanding,
+  reviewSharedUnderstanding,
   isExpressionResult,
   isUnderstandingResult,
   isUnderstandingReview,
@@ -186,6 +189,7 @@ test("test deployment routes both AI endpoints through the Worker", async () => 
   const configText = await readFile(new URL("../wrangler.test.jsonc", import.meta.url), "utf8");
   assert.match(configText, /"\/ai\/expression\*"/);
   assert.match(configText, /"\/ai\/understanding\*"/);
+  assert.match(configText, /"ai"\s*:\s*\{\s*"binding"\s*:\s*"AI"/);
 });
 
 test("queue messages contain only a bounded job identifier", () => {
@@ -246,9 +250,30 @@ test("shared understanding schemas are strict, traceable, and independently revi
     ...corrected,
     commonGround: [{ text: "他故意忽略我", sources: ["A.diagnosis"] }],
   }), false);
+  assert.equal(isUnderstandingResult({
+    ...corrected,
+    differences: [{
+      topic: "何时告知", sideA: "A.request", sideB: "B.request",
+      sources: ["A.request", "B.request"],
+    }],
+  }), false);
+  assert.equal(isUnderstandingResult({
+    ...corrected,
+    boundaries: [{ text: "希望当天告诉我", sources: ["A.request"] }],
+  }), false);
   assert.equal(isUnderstandingReview({
     verdict: "PASS", issues: [], safetyDisposition: "ALLOW", safetyMessage: "",
   }), true);
+  assert.equal(isUnderstandingReview({
+    verdict: "PASS", issues: [], safetyDisposition: "WARN", safetyMessage: "请先确认是否适合继续分享。",
+  }), true);
+  assert.equal(isUnderstandingReview({
+    verdict: "PASS", issues: [], safetyDisposition: "PAUSE", safetyMessage: "请暂停。",
+  }), false);
+  assert.equal(isUnderstandingReview({
+    verdict: "BLOCK", issues: [{ code: "UNSAFE", message: "存在伤害风险", sources: [] }],
+    safetyDisposition: "ALLOW", safetyMessage: "",
+  }), false);
   assert.equal(isUnderstandingReview({
     verdict: "PASS",
     issues: [{ code: "FALSE_CONSENSUS", message: "共同点只有单方依据", sources: ["A.need"] }],
@@ -286,48 +311,47 @@ test("understanding confirmation validation binds the exact reviewed hash", () =
   }), null);
 });
 
-test("OpenAI request uses Structured Outputs and disables response storage", async (context) => {
-  const captured: { requestBody?: Record<string, unknown> } = {};
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_input, init) => {
-    captured.requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    return new Response(JSON.stringify({
-      output: [{
-        type: "message",
-        content: [{
-          type: "output_text",
-          text: JSON.stringify({
+test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
+  const captured: { model?: string; input?: Record<string, unknown> } = {};
+  const generated = await generateExpressionCandidate({
+    AI: {
+      async run(model, input) {
+        captured.model = model;
+        captured.input = input;
+        return {
+          id: "cf_req_test",
+          response: null,
+          choices: [{ message: { content: null, reasoning: JSON.stringify({
             mode: "NVC",
             fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
             uncertainties: [],
             safetyDisposition: "ALLOW",
             safetyMessage: "",
-          }),
-        }],
-      }],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    }), { status: 200, headers: { "x-request-id": "req_test" } });
-  };
-  context.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  const generated = await generateExpressionCandidate({ OPENAI_API_KEY: "test-only" }, {
+          }) } }],
+          usage: { prompt_tokens: 10, completion_tokens: 20 },
+        };
+      },
+    },
+  }, {
     mode: "NVC",
     sourceText: "我们约好周五确认，但周日还没有消息。",
   });
-  assert.equal(generated.providerRequestRef, "req_test");
+  assert.equal(generated.providerRequestRef, "cf_req_test");
+  assert.equal(generated.tokenInput, 10);
+  assert.equal(generated.tokenOutput, 20);
   assert.equal((generated.result as { mode?: unknown }).mode, "NVC");
-  assert.equal(captured.requestBody?.store, false);
+  assert.equal(captured.model, TEXT_MODEL);
   assert.equal(
-    ((captured.requestBody?.text as { format?: { type?: string } }).format?.type),
+    ((captured.input?.response_format as { type?: string }).type),
     "json_schema",
   );
+  assert.equal(captured.input?.max_tokens, 1800);
+  assert.equal(captured.input?.temperature, 0.1);
+  assert.deepEqual(captured.input?.chat_template_kwargs, { enable_thinking: false });
 });
 
-test("consensus Agent sends only confirmed cards and keeps response storage disabled", async (context) => {
-  const captured: { requestBody?: Record<string, unknown> } = {};
-  const originalFetch = globalThis.fetch;
+test("consensus Agent sends only confirmed cards to Workers AI", async () => {
+  const captured: { input?: Record<string, unknown> } = {};
   const result = {
     schemaVersion: 1,
     commonGround: [{ text: "双方都希望减少临时变化带来的不确定", sources: ["A.need", "B.need"] }],
@@ -335,27 +359,126 @@ test("consensus Agent sends only confirmed cards and keeps response storage disa
       topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
       sources: ["A.request", "B.request"],
     }],
-    unverifiedFacts: [], boundaries: [],
+    unverifiedFacts: [],
+    boundaries: [{ text: "模型虚构的边界", sources: ["A.boundary"] }],
     candidateUnderstanding: { text: "双方对通知时点的期待不同", sources: ["A.request", "B.request"] },
     coreQuestion: { text: "哪个时点既及时又足够确定", sources: ["A.request", "B.request"] },
     safetyDisposition: "ALLOW", safetyMessage: "",
   };
-  globalThis.fetch = async (_input, init) => {
-    captured.requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    return new Response(JSON.stringify({
-      output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(result) }] }],
-      usage: { input_tokens: 20, output_tokens: 30 },
-    }), { status: 200 });
-  };
-  context.after(() => { globalThis.fetch = originalFetch; });
-  await generateSharedUnderstanding({ OPENAI_API_KEY: "test-only" }, {
-    expressionA: { mode: "NVC", payload: { need: "确定感", request: "可能变化时告诉我" } },
+  const generated = await generateSharedUnderstanding({
+    AI: {
+      async run(_model, input) {
+        captured.input = input;
+        return {
+          choices: [{ message: { content: JSON.stringify(result) } }],
+          usage: { prompt_tokens: 20, completion_tokens: 30 },
+        };
+      },
+    },
+  }, {
+    expressionA: {
+      mode: "NVC",
+      payload: { need: "确定感", request: "可能变化时告诉我", internalNote: "不得发送" },
+    },
     expressionB: { mode: "NVC", payload: { need: "准确", request: "确认变化后告诉你" } },
   });
-  assert.equal(captured.requestBody?.store, false);
-  const requestText = JSON.stringify(captured.requestBody);
+  const requestText = JSON.stringify(captured.input);
   assert.equal(requestText.includes("sourceText"), false);
   assert.equal(requestText.includes("raw transcript"), false);
+  assert.equal(requestText.includes("internalNote"), false);
+  assert.equal(requestText.includes("不得发送"), false);
+  assert.equal(requestText.includes("绝不能填写 A.request"), true);
+  assert.deepEqual((generated.result as { boundaries?: unknown }).boundaries, []);
+});
+
+test("review Agent uses a separate Cloudflare-hosted reasoning model", async () => {
+  const captured: { model?: string; input?: Record<string, unknown> } = {};
+  const expressionA = { mode: "NVC" as const, payload: { need: "及时信息", request: "当天告诉我" } };
+  const expressionB = { mode: "NVC" as const, payload: { need: "准确信息", request: "确认后告诉你" } };
+  const candidate = {
+    schemaVersion: 1,
+    commonGround: [],
+    differences: [{
+      topic: "告知时点", sideA: "当天告知", sideB: "确认后告知",
+      sources: ["A.request", "B.request"],
+    }],
+    unverifiedFacts: [], boundaries: [],
+    candidateUnderstanding: { text: "A 希望当天告知；B 希望确认后告知", sources: ["A.request", "B.request"] },
+    coreQuestion: { text: "怎样确定告知时点", sources: ["A.request", "B.request"] },
+    safetyDisposition: "ALLOW", safetyMessage: "",
+  };
+  const reviewed = await reviewSharedUnderstanding({
+    AI: {
+      async run(model, input) {
+        captured.model = model;
+        captured.input = input;
+        return {
+          response: JSON.stringify({
+            verdict: "PASS", issues: [], safetyDisposition: "ALLOW", safetyMessage: "",
+          }),
+        };
+      },
+    },
+  }, { expressionA, expressionB, candidate });
+  assert.equal(reviewed.model, REVIEW_MODEL);
+  assert.equal(captured.model, REVIEW_MODEL);
+  assert.equal(captured.input?.chat_template_kwargs, undefined);
+});
+
+test("Workers AI retries invalid structured output once and accounts for both attempts", async () => {
+  let calls = 0;
+  const valid = {
+    mode: "NVC",
+    fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+    uncertainties: [],
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
+  const generated = await generateExpressionCandidate({
+    AI: {
+      async run() {
+        calls += 1;
+        return {
+          choices: [{ message: { content: calls === 1 ? "not json" : JSON.stringify(valid) } }],
+          usage: { prompt_tokens: 10, completion_tokens: 20 },
+        };
+      },
+    },
+  }, { mode: "NVC", sourceText: "周日还没有消息。" });
+  assert.equal(calls, 2);
+  assert.equal(generated.tokenInput, 20);
+  assert.equal(generated.tokenOutput, 40);
+});
+
+test("Workers AI quota exhaustion is reported without an automatic retry", async () => {
+  let calls = 0;
+  await assert.rejects(generateExpressionCandidate({
+    AI: {
+      async run() {
+        calls += 1;
+        throw { code: 3036, status: 429, message: "daily free allocation exhausted" };
+      },
+    },
+  }, { mode: "NVC", sourceText: "周日还没有消息。" }), /CLOUDFLARE_AI_QUOTA_EXHAUSTED/);
+  assert.equal(calls, 1);
+});
+
+test("audio transcription uses the Cloudflare-hosted Whisper model", async () => {
+  const captured: { model?: string; input?: Record<string, unknown> } = {};
+  const text = await transcribeAudio({
+    AI: {
+      async run(model, input) {
+        captured.model = model;
+        captured.input = input;
+        return { text: "这是测试录音" };
+      },
+    },
+  }, new File(["audio bytes"], "recording.webm", { type: "audio/webm" }));
+  assert.equal(text, "这是测试录音");
+  assert.equal(captured.model, TRANSCRIPTION_MODEL);
+  assert.equal(Buffer.from(String(captured.input?.audio), "base64").toString(), "audio bytes");
+  assert.equal(captured.input?.language, "zh");
+  assert.equal(captured.input?.condition_on_previous_text, false);
 });
 
 test("audio validation accepts browser codec parameters but rejects fake formats", () => {

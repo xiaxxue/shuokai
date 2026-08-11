@@ -8,6 +8,3 @@ ALLOWED_ORIGINS=http://localhost:5173
 SUPABASE_SECRET_KEY=sb_secret_replace_me
 WECHAT_APP_ID=replace_me
 WECHAT_APP_SECRET=replace_me
-OPENAI_API_KEY=replace_me
-# Optional stable override. The Worker defaults to gpt-4o-2024-08-06.
-OPENAI_TEXT_MODEL=gpt-4o-2024-08-06
