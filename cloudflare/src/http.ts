@@ -1,4 +1,5 @@
 export type WorkerEnv = {
+  APP_ENVIRONMENT?: string;
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
   SUPABASE_SECRET_KEY?: string;
@@ -41,6 +42,7 @@ function corsHeaders(request: Request, env: WorkerEnv): Record<string, string> {
   if (!origin || !isOriginAllowed(request, env)) return {};
   return {
     "access-control-allow-headers": "authorization, content-type",
+    "access-control-expose-headers": "x-request-id",
     "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-origin": origin,
     "access-control-max-age": "86400",

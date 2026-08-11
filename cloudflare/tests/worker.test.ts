@@ -6,6 +6,13 @@ import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "
 import { isSupportedAudio } from "../src/handlers.ts";
 import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
+import {
+  createRequestLogContext,
+  logRequestException,
+  logQueueBatch,
+  observeResponse,
+  routeName,
+} from "../src/observability.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 import {
   expressionResultSchema,
@@ -24,6 +31,118 @@ test("health endpoint identifies the Worker", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/health"), {});
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, service: "shuokai-api" });
+  assert.match(response.headers.get("x-request-id") ?? "", /^[0-9a-f-]{36}$/i);
+});
+
+test("structured request logs correlate failures without copying sensitive input", async () => {
+  const events: Record<string, unknown>[] = [];
+  const sink = {
+    info: (event: Record<string, unknown>) => events.push(event),
+    warn: (event: Record<string, unknown>) => events.push(event),
+    error: (event: Record<string, unknown>) => events.push(event),
+  };
+  const request = new Request("https://shuokai.example/ai/expression?email=private@example.com", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer secret.jwt.value",
+      "cf-ray": "abc123-SJC",
+    },
+    body: JSON.stringify({ sourceText: "这是不应进入日志的私人表达" }),
+  });
+  const context = createRequestLogContext(request);
+  const response = await observeResponse(
+    { APP_ENVIRONMENT: "test" },
+    context,
+    new Response(JSON.stringify({
+      code: "AI_QUEUE_UNAVAILABLE",
+      message: "包含 private@example.com 的内部提示",
+    }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    }),
+    sink,
+  );
+
+  assert.equal(response.headers.get("x-request-id"), context.requestId);
+  assert.deepEqual(events, [{
+    schema_version: 1,
+    timestamp: events[0].timestamp,
+    service: "shuokai-api",
+    environment: "test",
+    event_name: "request_completed",
+    level: "error",
+    request_id: context.requestId,
+    cloudflare_ray: "abc123-SJC",
+    route: "ai_expression",
+    method: "POST",
+    status: 503,
+    outcome: "server_error",
+    error_code: "AI_QUEUE_UNAVAILABLE",
+    duration_ms: events[0].duration_ms,
+  }]);
+  const serialized = JSON.stringify(events);
+  assert.doesNotMatch(serialized, /private@example\.com|secret\.jwt|私人表达|sourceText|authorization/i);
+  assert.equal(routeName(new Request("https://shuokai.example/private@example.com?token=secret")), "not_found");
+});
+
+test("exception logs omit error messages and stack traces", () => {
+  const events: Record<string, unknown>[] = [];
+  const sink = {
+    info: (event: Record<string, unknown>) => events.push(event),
+    warn: (event: Record<string, unknown>) => events.push(event),
+    error: (event: Record<string, unknown>) => events.push(event),
+  };
+  const context = createRequestLogContext(new Request("https://shuokai.example/transcribe"));
+  logRequestException(
+    { APP_ENVIRONMENT: "test" },
+    context,
+    new TypeError("private@example.com secret.jwt.value 私人表达"),
+    sink,
+  );
+  assert.equal(events[0].event_name, "request_exception");
+  assert.equal(events[0].error_code, "TYPE_ERROR");
+  assert.doesNotMatch(JSON.stringify(events), /private@example\.com|secret\.jwt|私人表达|stack|message/i);
+});
+
+test("queue summaries contain counts but no job identifiers or content", () => {
+  const events: Record<string, unknown>[] = [];
+  const sink = {
+    info: (event: Record<string, unknown>) => events.push(event),
+    warn: (event: Record<string, unknown>) => events.push(event),
+    error: (event: Record<string, unknown>) => events.push(event),
+  };
+  logQueueBatch({ APP_ENVIRONMENT: "test" }, {
+    batchSize: 5,
+    succeeded: 3,
+    retried: 1,
+    discarded: 1,
+    durationMs: 42,
+  }, sink);
+  assert.equal(events[0].event_name, "ai_queue_batch_completed");
+  assert.equal(events[0].level, "warn");
+  assert.equal(events[0].batch_size, 5);
+  assert.equal("job_id" in events[0], false);
+});
+
+test("a logging sink failure never changes the user response", async () => {
+  const request = new Request("https://shuokai.example/health");
+  const context = createRequestLogContext(request);
+  const throwingSink = {
+    info() { throw new Error("log backend unavailable"); },
+    warn() { throw new Error("log backend unavailable"); },
+    error() { throw new Error("log backend unavailable"); },
+  };
+  const response = await observeResponse(
+    { APP_ENVIRONMENT: "test" },
+    context,
+    new Response(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+    }),
+    throwingSink,
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(response.headers.get("x-request-id"), context.requestId);
 });
 
 test("CORS only reflects same-origin or configured H5 origins", async () => {
@@ -36,6 +155,7 @@ test("CORS only reflects same-origin or configured H5 origins", async () => {
   );
   assert.equal(allowed.status, 204);
   assert.equal(allowed.headers.get("access-control-allow-origin"), "https://h5.shuokai.example");
+  assert.equal(allowed.headers.get("access-control-expose-headers"), "x-request-id");
 
   const rejected = await handleRequest(
     new Request("https://api.shuokai.example/health", {
@@ -190,6 +310,9 @@ test("test deployment routes both AI endpoints through the Worker", async () => 
   assert.match(configText, /"\/ai\/expression\*"/);
   assert.match(configText, /"\/ai\/understanding\*"/);
   assert.match(configText, /"ai"\s*:\s*\{\s*"binding"\s*:\s*"AI"/);
+  assert.match(configText, /"observability"\s*:\s*\{[\s\S]*?"enabled"\s*:\s*true/);
+  assert.match(configText, /"head_sampling_rate"\s*:\s*1/);
+  assert.match(configText, /"APP_ENVIRONMENT"\s*:\s*"test"/);
 });
 
 test("queue messages contain only a bounded job identifier", () => {
