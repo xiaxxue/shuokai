@@ -28,9 +28,12 @@ npm run cloudflare:dry-run
 - `SUPABASE_SECRET_KEY`（`sb_secret_…`，仅用于 Worker，绝不能进入客户端）
 - `WECHAT_APP_ID`
 - `WECHAT_APP_SECRET`（Secret）
-- `OPENAI_API_KEY`（Secret）
-- `OPENAI_TEXT_MODEL`（可选；默认使用支持 Structured Outputs 的固定模型版本）
 - `ALLOWED_ORIGINS`（可选，逗号分隔；H5 与 Worker 同域时无需填写）
+
+`wrangler.jsonc` 与 `wrangler.test.jsonc` 都把 Workers AI 绑定为 `env.AI`。文本 Agent 固定使用
+`@cf/qwen/qwen3-30b-a3b-fp8` 生成表达与理解候选，独立审查固定使用
+`@cf/openai/gpt-oss-120b`，语音转写固定使用
+`@cf/openai/whisper-large-v3-turbo`；三者均由 Cloudflare 托管，不需要第三方 API Key。
 
 本地开发先复制 `cloudflare/.dev.vars.example` 为 `cloudflare/.dev.vars`；真实值文件已被 Git 忽略。不要把任何真实密钥写入仓库。
 
@@ -39,8 +42,9 @@ npm run cloudflare:dry-run
 PostgREST RPC，让数据库中的 `auth.uid()` 与 RLS 执行最终资源所有权检查。
 
 AI 表达整理使用 Cloudflare Queue。测试配置绑定 `shuokai-ai-jobs-test`，消息体只包含 `jobId`；
-原始表达由消费者以 service role 从私有 schema 读取，不写 Worker 日志。模型调用使用 Responses API
-Structured Outputs，并显式设置 `store: false`。生产配置当前没有 Queue 绑定，因此不会伪装 AI 可用。
+原始表达由消费者以 Supabase secret key 从私有 schema 读取，不写 Worker 日志。模型调用通过 Workers AI
+binding 请求 JSON Schema 输出，结果必须通过本地严格校验；不合格时只重试一次，绝不回退到收费模型。
+生产配置当前没有 Queue 绑定，因此不会伪装文本 AI 可用。
 
 ## 部署
 
@@ -63,4 +67,5 @@ SHUOKAI_API_BASE_URL=https://your-worker.example.com \
 npm run miniapp:build
 ```
 
-现有 Supabase Edge Functions 暂时保留作回滚；线上验证完成后再下线，避免两个实现长期漂移。
+现有 Supabase Edge Functions 暂时保留作回滚；其中旧转写函数仍是 OpenAI 实现，活动客户端不得调用它。
+线上验证完成后再单独决定是否删除，避免未经确认的破坏性清理。

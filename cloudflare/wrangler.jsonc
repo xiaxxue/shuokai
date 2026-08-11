@@ -7,6 +7,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "minify": true,
+  "ai": {
+    "binding": "AI"
+  },
   "assets": {
     "directory": "../miniapp/dist/build/h5",
     "binding": "ASSETS",

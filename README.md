@@ -20,16 +20,16 @@
 uni-app / Vue 3 / TypeScript
   ├─ 微信小程序
   │   ├─ uni.login(weixin) ─────→ Cloudflare Worker
-  │   └─ RecorderManager ───────→ Cloudflare Worker ────────→ OpenAI
+  │   └─ RecorderManager ───────→ Cloudflare Worker ────────→ Workers AI / Whisper
   ├─ 移动 H5
   │   ├─ Supabase 邮箱注册 / 登录（PKCE + 持久会话）
-  │   └─ MediaRecorder ─────────→ Cloudflare Worker ────────→ OpenAI
+  │   └─ MediaRecorder ─────────→ Cloudflare Worker ────────→ Workers AI / Whisper
   └─ HTTPS + Supabase JWT ─────→ Cloudflare Worker ─→ PostgREST RPC ─→ Postgres + RLS
 ```
 
 - 微信 `code` 和 AppSecret 只在服务端交换，`openid` 不发送给业务页面。
 - 服务端把微信身份桥接成标准 Supabase Auth 用户，现有 `auth.uid()`、RLS 和状态机无需推倒重写。
-- Cloudflare Worker 同时托管 H5 与统一 API；微信 AppSecret、Supabase service role 和 OpenAI Key 均为 Worker Secret。
+- Cloudflare Worker 同时托管 H5、统一 API 和 Workers AI binding；微信 AppSecret 与 Supabase secret key 均只存在于 Worker。
 - 微信录音使用 RecorderManager，H5 使用浏览器 MediaRecorder；录音停止后才上传，转写结果仍须本人修改和批准。
 - Supabase 是唯一数据源，不引入 D1；现有 Edge Functions 暂时只作迁移回滚。
 
@@ -53,7 +53,9 @@ uni-app / Vue 3 / TypeScript
 
 复制 [`.env.example`](./.env.example)、[`miniapp/.env.example`](./miniapp/.env.example) 和
 [`cloudflare/.dev.vars.example`](./cloudflare/.dev.vars.example) 中相应的示例。前端只允许使用
-publishable/legacy anon key；`service_role`、微信 AppSecret 与 OpenAI Key 只允许进入 Worker Secret。
+publishable key；Supabase secret key 与微信 AppSecret 只允许进入 Worker Secret。文本 Agent 使用 Cloudflare
+托管的 Qwen3 生成候选、Cloudflare 托管的 gpt-oss-120b 独立审查，语音使用 Cloudflare
+托管的 Whisper；这些模型都经 Workers AI binding 调用，不需要 OpenAI API Key。
 
 应用数据库变更时按文件名顺序执行 `supabase/migrations/`，先在独立测试项目或 Supabase Branch
 验证，再执行 Advisor 与 RLS 隔离测试。不要在未确认环境性质时直接向已有数据的项目 push migration。

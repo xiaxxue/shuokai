@@ -4,8 +4,9 @@ export type WorkerEnv = {
   SUPABASE_SECRET_KEY?: string;
   WECHAT_APP_ID?: string;
   WECHAT_APP_SECRET?: string;
-  OPENAI_API_KEY?: string;
-  OPENAI_TEXT_MODEL?: string;
+  AI?: {
+    run(model: string, input: Record<string, unknown>): Promise<unknown>;
+  };
   AI_JOBS_QUEUE?: { send(message: { jobId: string }): Promise<void> };
   ALLOWED_ORIGINS?: string;
 };
