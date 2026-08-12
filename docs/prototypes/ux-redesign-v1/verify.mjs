@@ -18,6 +18,12 @@ const requiredConcepts = [
   "7 天",
   "转写",
   "AI",
+  "对话",
+  "复述",
+  "继续讲",
+  "跳过",
+  "讲得差不多了",
+  "一次只",
   "网络",
   "邀请",
   "暂停",
@@ -60,6 +66,10 @@ for (const [name, file] of prototypes) {
   assert.doesNotMatch(html, /<(script|link|img)[^>]+(?:src|href)=["']https?:/i, `${name}: prototype must not require the network`);
   assert.doesNotMatch(html, /(service_role|SUPABASE_SECRET|APP_SECRET|sk-[A-Za-z0-9_-]{16,})/, `${name}: possible secret marker`);
   for (const concept of requiredConcepts) assert.ok(html.includes(concept), `${name}: missing required concept “${concept}”`);
+  assert.ok(
+    html.indexOf("讲得差不多了") < html.indexOf("把对话整理成候选"),
+    `${name}: candidate must follow an explicit user-controlled end to storytelling`,
+  );
 
   const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/i);
   assert.ok(scriptMatch, `${name}: missing inline interaction script`);

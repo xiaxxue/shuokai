@@ -180,6 +180,27 @@
     .record span { max-width: 70px; text-align: center; }
     .save-line { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; color: var(--moss); font-size: 12px; line-height: 1.5; }
     .save-line::before { content: "私"; flex: none; padding: 1px 5px; border-radius: 4px; background: var(--sage); font-size: 10px; font-weight: 900; }
+    .dialogue { display: flex; flex-direction: column; gap: 18px; margin: 24px 0; }
+    .turn { display: flex; flex-direction: column; align-items: flex-start; }
+    .turn.me { align-items: flex-end; }
+    .turn-label { margin: 0 8px 7px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+    .turn-card { max-width: 92%; padding: 15px 16px; border: 1px solid var(--line); border-radius: 5px 18px 18px 18px; background: var(--surface); box-shadow: 0 8px 20px rgba(45,54,45,.04); }
+    .turn.me .turn-card { border-color: rgba(189,80,56,.24); border-radius: 18px 5px 18px 18px; background: #f6e3da; }
+    .turn-card p { margin: 0; font-size: 15px; line-height: 1.72; }
+    .turn-card p + p { margin-top: 9px; }
+    .turn-card .soft-copy { color: var(--muted); font-size: 12px; }
+    .voice-strip { display: flex; min-width: 210px; align-items: center; gap: 10px; }
+    .voice-wave { flex: 1; height: 18px; background: repeating-linear-gradient(90deg, var(--coral) 0 2px, transparent 2px 7px); opacity: .45; mask: linear-gradient(160deg, transparent 10%, #000 35% 70%, transparent 90%); }
+    .guide-choices { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+    .guide-choices button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--moss); border-radius: 999px; background: transparent; color: var(--moss); font-size: 12px; }
+    .composer { display: grid; grid-template-columns: 48px 1fr; gap: 10px; align-items: center; margin-top: 18px; padding: 9px; border: 1px solid var(--line); border-radius: 24px 8px 24px 8px; background: var(--surface); }
+    .talk-button { width: 46px; height: 46px; border: 0; border-radius: 50%; background: var(--coral); color: white; font-size: 10px; font-weight: 800; }
+    .composer-copy strong, .composer-copy span { display: block; }
+    .composer-copy strong { font-size: 13px; }
+    .composer-copy span { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .listening { display: flex; align-items: center; gap: 7px; color: var(--moss); font-size: 11px; }
+    .listening::before { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); content: ""; animation: listening 1.6s ease-in-out infinite; }
+    @keyframes listening { 50% { transform: scale(1.55); opacity: .35; } }
     .ai-mark { display: grid; width: 54px; height: 54px; margin-bottom: 20px; place-items: center; border-radius: 50%; background: var(--moss); color: var(--surface); font-family: Georgia, serif; font-size: 15px; }
     .why { padding: 12px 14px; border-left: 3px solid var(--gold); background: rgba(255,253,247,.58); color: var(--muted); font-size: 13px; line-height: 1.55; }
     .source-box { max-height: 112px; overflow: hidden; color: var(--muted); font-size: 13px; line-height: 1.65; }
@@ -294,11 +315,11 @@
     const coreOrder = ["welcome","goal","express","transcribing","clarify","review","approve","invite","invitee","later","declined","invitee-express","waiting","progress","common","experiment","experiment-edit","experiment-declined","active","retrospective"];
     const stateOrder = ["offline","transcribe-fail","ai-fail","duplicate","expired","no-response","resume","reconfirm","permission","paused"];
     const labels = {
-      welcome:"首次进入", goal:"温和开场", express:"自由表达", transcribing:"转写中", clarify:"AI 澄清", review:"候选整理", approve:"本人批准", invite:"邀请预览", invitee:"受邀安全说明", later:"受邀者选择稍后", declined:"受邀者拒绝", "invitee-express":"受邀者表达", waiting:"等待", progress:"双方进度", common:"共同桌面", experiment:"7 天实验", "experiment-edit":"修改实验候选", "experiment-declined":"不参加实验", active:"实验进行中", retrospective:"7 天复盘",
+      welcome:"首次进入", goal:"AI 对话开场", express:"开始讲述", transcribing:"继续讲述", clarify:"AI 追问一件事", review:"对话整理", approve:"本人批准", invite:"邀请预览", invitee:"受邀安全说明", later:"受邀者选择稍后", declined:"受邀者拒绝", "invitee-express":"受邀者与 AI 对话", waiting:"等待", progress:"双方进度", common:"共同桌面", experiment:"7 天实验", "experiment-edit":"修改实验候选", "experiment-declined":"不参加实验", active:"实验进行中", retrospective:"7 天复盘",
       offline:"网络中断", "transcribe-fail":"转写失败", "ai-fail":"AI 失败", duplicate:"重复提交", expired:"邀请失效", "no-response":"对方未响应", resume:"退出后恢复", reconfirm:"修改后重确认", permission:"权限不足", paused:"暂停"
     };
     const stateMeta = {
-      welcome:["私人 · 由你决定是否开始","初次说明"], goal:["私人 · 仅自己可见","我的准备室"], express:["私人 · 仅自己可见 · 尚未共享","原话"], transcribing:["私人 · 正在转写 · 尚未共享","原话"], clarify:["私人 · AI 只问这一件事","整理辅助"], review:["AI 候选 · 尚未共享","我的准备室"], approve:["等待本人批准 · 尚未共享","分享预览"], invite:["已由我确认 · 尚未发出","邀请预览"], invitee:["尚未加入 · 内容不可见","受邀者说明"], later:["尚未加入 · 已选择稍后","受邀者说明"], declined:["未加入 · 已拒绝这次邀请","受邀者说明"], "invitee-express":["私人 · 仅受邀者可见","对方的准备室"], waiting:["我的版本已确认","等待空间"], progress:["双方只共享进度，不共享草稿","双人状态"], common:["仅双方已批准内容","共同桌面"], experiment:["候选实验 · 等待分别同意","共同桌面"], "experiment-edit":["实验候选修改中 · 尚未提交","共同桌面"], "experiment-declined":["未启动实验 · 共同理解仍保留","共同桌面"], active:["双方已同意 · 可随时停止","7 天尝试"], retrospective:["复盘草稿 · 仅自己可见","第 7 天"],
+      welcome:["私人 · 由你决定是否开始","初次说明"], goal:["私人对话 · 仅自己可见","AI 在听"], express:["私人对话 · 原话尚未共享","AI 在听"], transcribing:["私人对话 · 正在记录这一段","AI 在听"], clarify:["私人对话 · AI 一次只问一件事","AI 在引导"], review:["AI 根据对话生成候选 · 尚未共享","一起核对"], approve:["等待本人批准 · 尚未共享","分享预览"], invite:["已由我确认 · 尚未发出","邀请预览"], invitee:["尚未加入 · 内容不可见","受邀者说明"], later:["尚未加入 · 已选择稍后","受邀者说明"], declined:["未加入 · 已拒绝这次邀请","受邀者说明"], "invitee-express":["私人对话 · 仅受邀者和 AI 可见","AI 在听"], waiting:["我的版本已确认","等待空间"], progress:["双方只共享进度，不共享草稿","双人状态"], common:["仅双方已批准内容","共同桌面"], experiment:["候选实验 · 等待分别同意","共同桌面"], "experiment-edit":["实验候选修改中 · 尚未提交","共同桌面"], "experiment-declined":["未启动实验 · 共同理解仍保留","共同桌面"], active:["双方已同意 · 可随时停止","7 天尝试"], retrospective:["复盘草稿 · 仅自己可见","第 7 天"],
       offline:["私人草稿已留在本机 · 尚未同步","恢复"], "transcribe-fail":["录音未分享 · 文字草稿仍在","恢复"], "ai-fail":["原话仍在 · 没有分享","恢复"], duplicate:["同一版本已保存 · 没有重复发送","安全反馈"], expired:["邀请无效 · 未展示任何内容","受邀者说明"], "no-response":["我的版本已确认 · 对方尚未决定","等待空间"], resume:["私人草稿已恢复 · 尚未共享","我的准备室"], reconfirm:["内容已改变 · 旧确认失效","共同桌面"], permission:["无法验证身份 · 内容保持隐藏","访问受限"], paused:["沟通已暂停 · 私人内容保持私密","暂停"]
     };
 
@@ -318,64 +339,57 @@
         </section>`,
       goal: () => `
         <section class="screen">
-          <p class="eyebrow">先定一个很小的方向</p>
-          <h1>这一次，先做到哪一点就够了？</h1>
-          <p class="lede">不用现在解决整段关系。这个选择只帮助你整理，不会作为结论发给对方。</p>
-          <div class="choice-list" role="radiogroup" aria-label="沟通开场">
-            <button class="choice selected" role="radio" aria-checked="true"><strong>把我的版本说清楚</strong><span>我想先确认自己真正想表达什么</span></button>
-            <button class="choice" role="radio" aria-checked="false"><strong>让彼此听见不同</strong><span>不急着同意，只先减少误解</span></button>
-            <button class="choice" role="radio" aria-checked="false"><strong>看看有没有一个小下一步</strong><span>不做永久承诺，只尝试一件事</span></button>
+          <p class="eyebrow">私人对话开始</p>
+          <h1>不用先想清楚，<br>从你最想说的地方开始。</h1>
+          <div class="dialogue" aria-label="与 AI 的私人对话">
+            <div class="turn ai"><span class="turn-label">说开 AI · 只在你的私人空间</span><div class="turn-card"><p>我会先听，不急着替你归类。</p><p>最近发生了什么，让你觉得这件事很难开口？你可以一段一段说，也可以随时停下。</p><p class="soft-copy">我一次只会追问一件事；你可以纠正我、跳过，或让我先别问。</p></div></div>
           </div>
-          <button class="ghost" data-go="express">我还不知道，先说出来</button>
+          <div class="composer"><button class="talk-button" data-go="express" aria-label="按住说第一段">按住说</button><div class="composer-copy"><strong>说第一段</strong><span>也可以点这里切换为打字</span></div></div>
+          <div class="save-line">这段对话、录音和转写都只对你可见。</div>
         </section>`,
       express: () => `
         <section class="screen">
-          <p class="eyebrow">不用组织得很好</p>
-          <h1>先把脑子里的话放下来。</h1>
-          <p class="lede">说事实、情绪、猜测都可以。AI 不会在你请求前介入，对方也看不到这里。</p>
-          <button class="record" data-go="transcribing" aria-label="开始录音"><span>按一下<br>开始说</span></button>
-          <div class="field-label"><span>或者直接写</span><span>176 / 12000</span></div>
-          <textarea aria-label="你的私人原话">我们最近因为回消息的事争了几次。我其实不是要求每条都马上回，只是计划变了却一直不知道，会让我觉得自己不重要。我也担心这样说又像是在指责。</textarea>
-          <div class="save-line">已保存到你的私人草稿；当前没有任何内容共享给对方。</div>
+          <p class="eyebrow">你在讲 · AI 先接住</p>
+          <h1>不用组织成答案。</h1>
+          <div class="dialogue" aria-label="与 AI 的私人对话">
+            <div class="turn ai"><span class="turn-label">说开 AI</span><div class="turn-card"><p>最近发生了什么，让你觉得这件事很难开口？</p></div></div>
+            <div class="turn me"><span class="turn-label">我 · 原话</span><div class="turn-card"><div class="voice-strip"><span>01:12</span><span class="voice-wave" aria-hidden="true"></span><span>▶</span></div><p>我们最近因为回消息的事争了几次。我不是要求每条都马上回，只是计划变了却一直不知道，会让我觉得自己不重要。</p></div></div>
+            <div class="turn ai"><span class="turn-label">说开 AI · 复述，不下结论</span><div class="turn-card"><p>我听到的重点不是“必须马上回复”，而是计划变了、你却一直不知道，这让你很不安，也容易想到自己不重要。</p><p>我这样听，接近你的意思吗？</p><div class="guide-choices"><button>差不多</button><button>不太对，我想纠正</button><button>先别总结，让我继续说</button></div></div></div>
+          </div>
+          <div class="save-line">每一段原话都会保留；AI 的复述不会替换你的话。</div>
         </section>`,
       transcribing: () => `
         <section class="screen">
-          <p class="eyebrow">正在转成文字</p>
-          <h1>你可以先松一口气。</h1>
-          <p class="lede">录音正在私人空间中处理。转写完成后仍由你删改，不会自动交给 AI 整理或发送。</p>
-          <div class="card soft" role="status"><h3>已收到 01:12 的录音</h3><p class="note">正在转写第 2 / 3 段。离开页面也会保留录音与已有文字。</p></div>
-          <div class="card"><div class="label-row"><span class="tag">私人原话</span><span class="note">已保存</span></div><p class="source-box">我们最近因为回消息的事争了几次……</p></div>
-          <button class="ghost" data-go="express">不等转写，直接打字</button>
+          <p class="eyebrow">继续讲 · 不用一次说完</p>
+          <h1>你说一段，<br>我听一段。</h1>
+          <div class="dialogue" aria-label="与 AI 的私人对话">
+            <div class="turn ai"><span class="turn-label">说开 AI</span><div class="turn-card"><p>你刚才说“像是在指责”，听起来你也担心一开口就让对方防御。愿意多讲一点这份担心吗？</p></div></div>
+            <div class="turn me"><span class="turn-label">我 · 正在记录</span><div class="turn-card"><div class="voice-strip"><span>00:28</span><span class="voice-wave" aria-hidden="true"></span><span class="listening">转写中</span></div></div></div>
+          </div>
+          <div class="card soft" role="status"><h3>这一段已经安全保存</h3><p class="note">你可以离开、继续说或改用打字。AI 会等转写完成再回应，不抢话。</p></div>
+          <div class="save-line">对方看不到你说了几段、说了多久或是否在线。</div>
         </section>`,
       clarify: () => `
         <section class="screen">
-          <div class="ai-mark" aria-hidden="true">AI</div>
-          <p class="eyebrow">只问这一件事 · 可以跳过</p>
-          <h1>你希望对方下次具体做什么，才会让你更安心？</h1>
-          <p class="why"><strong>为什么问：</strong>你说了“不必马上回复”，我想避免把它改写成一个你并没有提出的要求。</p>
-          <div class="field-label"><span>愿意补充的话</span><span>仅用于私人整理</span></div>
-          <textarea aria-label="给 AI 的私人补充" placeholder="例如：如果当天不能确定，希望先告诉我什么时候再更新……"></textarea>
-          <div class="save-line">回答不会原样分享。跳过后 AI 会保留“不确定”，不会替你猜。</div>
+          <p class="eyebrow">AI 只追问一件事 · 可以跳过</p>
+          <h1>不是审问，<br>是帮你继续往下说。</h1>
+          <div class="dialogue" aria-label="与 AI 的私人对话">
+            <div class="turn me"><span class="turn-label">我 · 原话</span><div class="turn-card"><p>我不想要求他秒回。我只是希望不要一直悬着，但我也不知道怎样说才不是控制。</p></div></div>
+            <div class="turn ai"><span class="turn-label">说开 AI</span><div class="turn-card"><p>我先不替你决定什么算“合理”。为了不把你的愿望改写成要求，我只确认一件事：</p><p><strong>计划暂时定不下来时，什么信息会让你不再一直悬着？</strong></p><p class="soft-copy">为什么问：这能帮我区分你真正需要的确定感，和你并没有要求的“马上回复”。</p><div class="guide-choices"><button>告诉我什么时候再更新</button><button>先说一声还没确定</button><button>都不是，我继续讲</button><button>跳过这一问</button></div></div></div>
+          </div>
+          <div class="composer"><button class="talk-button" aria-label="继续说">继续说</button><div class="composer-copy"><strong>用自己的话回答</strong><span>AI 不会把快捷选项当成你的最终表述</span></div></div>
+          <div class="save-line">回答只用于这段私人对话；跳过后会保留“不确定”。</div>
         </section>`,
       review: () => `
         <section class="screen">
-          <p class="eyebrow">AI 候选 · 尚未共享</p>
-          <h1>这仍然要像你说的话。</h1>
-          <p class="lede">逐句决定：采用建议、保留原话，或自己改。AI 的理由不是评判，只说明它为什么提出变化。</p>
-          <div class="card"><div class="label-row"><span class="tag">你的原话</span><span class="note">仅自己可见</span></div><p class="source-box">计划变了却一直不知道，会让我觉得自己不重要。我也担心这样说又像是在指责。</p></div>
-          <div class="suggestion">
-            <div class="label-row"><span class="tag candidate">候选 1 / 2</span><span class="note">可编辑</span></div>
-            <p contenteditable="true" aria-label="可编辑的 AI 候选">当我们的计划变化，而我没有收到更新时，我会感到不安和失落。</p>
-            <p class="reason">建议理由：把“我不重要”保留为你的感受，而不是对对方动机的判断。</p>
-            <div class="micro-actions"><button>采用这句</button><button>保留我的原话</button><button>自己修改</button></div>
+          <p class="eyebrow">你说“讲得差不多了”之后</p>
+          <h1>AI 才把对话整理成候选。</h1>
+          <div class="dialogue" aria-label="与 AI 的私人对话">
+            <div class="turn ai"><span class="turn-label">说开 AI · 候选尚未共享</span><div class="turn-card"><p>我先试着把刚才几段话连起来。不是答案，也不会自动发给对方。</p></div></div>
           </div>
-          <div class="suggestion">
-            <div class="label-row"><span class="tag candidate">候选 2 / 2</span><span class="note">可编辑</span></div>
-            <p contenteditable="true" aria-label="可编辑的请求候选">如果当天还不能确定，你是否愿意先告诉我大概什么时候再更新？</p>
-            <p class="reason">建议理由：写成一个具体、可以拒绝或商量的请求。</p>
-            <div class="micro-actions"><button>采用这句</button><button>保留我的原话</button><button>自己修改</button></div>
-          </div>
-          <button class="ghost">撤销 AI 的全部修改</button>
+          <div class="suggestion"><div class="label-row"><span class="tag candidate">根据 4 段对话整理</span><span class="note">可直接改</span></div><p contenteditable="true" aria-label="可编辑的 AI 候选">当我们的计划变化，而我没有收到更新时，我会感到不安和失落。我不是要求你马上回复；如果暂时不能确定，你是否愿意先告诉我还没确定，以及大概什么时候再更新？</p><p class="reason">我保留了你说的“不是要求马上回复”，没有把“我不重要”写成对方的动机。</p><div class="micro-actions"><button>这像我说的话</button><button>有一句不像我</button><button>回到对话继续讲</button></div></div>
+          <details class="card"><summary>回看完整原话与 AI 复述</summary><p class="source-box">原话、录音、每次复述和纠正都仍在私人对话中，不会随候选一起分享。</p></details>
+          <button class="ghost">撤销这次整理，保留完整对话</button>
         </section>`,
       approve: () => `
         <section class="screen">
@@ -434,11 +448,10 @@
         </section>`,
       "invitee-express": () => `
         <section class="screen">
-          <p class="eyebrow">这是你的这一侧</p>
-          <h1>先只说你的版本。</h1>
-          <p class="lede">对方目前只会看到“你已加入，正在自己的空间准备”，不会看到你写了多少或是否在线。</p>
-          <div class="field-label"><span>你的私人原话</span><span>0 / 12000</span></div>
-          <textarea aria-label="受邀者的私人原话" placeholder="可以从“我看到的事情不太一样……”开始，也可以按一下录音。"></textarea>
+          <p class="eyebrow">这是你的这一侧 · 同样由 AI 引导</p>
+          <h1>先讲你的版本，<br>不用回应对方。</h1>
+          <div class="dialogue"><div class="turn ai"><span class="turn-label">说开 AI · 只在你的私人空间</span><div class="turn-card"><p>你不需要先反驳或同意对方。可以从“我看到的事情不太一样”开始，也可以先讲收到邀请时的感受。</p><p class="soft-copy">我一次只问一件事；你的回答和我的复述都不会给发起者看。</p></div></div></div>
+          <div class="composer"><button class="talk-button" aria-label="按住说">按住说</button><div class="composer-copy"><strong>开始讲我的版本</strong><span>也可以打字；随时暂停或退出</span></div></div>
           <div class="save-line">仅你可见 · 尚未共享 · 可以稍后继续或拒绝参与</div>
           <div class="card soft"><h3>小林目前会看到</h3><p class="note">“对方已加入，正在自己的私人空间准备。”除此之外没有任何编辑细节。</p></div>
         </section>`,
@@ -534,7 +547,7 @@
     }
 
     const actionMap = {
-      welcome:[["建立我的私人空间","goal","primary"],["先看受邀者会看到什么","invitee","secondary"]], goal:[["继续说自己的版本","express","primary"]], express:[["请 AI 帮我理一理","clarify","primary"],["不用 AI，直接整理","review","secondary"]], transcribing:[["查看转写文字","clarify","primary"]], clarify:[["回答后整理候选","review","primary"],["跳过这题","review","secondary"]], review:[["预览我准备分享的版本","approve","primary"]], approve:[["批准这个版本","invite","primary"],["返回修改","review","secondary"]], invite:[["发送这份邀请","waiting","primary"],["切换到受邀者视角","invitee","secondary"]], invitee:[["加入，在我的空间表达","invitee-express","primary"],["稍后再决定","later","secondary"],["拒绝这次邀请","declined","ghost"]], later:[["现在加入","invitee-express","primary"],["拒绝这次邀请","declined","secondary"]], declined:[["回到首页","welcome","primary"]], "invitee-express":[["模拟：对方批准完成","progress","primary"]], waiting:[["模拟：对方已加入","progress","primary"],["安全离开","resume","secondary"]], progress:[["模拟：双方已批准","common","primary"]], common:[["准确，进入小实验","experiment","primary"],["先停在理解这里","paused","secondary"]], experiment:[["我愿意试 7 天","active","primary"],["建议修改","experiment-edit","secondary"],["这次不参加","experiment-declined","ghost"]], "experiment-edit":[["提交为新候选版本","experiment","primary"],["不修改，回到版本 2","experiment","secondary"]], "experiment-declined":[["回到共同桌面","common","primary"]], active:[["模拟到第 7 天","retrospective","primary"]], retrospective:[["批准并分享我的复盘","common","primary"],["只留给自己，结束","paused","secondary"]]
+      welcome:[["和 AI 开始私下聊","goal","primary"],["先看受邀者会看到什么","invitee","secondary"]], goal:[["按住说第一段","express","primary"],["打字告诉 AI","express","secondary"]], express:[["继续讲这一段","transcribing","primary"],["让 AI 问一句","clarify","secondary"]], transcribing:[["听听 AI 接下来怎么问","clarify","primary"],["继续说，不要提问","express","secondary"]], clarify:[["我讲得差不多了，帮我整理","review","primary"],["跳过这题，继续讲","express","secondary"]], review:[["预览我准备分享的版本","approve","primary"],["回到对话继续讲","express","secondary"]], approve:[["批准这个版本","invite","primary"],["返回对话修改","review","secondary"]], invite:[["发送这份邀请","waiting","primary"],["切换到受邀者视角","invitee","secondary"]], invitee:[["加入，和 AI 私下聊","invitee-express","primary"],["稍后再决定","later","secondary"],["拒绝这次邀请","declined","ghost"]], later:[["现在加入","invitee-express","primary"],["拒绝这次邀请","declined","secondary"]], declined:[["回到首页","welcome","primary"]], "invitee-express":[["模拟：完成对话并批准","progress","primary"]], waiting:[["模拟：对方已加入","progress","primary"],["安全离开","resume","secondary"]], progress:[["模拟：双方已批准","common","primary"]], common:[["准确，进入小实验","experiment","primary"],["先停在理解这里","paused","secondary"]], experiment:[["我愿意试 7 天","active","primary"],["建议修改","experiment-edit","secondary"],["这次不参加","experiment-declined","ghost"]], "experiment-edit":[["提交为新候选版本","experiment","primary"],["不修改，回到版本 2","experiment","secondary"]], "experiment-declined":[["回到共同桌面","common","primary"]], active:[["模拟到第 7 天","retrospective","primary"]], retrospective:[["批准并分享我的复盘","common","primary"],["只留给自己，结束","paused","secondary"]]
     };
 
     let current = new URLSearchParams(location.search).get("screen") || "welcome";
