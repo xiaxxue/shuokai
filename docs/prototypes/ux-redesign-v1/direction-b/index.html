@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#102b35" />
+  <title>说开 · 两条互不窥视的路径</title>
+  <style>
+    :root {
+      --night: #102b35;
+      --night-soft: #1d4650;
+      --cream: #f6f0df;
+      --paper: #fffaf0;
+      --ink: #132f37;
+      --muted: #63777a;
+      --line: #b9c1b7;
+      --mine: #df5d3f;
+      --theirs: #2b7880;
+      --join: #e6b94d;
+      --safe: #dce8da;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: #071a20; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(135deg, rgba(230,185,77,.08) 0 1px, transparent 1px 16px),
+        #071a20;
+      font-family: "Hannotate SC", "Kaiti SC", "STKaiti", "Songti SC", serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, textarea, input { font: inherit; }
+    button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px solid var(--join); outline-offset: 3px; }
+    .app { width: min(100%, 430px); min-height: 100svh; margin: 0 auto; overflow: hidden; background: var(--cream); box-shadow: 0 0 70px rgba(0,0,0,.35); }
+    .mast {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      padding: calc(13px + env(safe-area-inset-top)) 17px 12px;
+      color: var(--cream);
+      background:
+        linear-gradient(112deg, transparent 0 68%, rgba(230,185,77,.12) 68% 72%, transparent 72%),
+        var(--night);
+    }
+    .mast-top { display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: baseline; gap: 9px; }
+    .brand strong { font-size: 20px; letter-spacing: .16em; }
+    .brand span { color: rgba(246,240,223,.6); font-family: Georgia, serif; font-size: 8px; letter-spacing: .2em; }
+    .menu { min-width: 58px; min-height: 44px; border: 1px solid rgba(255,255,255,.28); border-radius: 4px; background: transparent; color: white; font-size: 12px; }
+    .track {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 36px 1fr;
+      gap: 6px;
+      margin-top: 14px;
+      align-items: stretch;
+    }
+    .lane { min-height: 43px; padding: 7px 9px; border: 1px solid rgba(255,255,255,.2); }
+    .lane.mine { border-left: 4px solid var(--mine); }
+    .lane.theirs { border-right: 4px solid var(--theirs); text-align: right; }
+    .lane small, .lane strong { display: block; }
+    .lane small { color: rgba(246,240,223,.58); font-size: 8px; letter-spacing: .12em; }
+    .lane strong { margin-top: 4px; font-size: 11px; }
+    .gate { display: grid; place-items: center; border: 1px solid rgba(230,185,77,.55); color: var(--join); font-size: 11px; font-weight: 900; }
+    main { position: relative; min-height: calc(100svh - 136px); padding: 28px 19px calc(120px + env(safe-area-inset-bottom)); }
+    main:focus { outline: none; }
+    main::before { position: absolute; z-index: 0; top: 0; bottom: 0; left: 50%; width: 1px; background: repeating-linear-gradient(to bottom, rgba(16,43,53,.17) 0 5px, transparent 5px 11px); content: ""; }
+    .screen { position: relative; z-index: 1; animation: slide-in .35s cubic-bezier(.15,.7,.2,1) both; }
+    @keyframes slide-in { from { opacity: 0; transform: translateX(-10px); } }
+    .kicker { display: inline-block; margin: 0 0 16px; padding: 5px 8px; background: var(--night); color: var(--cream); font-size: 10px; font-weight: 800; letter-spacing: .12em; transform: skewX(-7deg); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 15px; font-size: clamp(30px, 9vw, 39px); line-height: 1.2; letter-spacing: -.035em; }
+    h2 { margin-bottom: 10px; font-size: 24px; line-height: 1.35; }
+    h3 { margin-bottom: 7px; font-size: 16px; }
+    .lede { color: var(--muted); font-size: 14px; line-height: 1.75; }
+    .note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .route-map { position: relative; margin: 28px 0; padding: 4px 0; }
+    .route-row { display: grid; grid-template-columns: 1fr 38px 1fr; gap: 6px; align-items: center; min-height: 64px; }
+    .route-row + .route-row { border-top: 1px solid rgba(16,43,53,.1); }
+    .route-side { padding: 10px 11px; font-size: 12px; line-height: 1.45; }
+    .route-side.mine { border-left: 4px solid var(--mine); background: rgba(223,93,63,.1); }
+    .route-side.theirs { border-right: 4px solid var(--theirs); background: rgba(43,120,128,.1); text-align: right; }
+    .route-middle { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--cream); color: var(--muted); font-family: Georgia, serif; font-size: 10px; }
+    .route-row.joined .route-middle { border-color: var(--join); background: var(--join); color: var(--night); font-weight: 900; }
+    .route-row.joined .route-side { background: var(--night); color: var(--cream); }
+    .boundary {
+      margin: 20px 0;
+      padding: 16px;
+      border: 1px solid var(--night);
+      border-left: 8px solid var(--join);
+      background: var(--paper);
+      box-shadow: 8px 8px 0 rgba(16,43,53,.09);
+    }
+    .boundary strong { display: block; margin-bottom: 6px; }
+    .boundary p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .panel { margin: 15px 0; padding: 18px; border: 1px solid var(--line); background: rgba(255,250,240,.93); clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+    .panel.mine { border-left: 6px solid var(--mine); }
+    .panel.theirs { border-right: 6px solid var(--theirs); }
+    .panel.join { border: 2px solid var(--join); box-shadow: 8px 8px 0 rgba(230,185,77,.2); }
+    .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 11px; }
+    .stamp { display: inline-flex; min-height: 25px; padding: 4px 8px; align-items: center; border: 1px solid currentColor; color: var(--mine); font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+    .stamp.private { color: var(--theirs); }
+    .stamp.approved { color: var(--night); background: var(--safe); }
+    .choice-grid { display: grid; gap: 9px; margin: 21px 0; }
+    .choice { width: 100%; min-height: 66px; padding: 13px 15px; border: 1px solid var(--line); border-left: 6px solid var(--mine); background: var(--paper); text-align: left; }
+    .choice strong, .choice span { display: block; }
+    .choice strong { font-size: 15px; }
+    .choice span { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .choice.selected { border-color: var(--night); background: var(--safe); }
+    .field-head { display: flex; justify-content: space-between; margin: 19px 0 8px; font-size: 12px; font-weight: 800; }
+    textarea { width: 100%; min-height: 180px; padding: 15px; resize: vertical; border: 1px solid var(--line); border-left: 6px solid var(--mine); background: var(--paper); color: var(--ink); font-size: 15px; line-height: 1.7; }
+    .audio-line { display: grid; grid-template-columns: 52px 1fr auto; gap: 11px; align-items: center; margin: 22px 0; padding: 13px; border: 1px solid var(--line); background: var(--paper); }
+    .audio-button { display: grid; width: 50px; height: 50px; place-items: center; border: 0; background: var(--mine); color: white; font-size: 11px; clip-path: polygon(0 0, 80% 0, 100% 20%, 100% 100%, 20% 100%, 0 80%); }
+    .audio-line strong, .audio-line span { display: block; }
+    .audio-line span { margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .private-line { display: flex; gap: 8px; margin-top: 10px; color: var(--theirs); font-size: 11px; font-weight: 800; line-height: 1.5; }
+    .private-line::before { content: "封"; flex: none; }
+    .ai { display: grid; grid-template-columns: 46px 1fr; gap: 13px; align-items: start; margin: 22px 0; }
+    .ai-mark { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: var(--night); color: var(--join); font-family: Georgia, serif; font-size: 13px; }
+    .why { padding: 12px 14px; border-left: 4px solid var(--join); background: rgba(230,185,77,.16); color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .diff { margin: 15px 0; border: 1px solid var(--line); background: var(--paper); }
+    .diff-source, .diff-candidate { padding: 14px; }
+    .diff-source { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .diff-candidate { border-top: 1px dashed var(--mine); font-size: 15px; line-height: 1.65; }
+    .diff-reason { padding: 9px 14px; background: rgba(223,93,63,.1); color: #8b422f; font-size: 11px; line-height: 1.5; }
+    .small-actions { display: flex; flex-wrap: wrap; gap: 7px; padding: 11px 14px 14px; }
+    .small-actions button { min-height: 44px; padding: 8px 11px; border: 1px solid var(--line); background: white; font-size: 11px; }
+    .preview { padding: 20px; border: 2px solid var(--night); background: var(--paper); box-shadow: 9px 9px 0 rgba(16,43,53,.1); }
+    .preview p { font-size: 14px; line-height: 1.7; }
+    .split-status { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 20px 0; }
+    .person { min-height: 130px; padding: 14px; border: 1px solid var(--line); background: var(--paper); }
+    .person.mine { border-top: 6px solid var(--mine); }
+    .person.theirs { border-top: 6px solid var(--theirs); text-align: right; }
+    .person .avatar { display: grid; width: 35px; height: 35px; margin-bottom: 22px; place-items: center; border-radius: 50%; background: var(--night); color: white; font-size: 11px; }
+    .person.theirs .avatar { margin-left: auto; }
+    .person strong, .person span { display: block; }
+    .person span { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .person em { display: inline-block; margin-top: 10px; color: var(--theirs); font-size: 11px; font-style: normal; font-weight: 900; }
+    .merge-title { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; margin: 25px 0 17px; color: var(--muted); font-size: 10px; text-align: center; }
+    .merge-title::before, .merge-title::after { height: 1px; background: var(--line); content: ""; }
+    .shared { margin: 12px 0; padding: 16px; border: 1px solid var(--night); background: var(--paper); }
+    .shared.common { border-left: 7px solid #628b5a; }
+    .shared.different { border-left: 7px solid var(--mine); }
+    .shared.unknown { border-left: 7px solid var(--join); }
+    .shared.boundary { border-left: 7px solid var(--night); }
+    .shared p { margin: 6px 0; font-size: 13px; line-height: 1.65; }
+    .source { color: var(--muted); font-size: 10px; }
+    .experiment { position: relative; padding: 21px; overflow: hidden; border: 2px solid var(--join); background: var(--night); color: var(--cream); box-shadow: 9px 9px 0 rgba(230,185,77,.22); }
+    .experiment::after { position: absolute; right: -22px; bottom: -33px; width: 90px; height: 90px; border: 18px solid rgba(230,185,77,.12); border-radius: 50%; content: ""; }
+    .experiment h3 { margin-top: 18px; font-size: 20px; line-height: 1.48; }
+    .experiment p { color: rgba(246,240,223,.7); font-size: 12px; line-height: 1.6; }
+    .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 17px; }
+    .days i { height: 9px; background: rgba(255,255,255,.18); transform: skewX(-15deg); }
+    .days i.done { background: var(--join); }
+    .alert { padding: 17px; border: 2px solid var(--mine); background: #f8e6dd; }
+    .alert p { margin: 0; color: #704a40; font-size: 13px; line-height: 1.6; }
+    .actions { position: fixed; z-index: 18; right: max(0px, calc((100vw - 430px)/2)); bottom: 0; left: max(0px, calc((100vw - 430px)/2)); display: grid; gap: 7px; width: min(100%, 430px); padding: 11px 18px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(246,240,223,.96); backdrop-filter: blur(15px); }
+    .primary, .secondary, .ghost { width: 100%; min-height: 49px; font-weight: 900; }
+    .primary { border: 0; background: var(--night); color: white; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+    .secondary { border: 1px solid var(--night); background: var(--paper); color: var(--night); }
+    .ghost { border: 0; background: transparent; color: var(--muted); text-decoration: underline; text-underline-offset: 4px; }
+    .overlay { position: fixed; z-index: 50; inset: 0; display: none; justify-content: center; align-items: flex-end; background: rgba(4,17,21,.66); }
+    .overlay.open { display: flex; }
+    .sheet { width: min(100%, 430px); max-height: 85svh; padding: 20px 18px calc(24px + env(safe-area-inset-bottom)); overflow: auto; background: var(--cream); border-top: 8px solid var(--join); }
+    .sheet-head { display: flex; justify-content: space-between; align-items: center; }
+    .sheet-head h2 { margin: 0; font-size: 21px; }
+    .close { width: 44px; height: 44px; border: 1px solid var(--night); background: var(--paper); font-size: 20px; }
+    .jump-title { margin: 18px 0 8px; color: var(--mine); font-size: 10px; font-weight: 900; letter-spacing: .13em; }
+    .jumps { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .jumps button { min-height: 47px; padding: 8px; border: 1px solid var(--line); border-left: 5px solid var(--theirs); background: var(--paper); font-size: 11px; text-align: left; }
+    @media (min-width: 431px) { body { padding: 20px 0; } .app { min-height: calc(100svh - 40px); border-radius: 18px; } .actions { bottom: 20px; border-radius: 0 0 18px 18px; } }
+    @media (max-width: 350px) { main { padding-right: 14px; padding-left: 14px; } h1 { font-size: 29px; } .jumps { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="mast">
+      <div class="mast-top"><div class="brand"><strong>说开</strong><span>TWO SAFE LANES</span></div><button class="menu" id="open-menu" aria-haspopup="dialog" aria-controls="flow-sheet">全流程</button></div>
+      <div class="track" aria-live="polite"><div class="lane mine"><small>我的这一侧</small><strong id="mine-status">私人准备</strong></div><div class="gate" id="gate-status">封</div><div class="lane theirs"><small>对方那一侧</small><strong id="their-status">尚未加入</strong></div></div>
+    </header>
+    <main id="screen" tabindex="-1"></main>
+    <div class="actions" id="actions"></div>
+  </div>
+  <div class="overlay" id="flow-sheet" role="dialog" aria-modal="true" aria-labelledby="flow-title">
+    <div class="sheet"><div class="sheet-head"><h2 id="flow-title">查看任一状态</h2><button class="close" id="close-menu" aria-label="关闭全流程">×</button></div><p class="note">这套方向把双方状态持续并列，但任何私人内容始终各自封闭。</p><p class="jump-title">核心流程</p><div class="jumps" id="core-jumps"></div><p class="jump-title">异常与恢复</p><div class="jumps" id="state-jumps"></div></div>
+  </div>
+
+  <script>
+    const coreOrder = ["map","setup","capture","transcribing","clarify","candidate","approval","invite","invitee","later","declined","invitee-capture","waiting","progress","convergence","common","experiment","experiment-edit","experiment-declined","active","retrospective"];
+    const stateOrder = ["offline","transcribe-fail","ai-fail","duplicate","expired","no-response","resume","reconfirm","permission","paused"];
+    const labels = { map:"首次进入",setup:"沟通开场",capture:"自由表达",transcribing:"转写中",clarify:"AI 澄清",candidate:"候选整理",approval:"本人批准",invite:"邀请预览",invitee:"受邀安全说明",later:"受邀者选择稍后",declined:"受邀者拒绝","invitee-capture":"受邀者表达",waiting:"等待",progress:"双方独立进度",convergence:"汇合前确认",common:"共同视图",experiment:"7 天实验","experiment-edit":"修改实验候选","experiment-declined":"不参加实验",active:"实验进行中",retrospective:"7 天复盘",offline:"网络中断","transcribe-fail":"转写失败","ai-fail":"AI 失败",duplicate:"重复提交",expired:"邀请失效","no-response":"对方未响应",resume:"退出后恢复",reconfirm:"内容变更重确认",permission:"权限不足",paused:"暂停" };
+    const meta = {
+      map:["尚未开始","封","尚未加入"], setup:["私人开场","封","不可见"], capture:["原话 · 仅自己","封","不可见"], transcribing:["私人转写中","封","不可见"], clarify:["AI 私人辅助","封","不可见"], candidate:["候选 · 未批准","封","不可见"], approval:["等待我确认","封","不可见"], invite:["已批准 · 未发送","封","尚未加入"], invitee:["已准备邀请","封","正在决定"], later:["邀请保留","封","已选择稍后"], declined:["正文保持隐藏","封","已拒绝"], "invitee-capture":["已确认","封","私人准备"], waiting:["已确认","封","尚未决定"], progress:["已确认","封","私人准备"], convergence:["已确认","待","已确认"], common:["已确认","合","已确认"], experiment:["等待实验决定","合","等待实验决定"], "experiment-edit":["修改实验候选","封","旧同意失效"], "experiment-declined":["共同理解保留","合","实验未启动"], active:["实验进行中","合","实验进行中"], retrospective:["私人复盘","封","私人复盘"], offline:["本机已保存","封","不可见"], "transcribe-fail":["录音仍私密","封","不可见"], "ai-fail":["原话仍私密","封","不可见"], duplicate:["同一版本已保存","封","无重复动作"], expired:["内容隐藏","封","邀请失效"], "no-response":["已确认","封","尚未决定"], resume:["草稿已恢复","封","不可见"], reconfirm:["需要重新确认","待","新版已确认"], permission:["内容隐藏","封","身份未验证"], paused:["已暂停","封","已暂停"]
+    };
+
+    function routeMap() { return `<div class="route-map" aria-label="两条独立路径"><div class="route-row"><div class="route-side mine"><strong>各自说</strong><br>原话只留在自己这一侧</div><div class="route-middle">01</div><div class="route-side theirs"><strong>各自说</strong><br>不看见彼此草稿</div></div><div class="route-row"><div class="route-side mine"><strong>各自确认</strong><br>AI 候选可改可弃</div><div class="route-middle">02</div><div class="route-side theirs"><strong>各自确认</strong><br>沉默不算同意</div></div><div class="route-row joined"><div class="route-side mine"><strong>只放入已批准内容</strong></div><div class="route-middle">合</div><div class="route-side theirs"><strong>看见共同与不同</strong></div></div></div>`; }
+    function recovery(title, copy, primary, secondary) { return `<section class="screen"><span class="kicker">路径仍然封闭</span><h1>${title}</h1><div class="alert"><p>${copy}</p></div><div class="choice-grid"><button class="choice"><strong>${primary}</strong><span>不会解锁或发送私人内容</span></button><button class="choice"><strong>${secondary}</strong><span>已经保存的内容仍在</span></button></div></section>`; }
+
+    const screens = {
+      map: () => `<section class="screen"><span class="kicker">两个人 · 两条封闭路径</span><h1>先各自说清，<br>再决定是否汇合。</h1><p class="lede">你们不会在同一个聊天框里抢着解释。每个人先在自己的路径上表达、编辑和批准；中间的门不会被 AI 打开。</p>${routeMap()}<div class="boundary"><strong>这条边界不会改变</strong><p>原始录音、转写、AI 问答和未批准草稿不会跨到另一条路径。加入、稍后、拒绝与暂停都是完整选择。</p></div></section>`,
+      setup: () => `<section class="screen"><span class="kicker">我的路径 · 私人开场</span><h1>这次沟通，<br>先希望发生什么？</h1><p class="lede">选择只用于整理自己的版本，不会变成对方必须完成的目标。</p><div class="choice-grid" role="radiogroup"><button class="choice selected" role="radio" aria-checked="true"><strong>先让我的意思更准确</strong><span>不急着达成一致</span></button><button class="choice" role="radio" aria-checked="false"><strong>先看见我们的不同</strong><span>不让 AI 把差异抹平</span></button><button class="choice" role="radio" aria-checked="false"><strong>只试一个小下一步</strong><span>七天后再决定</span></button></div><button class="ghost" data-go="capture">不知道，先说出来</button></section>`,
+      capture: () => `<section class="screen"><span class="kicker">我的路径 · 私人原话</span><h1>这一段只写给你自己。</h1><p class="lede">可以杂乱、矛盾、带情绪。对方只会在收到邀请后看到安全说明，不会看到这里。</p><div class="audio-line"><button class="audio-button" data-go="transcribing" aria-label="开始录音">录音</button><div><strong>按一下开始说</strong><span>停止后才上传转写</span></div><strong>02:00</strong></div><div class="field-head"><span>或直接写</span><span>176 / 12000</span></div><textarea aria-label="私人原话">我们最近因为回消息的事争了几次。我不是要求每条都马上回，只是计划变了却一直不知道，会让我觉得自己不重要。</textarea><div class="private-line">仅自己可见 · 已保存在私人草稿 · 尚未共享</div></section>`,
+      transcribing: () => `<section class="screen"><span class="kicker">我的路径 · 正在转写</span><h1>处理的是你的原话，<br>不是一份待发送消息。</h1><div class="panel mine" role="status"><div class="panel-head"><span class="stamp private">私人录音 01:12</span><span class="note">第 2 / 3 段</span></div><h3>已经完成的文字会先保存</h3><p class="note">可以离开或改用打字。转写结束后仍需本人编辑，AI 不会自动继续。</p></div><div class="boundary"><strong>当前门仍然关闭</strong><p>对方看不到录音、处理进度或你是否在线。</p></div></section>`,
+      clarify: () => `<section class="screen"><span class="kicker">AI 私人辅助 · 可以跳过</span><div class="ai"><div class="ai-mark">AI</div><div><h2>你希望对方下次具体做什么，才会让你更安心？</h2><p class="lede">只回答愿意补充的部分。</p></div></div><p class="why"><strong>为什么问：</strong>为了不把“不必马上回复”改写成你没有提出的要求。</p><div class="field-head"><span>私人补充</span><span>不会原样分享</span></div><textarea aria-label="给 AI 的私人补充" placeholder="例如：如果当天不能确定，希望先告诉我什么时候再更新……"></textarea><div class="private-line">跳过后会保留不确定，不替你补全。</div></section>`,
+      candidate: () => `<section class="screen"><span class="kicker">我的路径 · 候选尚未批准</span><h1>AI 的修改要经过你，<br>不是越过你。</h1><p class="lede">每一处建议都显示来源和理由。你可以保留原话、采用建议、自己改，或撤销全部变化。</p><div class="diff"><div class="diff-source"><span class="stamp private">我的原话</span><p>计划变了却一直不知道，会让我觉得自己不重要。</p></div><div class="diff-candidate"><span class="stamp">AI 候选</span><p contenteditable="true">当我们的计划变化，而我没有收到更新时，我会感到不安和失落。</p></div><div class="diff-reason">理由：把“我不重要”保留为你的感受，不当作对方动机的事实。</div><div class="small-actions"><button>采用建议</button><button>保留原话</button><button>自己修改</button></div></div><button class="ghost">撤销全部 AI 变化</button></section>`,
+      approval: () => `<section class="screen"><span class="kicker">汇合前 · 必须由我批准</span><h1>只有这一页，<br>可能进入共同视图。</h1><div class="preview"><div class="panel-head"><span class="stamp">等待本人批准</span><span class="note">版本 3</span></div><h3>我想说清楚的事</h3><p>当我们的计划变化，而我没有收到更新时，我会感到不安和失落。我看重确定感，也希望彼此能及时知道变化。</p><h3>我提出的请求</h3><p>如果当天还不能确定，你是否愿意先告诉我大概什么时候再更新？</p></div><div class="boundary"><strong>不在这一页的内容不会共享</strong><p>包括录音、完整原话、私人补充、AI 理由和撤销历史。批准后也不会自动发送邀请。</p></div></section>`,
+      invite: () => `<section class="screen"><span class="kicker">我的版本已批准 · 门仍然关闭</span><h1>让对方先看规则，<br>再决定是否进来。</h1><div class="panel join"><div class="panel-head"><span class="stamp approved">邀请预览</span><span class="note">7 天内有效</span></div><p><strong>我想和你把一件事说开。</strong></p><p class="note">这里不会判断谁对谁错。你会先在自己的私人路径表达；可以稍后，也可以拒绝。加入不等于同意我。</p></div><div class="split-status"><div class="person mine"><div class="avatar">我</div><strong>我的正文</strong><span>加入前仍对对方隐藏</span><em>已批准</em></div><div class="person theirs"><div class="avatar">林</div><strong>对方选择</strong><span>加入 / 稍后 / 拒绝</span><em>尚未发送</em></div></div></section>`,
+      invitee: () => `<section class="screen"><span class="kicker">受邀者路径 · 先看安全说明</span><h1>你还没有加入，<br>也看不到对方正文。</h1><p class="lede">对方只准备了自己的版本。你加入后拥有完全独立、对称的私人空间与批准权。</p><div class="route-map"><div class="route-row"><div class="route-side mine">对方已批准<br><strong>仍对你隐藏</strong></div><div class="route-middle">封</div><div class="route-side theirs">你可以<br><strong>加入 / 稍后 / 拒绝</strong></div></div></div><div class="boundary"><strong>加入不表示</strong><p>同意对方、承认错误、接受 AI 判断，或承诺完成七天实验。退出不必解释原因。</p></div></section>`,
+      later: () => `<section class="screen"><span class="kicker">受邀者路径 · 已选择稍后</span><h1>这条路径不会催你开始。</h1><p class="lede">邀请会保留，但不会创建你的表达草稿。发起者只知道“对方选择稍后”，看不到原因、提醒时间或在线状态。</p><div class="boundary"><strong>中间仍然关闭</strong><p>你尚未加入，对方正文也仍对你隐藏。之后可以加入或拒绝。</p></div></section>`,
+      declined: () => `<section class="screen"><span class="kicker">受邀者路径 · 已拒绝</span><h1>拒绝不需要说明原因。</h1><p class="lede">这次沟通不会为你创建草稿，也不会展示对方正文。发起者只会知道“对方这次不参加”。</p><div class="alert"><p>系统不会自动重新邀请、不会把沉默改成同意，也不会影响以后重新发起一件新的沟通。</p></div></section>`,
+      "invitee-capture": () => `<section class="screen"><span class="kicker">对方路径 · 私人原话</span><h1>现在只说你看到的版本。</h1><p class="lede">发起者只会看到“对方在自己的私人路径准备”，不会看到输入长度、AI 问答或在线状态。</p><textarea aria-label="受邀者私人原话" placeholder="可以从“我看到的事情不太一样……”开始。"></textarea><div class="private-line">仅你可见 · 尚未共享 · 可以暂停或退出</div><div class="panel theirs"><h3>发起者当前能看到</h3><p class="note">对方已加入，正在自己的私人空间准备。没有其他编辑细节。</p></div></section>`,
+      waiting: () => `<section class="screen"><span class="kicker">邀请已送达 · 无阅读回执</span><h1>不需要守着另一条路径。</h1><p class="lede">对方可以稍后、拒绝或不回应。任何选择都不会解锁你的正文。</p><div class="split-status"><div class="person mine"><div class="avatar">我</div><strong>我的版本</strong><span>版本 3 · 今天 18:40</span><em>已确认</em></div><div class="person theirs"><div class="avatar">林</div><strong>对方决定</strong><span>不显示阅读和在线状态</span><em>尚未决定</em></div></div><div class="boundary"><strong>可以安全离开</strong><p>状态变化时只通知一次；你的私人空间和批准版本会保留。</p></div></section>`,
+      progress: () => `<section class="screen"><span class="kicker">两条路径 · 独立准备</span><h1>只看必要进度，<br>不窥视准备过程。</h1><div class="split-status"><div class="person mine"><div class="avatar">我</div><strong>我的版本</strong><span>可修改；修改后重新确认</span><em>已确认</em></div><div class="person theirs"><div class="avatar">林</div><strong>对方版本</strong><span>草稿、编辑次数均不可见</span><em>私人准备中</em></div></div><div class="route-row"><div class="route-side mine">已确认</div><div class="route-middle">封</div><div class="route-side theirs">准备中</div></div><p class="note">中间保持关闭，直到双方分别批准当前版本。</p></section>`,
+      convergence: () => `<section class="screen"><span class="kicker">汇合前最后检查</span><h1>两个“我确认”，<br>必须指向各自当前版本。</h1><div class="split-status"><div class="person mine"><div class="avatar">我</div><strong>版本 3</strong><span>内容哈希 …7f2a</span><em>本人已确认</em></div><div class="person theirs"><div class="avatar">林</div><strong>版本 2</strong><span>内容哈希 …19bc</span><em>本人已确认</em></div></div><div class="panel join"><h3>现在可以生成共同桌面</h3><p class="note">AI 只读取上面两个已批准版本。原话、草稿和私人问答仍不会参与。</p></div></section>`,
+      common: () => `<section class="screen"><span class="kicker">共同视图 · 仅已批准内容</span><h1>汇合的是内容，<br>不是两个人的立场。</h1><p class="lede">确认准确不等于同意、认错或原谅。任何一项都可以标记不准确并回到自己的路径修改。</p><div class="merge-title">双方都明确的</div><div class="shared common"><h3>共同点</h3><p>计划变化时，希望彼此不要长时间处在不确定里。</p><span class="source">来自双方已批准版本</span></div><div class="shared different"><h3>仍然不同</h3><p>我希望当天获得更新时间；小林担心固定时间形成新的压力。</p><span class="source">保留两边原意，不判断谁更合理</span></div><div class="shared unknown"><h3>尚未核实</h3><p>那天是否已经发过一次更新，双方记忆不同。</p></div><div class="shared boundary"><h3>已经声明的边界</h3><p>不连续追问；计划失效时不完全失联。</p></div><div class="panel join"><h3>分别确认这份理解</h3><div class="small-actions"><button>准确表达了我</button><button data-go="reconfirm">有一处不准确</button><button>返回修改我的版本</button></div></div></section>`,
+      experiment: () => `<section class="screen"><span class="kicker">共同候选 · 分别决定</span><h1>七天，只试一个动作。</h1><p class="lede">任一方可修改、拒绝或提前停止。只有双方同意同一版本，实验才开始。</p><article class="experiment"><span class="stamp approved">候选版本 2 · 可逆</span><h3>计划还没确定时，先发一句“我晚些再更新”，并在当天给出下一次更新时间。</h3><p>复盘：8 月 19 日 20:00 · 私人复盘不会自动共享</p><div class="days"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article><div class="split-status"><div class="person mine"><strong>我的决定</strong><span>接受 / 修改 / 不参加</span><em>尚未决定</em></div><div class="person theirs"><strong>对方决定</strong><span>不会被我的选择代替</span><em>尚未决定</em></div></div></section>`,
+      "experiment-edit": () => `<section class="screen"><span class="kicker">实验候选 · 版本 3 草稿</span><h1>先把它改到做得到。</h1><p class="lede">提交会生成新候选，并使双方对版本 2 的同意失效；另一方必须自己决定是否接受新版。</p><div class="field-head"><span>我建议的新版本</span><span>尚未提交</span></div><textarea aria-label="修改七天实验">计划还没确定时，先发一句“我晚些再更新”，最迟在第二天中午前给出下一次更新时间。</textarea><div class="private-line">草稿仅自己可见 · 提交后才显示为共同候选</div></section>`,
+      "experiment-declined": () => `<section class="screen"><span class="kicker">实验未启动 · 共同理解仍保留</span><h1>不参加，不会被判定失败。</h1><p class="lede">这个决定只针对候选版本 2。双方仍可回看已经确认的共同与不同，也可以结束这次沟通。</p><div class="boundary"><strong>另一方会看到</strong><p>“一方选择这次不参加实验。”私人原因与未提交替代方案不会共享。</p></div></section>`,
+      active: () => `<section class="screen"><span class="kicker">第 3 / 7 天 · 可停止</span><h1>不评分，不打卡，<br>只记录是否有帮助。</h1><article class="experiment"><span class="stamp approved">双方同意 · 版本 2</span><h3>计划还没确定时，先发一句“我晚些再更新”，并在当天给出下一次更新时间。</h3><div class="days"><i class="done"></i><i class="done"></i><i class="done"></i><i></i><i></i><i></i><i></i></div><p>任何一方停止后立即结束，不要求解释。</p></article><div class="field-head"><span>只给自己记一句</span><span>私人</span></div><textarea aria-label="私人实验记录" placeholder="今天什么有帮助？什么仍然困难？"></textarea><div class="private-line">记录仅自己可见，直到本人批准复盘版本</div></section>`,
+      retrospective: () => `<section class="screen"><span class="kicker">第 7 天 · 各自回看</span><h1>先分别回答，<br>再决定是否汇合。</h1><div class="split-status"><div class="person mine"><strong>我的复盘</strong><span>有帮助 / 需调整 / 停止</span><em>私人草稿</em></div><div class="person theirs"><strong>对方复盘</strong><span>对你保持隐藏</span><em>私人准备</em></div></div><textarea aria-label="私人复盘">当他先告诉我还没确定时，我确实没那么焦虑。固定当天给更新时间对他仍有压力，也许改成第二天中午前。</textarea><div class="private-line">批准后才放入共同复盘；不批准也可以结束</div></section>`,
+      offline: () => recovery("网络中断，路径没有被打开", "刚写的内容已保存在这台设备，尚未同步，也没有共享。重连后由你选择同步哪一版。", "重新连接", "稍后再说"),
+      "transcribe-fail": () => recovery("录音转写没有完成", "录音仍在你的私人路径。可以重新转写、回听后打字，或直接手动继续。", "改用文字", "重新转写"),
+      "ai-fail": () => recovery("AI 没有完成这次整理", "原话和已有编辑仍在，未生成或分享半成品。手动继续拥有完全相同的后续能力。", "手动继续", "稍后重试"),
+      duplicate: () => recovery("识别到重复操作", "同一内容版本已保存；系统没有再次发邀请、重复批准或推进状态。", "查看已保存状态", "返回上一页"),
+      expired: () => recovery("邀请已经失效", "可能已被撤销、超过有效期或房间结束。身份验证前没有加载任何正文。", "返回首页", "请对方重新邀请"),
+      "no-response": () => `<section class="screen"><span class="kicker">已送达 2 天 · 仍未决定</span><h1>另一条路径可以保持安静。</h1><p class="lede">你可以发送一次不要求回应的提醒，也可以等待或结束。系统没有已读、在线、正在输入和倒计时。</p><div class="panel join"><h3>唯一一次温和提醒</h3><p class="note">这份邀请仍有效。你可以稍后或拒绝，不需要现在回答；也可以关闭后续通知。</p></div><button class="ghost">不提醒，继续等待</button></section>`,
+      resume: () => `<section class="screen"><span class="kicker">已回到我的路径</span><h1>恢复的是私人草稿，<br>不是共享状态。</h1><div class="panel mine"><div class="panel-head"><span class="stamp private">版本 6 · 已同步</span><span class="note">18:42</span></div><p>我们最近因为回消息的事争了几次……</p></div><div class="boundary"><strong>另一台设备如果有不同版本</strong><p>会并排显示“这台设备 / 另一台设备”，由本人选择保留或合并，不静默覆盖。</p></div></section>`,
+      reconfirm: () => `<section class="screen"><span class="kicker">内容版本变化 · 门重新关闭</span><h1>旧确认不能带到新版。</h1><p class="lede">小林修改了已批准内容。共同视图暂时锁定，双方需要确认新的版本组合。</p><div class="diff"><div class="diff-source"><span class="stamp">旧版</span><p><del>固定在当天给出更新时间</del></p></div><div class="diff-candidate"><span class="stamp approved">新版 · 对方已确认</span><p>最迟在第二天中午前给出更新时间。</p></div><div class="diff-reason">只显示对方批准后的差异，不显示其私人修改过程。</div></div></section>`,
+      permission: () => recovery("身份无法匹配这条路径", "为保护双方内容，我们没有加载房间正文。请用收到邀请时的账号重新登录，或请求一份新邀请。", "重新登录", "返回首页"),
+      paused: () => recovery("两条路径都已暂停", "暂停期间不生成共同理解、不继续提醒。双方私人内容各自保留，也不要求说明暂停原因。", "回到首页", "查看我的私人版本")
+    };
+
+    const actionMap = {
+      map:[["从我的私人路径开始","setup","primary"],["先看受邀者路径","invitee","secondary"]], setup:[["继续","capture","primary"]], capture:[["让 AI 帮我理一理","clarify","primary"],["手动整理","candidate","secondary"]], transcribing:[["查看转写并继续","clarify","primary"]], clarify:[["回答后生成候选","candidate","primary"],["跳过，不让 AI 猜","candidate","secondary"]], candidate:[["查看待批准版本","approval","primary"]], approval:[["批准版本 3","invite","primary"],["回到我的路径修改","candidate","secondary"]], invite:[["发送邀请","waiting","primary"],["切换到受邀者视角","invitee","secondary"]], invitee:[["加入我的私人路径","invitee-capture","primary"],["稍后","later","secondary"],["拒绝","declined","ghost"]], later:[["现在加入","invitee-capture","primary"],["拒绝这次邀请","declined","secondary"]], declined:[["回到首页","map","primary"]], "invitee-capture":[["模拟：受邀者批准","progress","primary"]], waiting:[["模拟：对方加入","progress","primary"],["离开并稍后恢复","resume","secondary"]], progress:[["模拟：双方已批准","convergence","primary"]], convergence:[["打开共同视图","common","primary"]], common:[["双方确认，看看小实验","experiment","primary"],["有一处不准确","reconfirm","secondary"]], experiment:[["同意候选版本 2","active","primary"],["建议修改","experiment-edit","secondary"],["这次不参加","experiment-declined","ghost"]], "experiment-edit":[["提交为新候选","experiment","primary"],["保留版本 2","experiment","secondary"]], "experiment-declined":[["回到共同视图","common","primary"]], active:[["模拟第 7 天","retrospective","primary"]], retrospective:[["批准我的复盘","common","primary"],["只留给自己并结束","paused","secondary"]]
+    };
+
+    let current = new URLSearchParams(location.search).get("screen") || "map";
+    if (!screens[current]) current = "map";
+    const screen = document.getElementById("screen");
+    const actions = document.getElementById("actions");
+    const sheet = document.getElementById("flow-sheet");
+    const menu = document.getElementById("open-menu");
+    let lastFocus = null;
+    function go(name, push = true) {
+      if (!screens[name]) return;
+      current = name;
+      document.getElementById("mine-status").textContent = meta[name][0];
+      document.getElementById("gate-status").textContent = meta[name][1];
+      document.getElementById("their-status").textContent = meta[name][2];
+      screen.innerHTML = screens[name]();
+      const rows = actionMap[name] || [["查看完整流程","map","secondary"]];
+      actions.innerHTML = rows.map(([text,target,kind]) => `<button class="${kind}" data-go="${target}">${text}</button>`).join("");
+      if (push) history.replaceState(null, "", `?screen=${name}`);
+      window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      screen.focus({ preventScroll: true });
+    }
+    function jumps(id, order) { document.getElementById(id).innerHTML = order.map(name => `<button data-jump="${name}">${labels[name]}</button>`).join(""); }
+    function openSheet() { lastFocus = document.activeElement; sheet.classList.add("open"); document.body.style.overflow = "hidden"; document.getElementById("close-menu").focus(); }
+    function closeSheet() { sheet.classList.remove("open"); document.body.style.overflow = ""; (lastFocus || menu).focus(); }
+    document.addEventListener("click", event => { const g = event.target.closest("[data-go]"); const j = event.target.closest("[data-jump]"); if (g) go(g.dataset.go); if (j) { closeSheet(); go(j.dataset.jump); } });
+    menu.addEventListener("click", openSheet);
+    document.getElementById("close-menu").addEventListener("click", closeSheet);
+    sheet.addEventListener("click", event => { if (event.target === sheet) closeSheet(); });
+    document.addEventListener("keydown", event => {
+      if (!sheet.classList.contains("open")) return;
+      if (event.key === "Escape") { closeSheet(); return; }
+      if (event.key !== "Tab") return;
+      const focusable = [...sheet.querySelectorAll("button")].filter(node => !node.disabled);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    });
+    jumps("core-jumps", coreOrder); jumps("state-jumps", stateOrder); go(current, false);
+  </script>
+</body>
+</html>
