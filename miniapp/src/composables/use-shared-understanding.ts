@@ -179,8 +179,8 @@ export function useSharedUnderstanding(options: {
       options.transcript.value = workspace.sourceText;
       options.selectedMode.value = workspace.selectedMode;
       options.updateRoom({ ...room, state: reopened.state, phaseV2: reopened.phase });
-      options.stage.value = "RECORD";
-      options.setNotice("info", "已回到你的私人表达。旧共同理解已失效。 ");
+      options.stage.value = "CONVERSATION";
+      options.setNotice("info", "已回到你的私人对话。旧共同理解已失效。 ");
     } catch (error) {
       options.setNotice("error", options.formatError(error, "暂时无法返回修改，请稍后重试。"));
     } finally {

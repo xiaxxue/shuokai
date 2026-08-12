@@ -10,6 +10,10 @@ import {
   sanitizeClarificationTurns,
   type ClarificationTurn,
 } from "../domain/clarification";
+import {
+  sanitizeConversationTurns,
+  type ConversationTurn,
+} from "../domain/conversation";
 
 const SESSION_KEY = "shuokai.session.v2";
 const ACTIVE_ROOM_KEY = "shuokai.active-room.v1";
@@ -32,6 +36,10 @@ export type EditorDraft = {
   clarificationTurns?: ClarificationTurn[];
   clarificationAnswer?: string;
   clarificationSkipped?: boolean;
+  conversationTurns?: ConversationTurn[];
+  conversationComposer?: string;
+  conversationGuidancePaused?: boolean;
+  aiJobPurpose?: "CONVERSATION" | "FINAL";
 };
 
 export function getSession(): AuthSession | null {
@@ -129,6 +137,18 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const clarificationSkipped = typeof candidate.clarificationSkipped === "boolean"
     ? candidate.clarificationSkipped
     : undefined;
+  const conversationTurns = candidate.conversationTurns === undefined
+    ? undefined
+    : sanitizeConversationTurns(candidate.conversationTurns);
+  const conversationComposer = isBoundedText(candidate.conversationComposer, 1200)
+    ? candidate.conversationComposer
+    : undefined;
+  const conversationGuidancePaused = typeof candidate.conversationGuidancePaused === "boolean"
+    ? candidate.conversationGuidancePaused
+    : undefined;
+  const aiJobPurpose = candidate.aiJobPurpose === "CONVERSATION" || candidate.aiJobPurpose === "FINAL"
+    ? candidate.aiJobPurpose
+    : undefined;
   return {
     roomId: candidate.roomId,
     role: candidate.role,
@@ -148,6 +168,10 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(clarificationTurns !== undefined ? { clarificationTurns } : {}),
     ...(clarificationAnswer !== undefined ? { clarificationAnswer } : {}),
     ...(clarificationSkipped !== undefined ? { clarificationSkipped } : {}),
+    ...(conversationTurns !== undefined ? { conversationTurns } : {}),
+    ...(conversationComposer !== undefined ? { conversationComposer } : {}),
+    ...(conversationGuidancePaused !== undefined ? { conversationGuidancePaused } : {}),
+    ...(aiJobPurpose !== undefined ? { aiJobPurpose } : {}),
   };
 }
 

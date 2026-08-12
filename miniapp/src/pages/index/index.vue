@@ -15,7 +15,7 @@
         <text class="brand">说开</text>
         <text class="brand-en">SHUOKAI</text>
       </view>
-      <view v-if="stage !== 'WELCOME'" class="progress-meta">
+      <view v-if="stage !== 'WELCOME' && stage !== 'CONVERSATION'" class="progress-meta">
         <text class="progress-label">{{ currentPhaseLabel }}</text>
         <text class="progress-copy">{{ currentStep }} / {{ totalSteps }}</text>
       </view>
@@ -26,7 +26,7 @@
         aria-label="打开我的空间"
         @tap="openAccountSpace"
       ><text class="account-avatar">{{ accountMark }}</text><text>我的空间</text></button>
-      <view v-if="stage !== 'WELCOME'" class="progress-track">
+      <view v-if="stage !== 'WELCOME' && stage !== 'CONVERSATION'" class="progress-track">
         <view class="progress-fill" :style="{ width: `${progressPercent}%` }" />
       </view>
     </view>
@@ -153,6 +153,24 @@
         </view>
       </view>
 
+      <PrivateConversation
+        v-else-if="stage === 'CONVERSATION'"
+        v-model:composer="conversationComposer"
+        :turns="conversationTurns"
+        :busy="busy"
+        :replying="conversationReplying"
+        :recording="recording"
+        :recording-seconds="recordingSeconds"
+        :guidance-paused="conversationGuidancePaused"
+        :draft-status="conversationDraftStatus"
+        @send="sendConversationTurn"
+        @record="toggleRecording"
+        @finish="finishConversation"
+        @privacy="showConversationPrivacy"
+        @toggle-guidance="toggleConversationGuidance"
+        @pause-room="requestConversationPause"
+      />
+
       <view v-else-if="stage === 'RECORD'" class="screen record-screen">
         <text class="eyebrow">只说你的版本</text>
         <text class="title">先把事情说出来。</text>
@@ -193,12 +211,12 @@
       <view v-else-if="stage === 'AI_PENDING'" class="screen ai-pending-screen">
         <view class="ai-orbit"><text class="ai-orbit-core">AI</text></view>
         <text class="eyebrow">{{ aiJobId ? "私人整理中" : "理解层生成中" }}</text>
-        <text class="title">{{ aiJobId ? "正在把原话放进你选择的表达路径。" : "正在对齐共同点，也保留真正的不同。" }}</text>
-        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "共识 Agent 只读取双方已经确认分享的表达卡；审查 Agent 会检查虚假共识、争议事实和边界弱化。" }}</text>
+        <text class="title">{{ aiJobId ? "正在把刚才的私人对话整理成可编辑的一版。" : "正在对齐共同点，也保留真正的不同。" }}</text>
+        <text class="description centered">{{ aiJobId ? "完整对话仍只属于你，候选不会自动分享。整理完成后，你可以逐句修改或回去继续讲。" : "只读取双方已经确认的版本；未批准的原话、草稿和私人对话不会进入共同空间。" }}</text>
         <view v-if="aiJobId" class="ai-steps">
-          <view class="ai-step done"><text>✓</text><text>读取本次原话</text></view>
-          <view class="ai-step active"><text class="processing-dot" /><text>整理表达卡</text></view>
-          <view class="ai-step"><text>3</text><text>等待本人确认</text></view>
+          <view class="ai-step done"><text>✓</text><text>保留完整私人对话</text></view>
+          <view class="ai-step active"><text class="processing-dot" /><text>整理可编辑候选</text></view>
+          <view class="ai-step"><text>3</text><text>等待你逐句确认</text></view>
         </view>
         <view v-else class="ai-steps">
           <view class="ai-step done"><text>✓</text><text>双方表达已确认</text></view>
@@ -211,7 +229,7 @@
           <text>系统不会展示未经审查的半成品，双方已经确认的表达仍然保留。</text>
         </view>
         <button v-if="aiJobId" class="secondary refresh" @tap="stopWaitingForExpression">
-          {{ clarificationTurns.length ? "不等了，保留上一版草稿" : "不等了，改为手动填写" }}
+          {{ hasExpressionDraft ? "不等了，保留上一版候选" : "不等了，我自己整理" }}
         </button>
         <button v-else-if="understandingFailure && understandingRetryAllowed" class="secondary refresh" @tap="ensureSharedUnderstanding">重新尝试</button>
         <view v-else-if="understandingFailure" class="understanding-recovery-actions">
@@ -220,6 +238,14 @@
         </view>
         <button v-else class="secondary refresh" @tap="pollUnderstanding">检查生成进展</button>
       </view>
+
+      <ConversationReview
+        v-else-if="stage === 'EXPRESSION_REVIEW' && isV2Room"
+        :model-value="editableExpression"
+        :source-text="conversationTranscriptText"
+        @update-field="updateExpressionField"
+        @continue-talking="returnToConversation"
+      />
 
       <ExpressionReview
         v-else-if="stage === 'EXPRESSION_REVIEW'"
@@ -411,7 +437,7 @@
 import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
-import { canNavigateBack, isEditorClientStage, previousStage, stageForRoom } from "../../domain/room-state";
+import { canNavigateBack, isEditorClientStage, migrateV2EditorStage, previousStage, stageForRoom } from "../../domain/room-state";
 import {
   accountPlatformSummary,
   draftStatusLabel,
@@ -433,6 +459,8 @@ import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
 import NvcStepEditor from "../../components/NvcStepEditor.vue";
 import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
+import ConversationReview from "../../components/ConversationReview.vue";
+import PrivateConversation from "../../components/PrivateConversation.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
 import {
   createEditableExpression,
@@ -451,6 +479,14 @@ import {
   type ClarificationTurn,
 } from "../../domain/clarification";
 import {
+  appendConversationTurn,
+  conversationFromLegacyText,
+  conversationSourceStage,
+  conversationTranscript,
+  parseConversationSource,
+  sanitizeConversationTurns,
+} from "../../domain/conversation";
+import {
   loginForPlatform,
   requestExpressionOrganization,
   requestSharedUnderstanding,
@@ -458,6 +494,7 @@ import {
   transcribeAudio,
 } from "../../services/api";
 import { useSharedUnderstanding } from "../../composables/use-shared-understanding";
+import { usePrivateConversation } from "../../composables/use-private-conversation";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
@@ -480,6 +517,7 @@ const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   GOAL: { step: 1, label: "意图" },
+  CONVERSATION: { step: 2, label: "私人准备" },
   RECORD: { step: 2, label: "表达" },
   MODE_SELECT: { step: 2, label: "路径" },
   AI_PENDING: { step: 2, label: "AI 整理" },
@@ -522,6 +560,7 @@ const aiJobId = ref("");
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
+const aiJobPurpose = ref<"CONVERSATION" | "FINAL">("FINAL");
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -535,8 +574,28 @@ const understandingRetryAllowed = sharedUnderstanding.retryAllowed;
 const ensureSharedUnderstanding = sharedUnderstanding.ensure;
 const pollUnderstanding = sharedUnderstanding.poll;
 const decideUnderstanding = sharedUnderstanding.decide;
-const editOwnExpression = sharedUnderstanding.editOwnExpression;
+const reopenOwnExpression = sharedUnderstanding.editOwnExpression;
 const pauseFromUnderstanding = sharedUnderstanding.pause;
+const privateConversation = usePrivateConversation({
+  room, stage, busy, recording, transcript, selectedMode, editableExpression,
+  workspaceRevision, aiJobId, aiJobPurpose, clarificationSkipped,
+  draftSaveState, contentScrollTop,
+  updateRoom, setNotice, clearNotice, formatError: message, confirmPause,
+  pollExpressionJob, stopExpressionJobPolling,
+});
+const conversationTurns = privateConversation.turns;
+const conversationComposer = privateConversation.composer;
+const conversationGuidancePaused = privateConversation.guidancePaused;
+const conversationReplying = privateConversation.replying;
+const conversationTranscriptText = privateConversation.transcriptText;
+const conversationDraftStatus = privateConversation.draftStatus;
+const sendConversationTurn = privateConversation.send;
+const submitConversationText = privateConversation.submitText;
+const finishConversation = privateConversation.finish;
+const returnToConversation = privateConversation.returnToConversation;
+const toggleConversationGuidance = privateConversation.toggleGuidance;
+const showConversationPrivacy = privateConversation.showPrivacy;
+const requestConversationPause = privateConversation.pauseRoom;
 let workspaceGeneration = 0;
 
 watch(stage, () => {
@@ -566,6 +625,13 @@ watch(
     () => JSON.stringify(clarificationTurns.value),
     clarificationAnswer,
     clarificationSkipped,
+    () => JSON.stringify(conversationTurns.value),
+    conversationComposer,
+    conversationGuidancePaused,
+    aiJobPurpose,
+    aiJobId,
+    workspaceRevision,
+    conversationReplying,
   ],
   scheduleEditorDraftSave,
   { flush: "post" },
@@ -602,11 +668,12 @@ const showBottomBar = computed(() => {
 const currentClarificationQuestion = computed(() => clarificationSkipped.value
   ? ""
   : nextClarificationQuestion(editableExpression.value.uncertainties, clarificationTurns.value));
+const hasExpressionDraft = computed(() => Object.values(editableExpression.value.fields).some((value) => value.trim()));
 const canContinue = computed(() => {
   if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
   if (stage.value === "MODE_SELECT") return Boolean(selectedMode.value);
   if (stage.value === "EXPRESSION_REVIEW") {
-    return !currentClarificationQuestion.value &&
+    return (isV2Room.value || !currentClarificationQuestion.value) &&
       expressionIsComplete(editableExpression.value) &&
       editableExpression.value.safetyDisposition !== "BLOCK_SHARE" &&
       editableExpression.value.safetyDisposition !== "PAUSE";
@@ -619,7 +686,7 @@ const canContinue = computed(() => {
 const nextLabel = computed(() => {
   if (stage.value === "RECORD") return "选择表达路径";
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
-  if (stage.value === "EXPRESSION_REVIEW") return "确认并分享这些卡片";
+  if (stage.value === "EXPRESSION_REVIEW") return isV2Room.value ? "批准这个版本" : "确认并分享这些卡片";
   if (activeNvcCard.value) {
     const nextStage = nextNvcStage(activeNvcCard.value.stage);
     const nextCard = nextStage ? nvcCardForStage(nextStage) : null;
@@ -689,6 +756,17 @@ function updateRoom(nextRoom: RoomSession) {
   saveActiveRoom(nextRoom, authUserId.value || undefined);
 }
 
+async function editOwnExpression() {
+  await reopenOwnExpression();
+  if (stage.value !== "CONVERSATION") return;
+  conversationTurns.value = parseConversationSource(transcript.value);
+  transcript.value = conversationTranscript(conversationTurns.value);
+  conversationComposer.value = "";
+  conversationGuidancePaused.value = false;
+  aiJobPurpose.value = "CONVERSATION";
+  privateConversation.scrollToLatest();
+}
+
 function resetClarification(skipped = false) {
   clarificationTurns.value = [];
   clarificationAnswer.value = "";
@@ -710,7 +788,9 @@ function resetPrivateWorkspace() {
   editableExpression.value = createEditableExpression("NVC");
   workspaceRevision.value = 0;
   aiJobId.value = "";
+  aiJobPurpose.value = "FINAL";
   resetClarification();
+  privateConversation.reset();
   sharedUnderstanding.reset();
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
@@ -744,6 +824,10 @@ function flushEditorDraft() {
     clarificationTurns: clarificationTurns.value,
     clarificationAnswer: clarificationAnswer.value,
     clarificationSkipped: clarificationSkipped.value,
+    conversationTurns: conversationTurns.value,
+    conversationComposer: conversationComposer.value,
+    conversationGuidancePaused: conversationGuidancePaused.value,
+    aiJobPurpose: aiJobPurpose.value,
   });
   draftSaveState.value = "saved";
 }
@@ -755,10 +839,10 @@ function scheduleEditorDraftSave() {
 }
 
 function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision = 0) {
-  if (!isEditorStage(stage.value)) return;
+  if (!isEditorStage(stage.value)) return false;
   const draft = getEditorDraft(roomSession.roomId, roomSession.role);
-  if (!draft) return;
-  if ((draft.workspaceRevision ?? 0) < minimumWorkspaceRevision) return;
+  if (!draft) return false;
+  if ((draft.workspaceRevision ?? 0) < minimumWorkspaceRevision) return false;
   transcript.value = draft.transcript;
   Object.assign(perspective, draft.perspective);
   if (draft.selectedMode !== undefined) selectedMode.value = draft.selectedMode;
@@ -768,11 +852,25 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.clarificationTurns) clarificationTurns.value = draft.clarificationTurns;
   if (draft.clarificationAnswer !== undefined) clarificationAnswer.value = draft.clarificationAnswer;
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
-  if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
+  if (draft.conversationTurns) conversationTurns.value = sanitizeConversationTurns(draft.conversationTurns);
+  else if (draft.transcript && roomSession.workflowVersion === 2) {
+    conversationTurns.value = parseConversationSource(draft.transcript);
+  }
+  if (draft.conversationComposer !== undefined) conversationComposer.value = draft.conversationComposer;
+  if (draft.conversationGuidancePaused !== undefined) {
+    conversationGuidancePaused.value = draft.conversationGuidancePaused;
+  }
+  if (draft.aiJobPurpose) aiJobPurpose.value = draft.aiJobPurpose;
+  const restoredEditorStage = roomSession.workflowVersion === 2
+    ? migrateV2EditorStage(draft.editorStage)
+    : draft.editorStage;
+  if (restoredEditorStage && roomIsDrafting(roomSession)) stage.value = restoredEditorStage;
   draftSaveState.value = "saved";
-  if (draft.editorStage === "AI_PENDING" && draft.aiJobId) {
+  if (draft.aiJobId && (draft.editorStage === "AI_PENDING" || draft.editorStage === "CONVERSATION")) {
+    conversationReplying.value = draft.aiJobPurpose === "CONVERSATION";
     void pollExpressionJob(draft.aiJobId);
   }
+  return true;
 }
 
 function applySnapshot(latest: RoomSnapshot) {
@@ -810,20 +908,46 @@ async function loadSnapshot(roomSession: RoomSession) {
     const workspace = await roomApi.expressionWorkspace(roomSession.roomId);
     minimumWorkspaceRevision = workspace.revision;
     workspaceRevision.value = workspace.revision;
+    const hasConversationSource = workspace.sourceText.startsWith("<<<SHUOKAI_PRIVATE_CONVERSATION_V1>>>");
     if (workspace.sourceText) {
-      const privateSource = parseClarificationSource(workspace.sourceText);
-      transcript.value = privateSource.sourceText;
-      clarificationTurns.value = privateSource.turns;
+      if (hasConversationSource) {
+        conversationTurns.value = parseConversationSource(workspace.sourceText);
+        clarificationTurns.value = [];
+      } else {
+        const privateSource = parseClarificationSource(workspace.sourceText);
+        let restoredConversation = conversationFromLegacyText(privateSource.sourceText);
+        for (const turn of privateSource.turns) {
+          restoredConversation = appendConversationTurn(restoredConversation, {
+            role: "AI",
+            kind: "QUESTION",
+            text: turn.question,
+            supportingText: "这是之前私人整理时问过的一件事。",
+          });
+          restoredConversation = appendConversationTurn(restoredConversation, {
+            role: "USER",
+            kind: "USER_INPUT",
+            text: turn.answer,
+          });
+        }
+        conversationTurns.value = restoredConversation;
+        clarificationTurns.value = privateSource.turns;
+      }
+      transcript.value = conversationTranscript(conversationTurns.value);
     }
-    selectedMode.value = workspace.selectedMode;
+    selectedMode.value = workspace.selectedMode ?? "NVC";
+    const persistedConversationStage = conversationSourceStage(workspace.sourceText);
     if (workspace.flowState === "PAUSED") authoritativeEditorStage = "PAUSED";
     else if (workspace.selectedMode && workspace.selectedMode !== "PAUSE" && workspace.aiCandidate) {
       editableExpression.value = parseAiExpressionCandidate(workspace.aiCandidate, workspace.selectedMode);
-      authoritativeEditorStage = "EXPRESSION_REVIEW";
+      authoritativeEditorStage = persistedConversationStage === "FINAL" || !hasConversationSource
+        ? "EXPRESSION_REVIEW"
+        : "CONVERSATION";
+    } else {
+      authoritativeEditorStage = "CONVERSATION";
     }
   }
-  restoreEditorDraft(roomSession, minimumWorkspaceRevision);
-  if (authoritativeEditorStage) stage.value = authoritativeEditorStage;
+  const restoredLocalDraft = restoreEditorDraft(roomSession, minimumWorkspaceRevision);
+  if (authoritativeEditorStage && !restoredLocalDraft) stage.value = authoritativeEditorStage;
 }
 
 function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
@@ -833,11 +957,10 @@ function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state
   if (state === "AGREEMENT_PENDING") return "AGREEMENT";
   if (state === "COMMON_VIEW_READY") return "AI_PENDING";
   if (roomSession.role === "A") {
-    if (state === "GOAL_SETTING") return "GOAL";
-    if (state === "A_DRAFTING" || state === "A_REVIEWING") return "RECORD";
+    if (state === "GOAL_SETTING" || state === "A_DRAFTING" || state === "A_REVIEWING") return "CONVERSATION";
     return "INVITE";
   }
-  if (state === "B_DRAFTING" || state === "B_REVIEWING") return "RECORD";
+  if (state === "B_DRAFTING" || state === "B_REVIEWING") return "CONVERSATION";
   return "WELCOME";
 }
 
@@ -918,7 +1041,7 @@ async function createRoom() {
     resetPrivateWorkspace();
     updateRoom(created);
     stage.value = stageForCurrentRoom(created);
-    setNotice("success", "私人沟通空间已创建。先确认这次的意图。 ");
+    setNotice("success", "私人沟通空间已创建。这里的对话现在只有你能看到。 ");
   } catch (error) {
     setNotice("error", message(error, "创建失败，请稍后重试。"));
   } finally {
@@ -1017,8 +1140,13 @@ async function toggleRecording() {
           busy.value = true;
           const text = await transcribeAudio(audio);
           if (generation !== workspaceGeneration) return;
-          transcript.value = transcript.value.trim() ? `${transcript.value.trim()}\n${text}` : text;
-          setNotice("success", "转写完成，你可以继续修改文字。 ");
+          if (stage.value === "CONVERSATION") {
+            busy.value = false;
+            await submitConversationText(text);
+          } else {
+            transcript.value = transcript.value.trim() ? `${transcript.value.trim()}\n${text}` : text;
+            setNotice("success", "转写完成，你可以继续修改文字。 ");
+          }
         })
         .catch((error) => {
           if (generation !== workspaceGeneration) return;
@@ -1026,7 +1154,7 @@ async function toggleRecording() {
           setNotice("error", message(error, "录音失败，请改用文字输入。"));
         })
         .finally(() => {
-          if (generation === workspaceGeneration) busy.value = false;
+          if (generation === workspaceGeneration && !conversationReplying.value) busy.value = false;
         });
       return;
     }
@@ -1054,6 +1182,7 @@ function stopExpressionJobPolling() {
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   aiJobId.value = "";
+  conversationReplying.value = false;
 }
 
 function returnToExistingExpressionDraft(kind: Notice["kind"], text: string) {
@@ -1072,7 +1201,7 @@ function fallBackToManualExpression() {
   resetClarification(true);
   stage.value = "EXPRESSION_REVIEW";
   busy.value = false;
-  setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
+  setNotice("info", "已切换为手动整理；完整对话仍只在你的私人空间。 ");
 }
 
 function stopWaitingForExpression() {
@@ -1167,19 +1296,42 @@ async function pollExpressionJob(jobId: string) {
       if (!selectedMode.value || selectedMode.value === "PAUSE") return;
       editableExpression.value = parseAiExpressionCandidate(status.result, selectedMode.value);
       aiJobId.value = "";
+      if (aiJobPurpose.value === "CONVERSATION") {
+        privateConversation.appendCandidateReply(editableExpression.value);
+        conversationReplying.value = false;
+        stage.value = "CONVERSATION";
+        busy.value = false;
+        return;
+      }
       stage.value = "EXPRESSION_REVIEW";
       busy.value = false;
-      setNotice("success", clarificationTurns.value.length
-        ? "AI 已结合你的补充重新整理，请逐项确认。 "
-        : "AI 已整理成可编辑草稿，请逐项确认。 ");
+      setNotice("success", isV2Room.value
+        ? "候选已经整理好。请改到像你说的话，再决定是否批准。 "
+        : clarificationTurns.value.length
+          ? "AI 已结合你的补充重新整理，请逐项确认。 "
+          : "AI 已整理成可编辑草稿，请逐项确认。 ");
       return;
     }
     if (["FAILED_FINAL", "STALE", "CANCELED"].includes(status.status)) {
+      if (aiJobPurpose.value === "CONVERSATION") {
+        stopExpressionJobPolling();
+        stage.value = "CONVERSATION";
+        busy.value = false;
+        setNotice("error", "AI 这次没有完成回应。原话仍在私人草稿中，你可以继续讲。 ");
+        return;
+      }
       recoverExpressionJobFailure("AI 本次没有完成整理。");
       return;
     }
     aiPollTimer = setTimeout(() => void pollExpressionJob(jobId), 1200);
   } catch (error) {
+    if (aiJobPurpose.value === "CONVERSATION") {
+      stopExpressionJobPolling();
+      stage.value = "CONVERSATION";
+      busy.value = false;
+      setNotice("error", `${message(error, "AI 状态暂时无法读取。 ")}原话仍在私人草稿中。`);
+      return;
+    }
     recoverExpressionJobFailure(message(error, "AI 状态暂时无法读取。"));
   }
 }
@@ -1247,18 +1399,18 @@ async function next() {
       updateRoom({ ...room.value, state: confirmed.state });
       if (room.value.role === "B") {
         updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
-        setNotice("success", "双方表达卡已确认，正在生成并审查共同理解。 ");
+        setNotice("success", "双方批准的版本已准备好，正在生成共同理解。 ");
         await ensureSharedUnderstanding();
       } else {
         stage.value = "INVITE";
         try {
           await requestSharedUnderstanding(room.value.roomId);
           updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
-          setNotice("success", "双方表达卡已重新确认，正在生成新的共同理解。 ");
+          setNotice("success", "双方批准的版本已重新确认，正在生成新的共同理解。 ");
           void pollUnderstanding();
           stage.value = "AI_PENDING";
         } catch {
-          setNotice("success", "你的表达卡已确认，私人原话没有分享。 ");
+          setNotice("success", "这版已由你批准；完整私人对话没有分享。 ");
         }
       }
     } else if (activeNvcCard.value) {

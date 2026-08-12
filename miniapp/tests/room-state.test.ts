@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canNavigateBack,
   canTransition,
+  migrateV2EditorStage,
   previousStage,
   stageForRoom,
 } from "../src/domain/room-state";
@@ -18,7 +19,7 @@ describe("room state machine", () => {
     expect(previousStage("NVC_FEELING")).toBe("NVC_OBSERVATION");
     expect(previousStage("REVIEW")).toBe("NVC_REQUEST");
     expect(previousStage("MODE_SELECT")).toBe("RECORD");
-    expect(previousStage("EXPRESSION_REVIEW")).toBe("MODE_SELECT");
+    expect(previousStage("EXPRESSION_REVIEW")).toBe("CONVERSATION");
   });
 
   it("only allows local back navigation before a server transition", () => {
@@ -27,7 +28,15 @@ describe("room state machine", () => {
     expect(canNavigateBack("RECORD")).toBe(false);
     expect(canNavigateBack("REVIEW")).toBe(true);
     expect(canNavigateBack("MODE_SELECT")).toBe(true);
+    expect(canNavigateBack("CONVERSATION")).toBe(true);
     expect(canNavigateBack("EXPRESSION_REVIEW")).toBe(true);
+  });
+
+  it("migrates legacy v2 editor screens into the guided conversation", () => {
+    expect(migrateV2EditorStage("MODE_SELECT")).toBe("CONVERSATION");
+    expect(migrateV2EditorStage("NVC_FEELING")).toBe("CONVERSATION");
+    expect(migrateV2EditorStage("EXPRESSION_REVIEW")).toBe("EXPRESSION_REVIEW");
+    expect(migrateV2EditorStage("AI_PENDING")).toBe("AI_PENDING");
   });
 
   it("routes each participant from the authoritative room state", () => {

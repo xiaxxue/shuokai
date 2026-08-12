@@ -55,6 +55,7 @@ Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；
 - 微信登录：`uni.login(provider: "weixin")` 获取 code，再由后端交换 openid 并签发 Supabase Auth 会话。
 - H5 登录：浏览器使用 Supabase 邮箱注册/登录；PKCE 会话保存在本机并自动刷新，退出仅撤销当前本机会话，同时清除本机房间与私人草稿。
 - 录音：微信端使用 RecorderManager；H5 使用 MediaRecorder。用户停止录音后才上传，也可以直接输入或修改文字。
+- 私人表达：两端都使用同一套引导式对话；AI 只在每段提交后回应，用户主动结束讲述后才生成候选，完整对话不会进入对方视图。
 - 数据：客户端只携带用户 JWT 调用 Cloudflare Worker；Worker 以用户身份访问 Supabase，RLS 继续通过 `auth.uid()` 隔离数据。
 - AI：录音由 Cloudflare Worker 转写，任何模型私钥都只存在 Worker Secret。
 - 分享：微信使用原生分享能力，H5 使用系统分享面板或复制邀请链接。

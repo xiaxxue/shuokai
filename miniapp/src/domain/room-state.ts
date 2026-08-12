@@ -31,6 +31,7 @@ export function canTransition(from: RoomState, to: RoomState) {
 export type ClientStage =
   | "WELCOME"
   | "GOAL"
+  | "CONVERSATION"
   | "RECORD"
   | "MODE_SELECT"
   | "AI_PENDING"
@@ -49,6 +50,7 @@ export type ClientStage =
 export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
   "GOAL",
+  "CONVERSATION",
   "RECORD",
   "MODE_SELECT",
   "AI_PENDING",
@@ -66,8 +68,9 @@ export const clientStageOrder: readonly ClientStage[] = [
 ];
 
 export function previousStage(stage: ClientStage): ClientStage {
+  if (stage === "EXPRESSION_REVIEW") return "CONVERSATION";
   if (stage === "MODE_SELECT") return "RECORD";
-  if (stage === "AI_PENDING" || stage === "EXPRESSION_REVIEW" || stage === "PAUSED") return "MODE_SELECT";
+  if (stage === "AI_PENDING" || stage === "PAUSED") return "MODE_SELECT";
   if (stage === "NVC_OBSERVATION") return "RECORD";
   const index = clientStageOrder.indexOf(stage);
   return clientStageOrder[Math.max(0, index - 1)];
@@ -81,11 +84,13 @@ export function canNavigateBack(stage: ClientStage) {
     "NVC_REQUEST",
     "REVIEW",
     "MODE_SELECT",
+    "CONVERSATION",
     "EXPRESSION_REVIEW",
   ].includes(stage);
 }
 
 export const editorClientStages: readonly ClientStage[] = [
+  "CONVERSATION",
   "RECORD",
   "MODE_SELECT",
   "AI_PENDING",
@@ -99,6 +104,12 @@ export const editorClientStages: readonly ClientStage[] = [
 
 export function isEditorClientStage(stage: unknown): stage is ClientStage {
   return typeof stage === "string" && editorClientStages.includes(stage as ClientStage);
+}
+
+export function migrateV2EditorStage(stage: ClientStage | undefined): ClientStage | undefined {
+  if (!stage) return undefined;
+  if (stage === "EXPRESSION_REVIEW" || stage === "AI_PENDING" || stage === "CONVERSATION") return stage;
+  return isEditorClientStage(stage) ? "CONVERSATION" : stage;
 }
 
 export function stageForRoom(role: "A" | "B", state: RoomState): ClientStage {
