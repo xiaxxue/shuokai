@@ -6,6 +6,10 @@ import {
   type ExpressionMode,
 } from "../domain/expression";
 import { isEditorClientStage, roomStates, type ClientStage } from "../domain/room-state";
+import {
+  sanitizeClarificationTurns,
+  type ClarificationTurn,
+} from "../domain/clarification";
 
 const SESSION_KEY = "shuokai.session.v2";
 const ACTIVE_ROOM_KEY = "shuokai.active-room.v1";
@@ -25,6 +29,9 @@ export type EditorDraft = {
   editableExpression?: EditableExpression;
   workspaceRevision?: number;
   aiJobId?: string;
+  clarificationTurns?: ClarificationTurn[];
+  clarificationAnswer?: string;
+  clarificationSkipped?: boolean;
 };
 
 export function getSession(): AuthSession | null {
@@ -113,6 +120,15 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const aiJobId = typeof candidate.aiJobId === "string" && roomIdPattern.test(candidate.aiJobId)
     ? candidate.aiJobId
     : undefined;
+  const clarificationTurns = candidate.clarificationTurns === undefined
+    ? undefined
+    : sanitizeClarificationTurns(candidate.clarificationTurns);
+  const clarificationAnswer = isBoundedText(candidate.clarificationAnswer, 1200)
+    ? candidate.clarificationAnswer
+    : undefined;
+  const clarificationSkipped = typeof candidate.clarificationSkipped === "boolean"
+    ? candidate.clarificationSkipped
+    : undefined;
   return {
     roomId: candidate.roomId,
     role: candidate.role,
@@ -129,6 +145,9 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(editableExpression ? { editableExpression } : {}),
     ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
     ...(aiJobId ? { aiJobId } : {}),
+    ...(clarificationTurns !== undefined ? { clarificationTurns } : {}),
+    ...(clarificationAnswer !== undefined ? { clarificationAnswer } : {}),
+    ...(clarificationSkipped !== undefined ? { clarificationSkipped } : {}),
   };
 }
 

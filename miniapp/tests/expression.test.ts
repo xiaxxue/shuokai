@@ -55,6 +55,17 @@ describe("expression modes", () => {
       .toThrow("格式无效");
   });
 
+  it("bounds AI follow-up questions at the client boundary", () => {
+    const result = {
+      mode: "NVC",
+      fields: { observation: "一", feeling: "二", need: "三", request: "四" },
+      uncertainties: ["一？", "二？", "三？", "四？"],
+      safetyDisposition: "ALLOW",
+      safetyMessage: "",
+    };
+    expect(parseAiExpressionCandidate(result, "NVC").uncertainties).toEqual([]);
+  });
+
   it("builds a share payload without model-only safety metadata", () => {
     const expression = createEditableExpression("FACT_DISPUTE");
     expression.fields.claim = "  对方没有按约定回复  ";
@@ -68,7 +79,7 @@ describe("expression modes", () => {
       claim: "对方没有按约定回复",
       basis: "聊天记录",
       verificationRequest: "核对发送时间",
-      uncertainties: ["网络是否延迟"],
+      uncertainties: [],
     });
   });
 });

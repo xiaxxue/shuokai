@@ -179,6 +179,9 @@ describe("private editor draft recovery", () => {
       },
       workspaceRevision: 2,
       aiJobId: "22222222-2222-4222-8222-222222222222",
+      clarificationTurns: [{ question: "当时具体说了什么？", answer: "他说另一个女生很好看。" }],
+      clarificationAnswer: "还没提交的回答",
+      clarificationSkipped: false,
     };
     saveEditorDraft(draft);
     expect(getEditorDraft(draft.roomId, "A")).toMatchObject({
@@ -186,6 +189,9 @@ describe("private editor draft recovery", () => {
       workspaceRevision: 2,
       aiJobId: draft.aiJobId,
       editableExpression: draft.editableExpression,
+      clarificationTurns: draft.clarificationTurns,
+      clarificationAnswer: draft.clarificationAnswer,
+      clarificationSkipped: false,
     });
   });
 

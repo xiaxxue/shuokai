@@ -431,6 +431,7 @@ test("each AI schema is strict and path-specific", () => {
   const nvc = expressionResultSchema("NVC");
   assert.equal(nvc.additionalProperties, false);
   assert.deepEqual(nvc.properties.fields.required, ["observation", "feeling", "need", "request"]);
+  assert.equal(nvc.properties.uncertainties.maxItems, 3);
   const dispute = expressionResultSchema("FACT_DISPUTE");
   assert.deepEqual(dispute.properties.fields.required, ["claim", "basis", "verificationRequest"]);
 });
@@ -447,6 +448,10 @@ test("AI output validation rejects missing and invented expression fields", () =
   assert.equal(isExpressionResult({
     ...valid,
     fields: { ...valid.fields, diagnosis: "控制欲" },
+  }, "BOUNDARY"), false);
+  assert.equal(isExpressionResult({
+    ...valid,
+    uncertainties: ["问题一？", "问题二？", "问题三？", "问题四？"],
   }, "BOUNDARY"), false);
 });
 
@@ -576,6 +581,8 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   assert.equal(captured.input?.max_tokens, 1800);
   assert.equal(captured.input?.temperature, 0.1);
   assert.deepEqual(captured.input?.chat_template_kwargs, { enable_thinking: false });
+  assert.match(JSON.stringify(captured.input), /最多 3 个/);
+  assert.match(JSON.stringify(captured.input), /不要重复已经回答的问题/);
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
