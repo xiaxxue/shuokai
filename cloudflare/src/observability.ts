@@ -4,6 +4,7 @@ const service = "shuokai-api";
 const logSchemaVersion = 1;
 const safeCodePattern = /^[A-Z0-9][A-Z0-9_]{0,63}$/;
 const safeRayPattern = /^[A-Za-z0-9-]{1,64}$/;
+const safeCorrelationPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const knownRoutes = new Map([
   ["/health", "health"],
   ["/wechat-login", "wechat_login"],
@@ -15,7 +16,7 @@ const knownRoutes = new Map([
 
 type LogLevel = "info" | "warn" | "error";
 
-type LogSink = {
+export type LogSink = {
   info(event: Record<string, unknown>): void;
   warn(event: Record<string, unknown>): void;
   error(event: Record<string, unknown>): void;
@@ -165,5 +166,28 @@ export function logQueueBatch(
       discarded: summary.discarded,
     } : {}),
     duration_ms: Math.max(0, Math.round(summary.durationMs)),
+  }, sink);
+}
+
+export function logQueueMessage(
+  env: WorkerEnv,
+  result: {
+    correlationId?: string;
+    outcome: "succeeded" | "retried" | "discarded";
+    errorCode?: string;
+    durationMs: number;
+  },
+  sink?: LogSink,
+) {
+  const level: LogLevel = result.outcome === "succeeded" ? "info" : "warn";
+  emit(level, {
+    ...baseEvent(env, "ai_queue_message_completed"),
+    level,
+    ...(result.correlationId && safeCorrelationPattern.test(result.correlationId)
+      ? { request_id: result.correlationId }
+      : {}),
+    outcome: result.outcome,
+    ...(result.errorCode ? { error_code: safeErrorCode(result.errorCode, "AI_QUEUE_ERROR") } : {}),
+    duration_ms: Math.max(0, Math.round(result.durationMs)),
   }, sink);
 }

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { requestStructuredOutput, REVIEW_MODEL } from "./cloudflare-ai.ts";
 import type { WorkerEnv } from "./http.ts";
-import { logQueueBatch } from "./observability.ts";
+import { logQueueBatch, logQueueMessage, type LogSink } from "./observability.ts";
 
 export const supportedExpressionModes = ["NVC", "FACT_DISPUTE", "BOUNDARY"] as const;
 export type SupportedExpressionMode = typeof supportedExpressionModes[number];
@@ -31,7 +31,7 @@ type UnderstandingClaimPayload = {
   reviewIssues?: unknown;
 };
 
-type QueueMessage = { jobId: string };
+type QueueMessage = { jobId: string; correlationId?: string };
 
 type QueueMessageEnvelope = {
   body: unknown;
@@ -40,6 +40,12 @@ type QueueMessageEnvelope = {
 };
 
 type QueueOutcome = "succeeded" | "retried" | "discarded";
+
+type QueueResult = {
+  correlationId?: string;
+  outcome: QueueOutcome;
+  errorCode?: string;
+};
 
 export type QueueBatch = {
   messages: QueueMessageEnvelope[];
@@ -386,12 +392,14 @@ function sourceRestrictedSchema<T>(schema: T, sources: string[]) {
 
 export function parseQueueMessage(value: unknown): QueueMessage | null {
   if (!value || typeof value !== "object") return null;
-  if (Object.keys(value).length !== 1 || !("jobId" in value)) return null;
-  const jobId = (value as { jobId?: unknown }).jobId;
-  return typeof jobId === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)
-    ? { jobId }
-    : null;
+  const keys = Object.keys(value);
+  if (!keys.includes("jobId") || keys.some((key) => !["jobId", "correlationId"].includes(key))) return null;
+  const { jobId, correlationId } = value as { jobId?: unknown; correlationId?: unknown };
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (typeof jobId !== "string" || !uuidPattern.test(jobId)) return null;
+  if (correlationId !== undefined &&
+    (typeof correlationId !== "string" || !uuidPattern.test(correlationId))) return null;
+  return { jobId, ...(correlationId ? { correlationId } : {}) };
 }
 
 function adminClient(env: WorkerEnv) {
@@ -511,12 +519,21 @@ export function reviewSharedUnderstanding(env: WorkerEnv, input: {
   });
 }
 
-async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope): Promise<QueueOutcome> {
+async function processMessage(
+  env: WorkerEnv,
+  message: QueueMessageEnvelope,
+  fallbackCorrelationId?: string,
+): Promise<QueueResult> {
   const parsed = parseQueueMessage(message.body);
-  const admin = adminClient(env);
-  if (!parsed || !admin) {
+  if (!parsed) {
     message.ack();
-    return "discarded";
+    return { outcome: "discarded", errorCode: "INVALID_QUEUE_MESSAGE" };
+  }
+  const correlationId = parsed.correlationId ?? fallbackCorrelationId ?? crypto.randomUUID();
+  const admin = adminClient(env);
+  if (!admin) {
+    message.ack();
+    return { correlationId, outcome: "discarded", errorCode: "AI_SERVICE_NOT_CONFIGURED" };
   }
   const workerId = crypto.randomUUID();
   const { data: claim, error: claimError } = await admin.rpc("internal_claim_ai_job_v2", {
@@ -525,20 +542,20 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope): Pr
   });
   if (claimError) {
     message.retry();
-    return "retried";
+    return { correlationId, outcome: "retried", errorCode: "CLAIM_JOB_FAILED" };
   }
   if (!claim || typeof claim !== "object") {
     message.ack();
-    return "discarded";
+    return { correlationId, outcome: "discarded", errorCode: "INVALID_JOB_CLAIM" };
   }
   if (!(claim as { claimed?: unknown }).claimed) {
     const status = (claim as { status?: unknown }).status;
     if (status === "QUEUED" || status === "PROCESSING" || status === "FAILED_RETRYABLE") {
       message.retry();
-      return "retried";
+      return { correlationId, outcome: "retried", errorCode: "JOB_NOT_READY" };
     }
     message.ack();
-    return "discarded";
+    return { correlationId, outcome: "discarded", errorCode: "JOB_NOT_ACTIONABLE" };
   }
   const input = claim as ClaimPayload | UnderstandingClaimPayload;
   try {
@@ -589,9 +606,11 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope): Pr
     });
     if (error) throw new Error("COMPLETE_JOB_FAILED");
     const nextJobId = isRecord(completed) ? completed.nextJobId : null;
-    if (typeof nextJobId === "string") await env.AI_JOBS_QUEUE?.send({ jobId: nextJobId });
+    if (typeof nextJobId === "string") {
+      await env.AI_JOBS_QUEUE?.send({ jobId: nextJobId, correlationId });
+    }
     message.ack();
-    return "succeeded";
+    return { correlationId, outcome: "succeeded" };
   } catch (error) {
     const code = error instanceof Error ? error.message : "AI_UNKNOWN_ERROR";
     const retryable = code === "CLOUDFLARE_AI_RETRYABLE" || code === "COMPLETE_JOB_FAILED";
@@ -603,24 +622,42 @@ async function processMessage(env: WorkerEnv, message: QueueMessageEnvelope): Pr
     });
     if (retryable) {
       message.retry();
-      return "retried";
+      return { correlationId, outcome: "retried", errorCode: code };
     }
     message.ack();
-    return "discarded";
+    return { correlationId, outcome: "discarded", errorCode: code };
   }
 }
 
-export async function processExpressionQueue(batch: QueueBatch, env: WorkerEnv) {
+export async function processExpressionQueue(batch: QueueBatch, env: WorkerEnv, sink?: LogSink) {
   const startedAt = Date.now();
   try {
-    const outcomes = await Promise.all(batch.messages.map((message) => processMessage(env, message)));
+    const results = await Promise.all(batch.messages.map(async (message) => {
+      const messageStartedAt = Date.now();
+      const parsed = parseQueueMessage(message.body);
+      const correlationId = parsed ? parsed.correlationId ?? crypto.randomUUID() : undefined;
+      try {
+        const result = await processMessage(env, message, correlationId);
+        logQueueMessage(env, { ...result, durationMs: Date.now() - messageStartedAt }, sink);
+        return result;
+      } catch {
+        const result: QueueResult = {
+          ...(correlationId ? { correlationId } : {}),
+          outcome: "retried",
+          errorCode: "AI_QUEUE_HANDLER_EXCEPTION",
+        };
+        logQueueMessage(env, { ...result, durationMs: Date.now() - messageStartedAt }, sink);
+        message.retry();
+        return result;
+      }
+    }));
     logQueueBatch(env, {
-      batchSize: outcomes.length,
-      succeeded: outcomes.filter((outcome) => outcome === "succeeded").length,
-      retried: outcomes.filter((outcome) => outcome === "retried").length,
-      discarded: outcomes.filter((outcome) => outcome === "discarded").length,
+      batchSize: results.length,
+      succeeded: results.filter((result) => result.outcome === "succeeded").length,
+      retried: results.filter((result) => result.outcome === "retried").length,
+      discarded: results.filter((result) => result.outcome === "discarded").length,
       durationMs: Date.now() - startedAt,
-    });
+    }, sink);
   } catch (error) {
     logQueueBatch(env, {
       batchSize: batch.messages.length,
@@ -629,7 +666,7 @@ export async function processExpressionQueue(batch: QueueBatch, env: WorkerEnv) 
       discarded: 0,
       durationMs: Date.now() - startedAt,
       failed: true,
-    });
+    }, sink);
     throw error;
   }
 }

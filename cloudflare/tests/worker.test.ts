@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "../src/cloudflare-ai.ts";
 import { isSupportedAudio } from "../src/handlers.ts";
-import { bearerToken, publicSupabaseConfig } from "../src/http.ts";
+import { appErrorCodes, bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
 import {
   createRequestLogContext,
@@ -23,6 +23,7 @@ import {
   isUnderstandingResult,
   isUnderstandingReview,
   parseQueueMessage,
+  processExpressionQueue,
   understandingResultSchema,
   understandingReviewSchema,
 } from "../src/expression-ai.ts";
@@ -174,7 +175,23 @@ test("business API rejects unauthenticated requests before touching Supabase", a
     {},
   );
   assert.equal(response.status, 401);
-  assert.deepEqual(await response.json(), { message: "请先登录。" });
+  assert.deepEqual(await response.json(), { message: "请先登录。", code: "AUTH_REQUIRED" });
+});
+
+test("every Worker error response exposes a controlled application code", async () => {
+  const requests = [
+    new Request("https://shuokai.example/unknown"),
+    new Request("https://shuokai.example/miniapp-api", { method: "GET" }),
+    new Request("https://shuokai.example/transcribe", { method: "POST" }),
+  ];
+  for (const request of requests) {
+    const response = await handleRequest(request, {});
+    assert.ok(response.status >= 400);
+    const body = await response.json() as { code?: unknown };
+    assert.equal(typeof body.code, "string");
+    assert.equal(appErrorCodes.includes(body.code as typeof appErrorCodes[number]), true);
+    assert.notEqual(body.code, `HTTP_${response.status}`);
+  }
 });
 
 test("business API presents missing service configuration as a temporary outage", async () => {
@@ -315,11 +332,99 @@ test("test deployment routes both AI endpoints through the Worker", async () => 
   assert.match(configText, /"APP_ENVIRONMENT"\s*:\s*"test"/);
 });
 
-test("queue messages contain only a bounded job identifier", () => {
+test("queue messages contain only bounded job and correlation identifiers", () => {
   const jobId = "11111111-1111-4111-8111-111111111111";
+  const correlationId = "22222222-2222-4222-8222-222222222222";
+  assert.deepEqual(parseQueueMessage({ jobId, correlationId }), { jobId, correlationId });
   assert.deepEqual(parseQueueMessage({ jobId }), { jobId });
   assert.equal(parseQueueMessage({ jobId, sourceText: "不应进入队列" }), null);
+  assert.equal(parseQueueMessage({ jobId, correlationId: "not-an-id" }), null);
   assert.equal(parseQueueMessage({ jobId: "not-an-id" }), null);
+});
+
+test("real queue handler acknowledges invalid messages and retries claim failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const events: Record<string, unknown>[] = [];
+  const sink = {
+    info: (event: Record<string, unknown>) => events.push(event),
+    warn: (event: Record<string, unknown>) => events.push(event),
+    error: (event: Record<string, unknown>) => events.push(event),
+  };
+  const invalidActions: string[] = [];
+  const retryActions: string[] = [];
+  const correlationId = "22222222-2222-4222-8222-222222222222";
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "PGRST500",
+    message: "private database failure detail",
+  }), {
+    status: 500,
+    headers: { "content-type": "application/json" },
+  });
+  try {
+    await processExpressionQueue({
+      messages: [
+        {
+          body: { jobId: "invalid", sourceText: "不得记录的私人表达" },
+          ack: () => invalidActions.push("ack"),
+          retry: () => invalidActions.push("retry"),
+        },
+        {
+          body: { jobId: "11111111-1111-4111-8111-111111111111", correlationId },
+          ack: () => retryActions.push("ack"),
+          retry: () => retryActions.push("retry"),
+        },
+      ],
+    }, {
+      APP_ENVIRONMENT: "test",
+      SUPABASE_URL: "https://project.supabase.co",
+      SUPABASE_SECRET_KEY: "server-test-key",
+    }, sink);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(invalidActions, ["ack"]);
+  assert.deepEqual(retryActions, ["retry"]);
+  const messageEvents = events.filter((event) => event.event_name === "ai_queue_message_completed");
+  assert.deepEqual(messageEvents.map((event) => event.outcome).sort(), ["discarded", "retried"]);
+  assert.equal(messageEvents.some((event) => event.request_id === correlationId), true);
+  assert.equal(messageEvents.some((event) => event.error_code === "INVALID_QUEUE_MESSAGE"), true);
+  assert.equal(messageEvents.some((event) => event.error_code === "CLAIM_JOB_FAILED"), true);
+  const batchEvent = events.find((event) => event.event_name === "ai_queue_batch_completed");
+  assert.equal(batchEvent?.retried, 1);
+  assert.equal(batchEvent?.discarded, 1);
+  assert.doesNotMatch(
+    JSON.stringify(events),
+    /private database failure detail|不得记录的私人表达|server-test-key|11111111-1111/i,
+  );
+});
+
+test("queue handler correlates unexpected processing failures and explicitly retries", async () => {
+  const events: Record<string, unknown>[] = [];
+  const actions: string[] = [];
+  const correlationId = "22222222-2222-4222-8222-222222222222";
+  await processExpressionQueue({
+    messages: [{
+      body: { jobId: "11111111-1111-4111-8111-111111111111", correlationId },
+      ack: () => actions.push("ack"),
+      retry: () => actions.push("retry"),
+    }],
+  }, {
+    APP_ENVIRONMENT: "test",
+    SUPABASE_URL: "not-a-valid-url",
+    SUPABASE_SECRET_KEY: "server-test-key",
+  }, {
+    info: (event) => events.push(event),
+    warn: (event) => events.push(event),
+    error: (event) => events.push(event),
+  });
+
+  assert.deepEqual(actions, ["retry"]);
+  const messageEvent = events.find((event) => event.event_name === "ai_queue_message_completed");
+  assert.equal(messageEvent?.request_id, correlationId);
+  assert.equal(messageEvent?.outcome, "retried");
+  assert.equal(messageEvent?.error_code, "AI_QUEUE_HANDLER_EXCEPTION");
+  assert.doesNotMatch(JSON.stringify(events), /not-a-valid-url|server-test-key|11111111-1111/i);
 });
 
 test("each AI schema is strict and path-specific", () => {

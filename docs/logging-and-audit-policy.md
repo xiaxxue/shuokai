@@ -39,7 +39,7 @@
 
 | 类别 | 例子 | 保存位置 | 是否包含用户内容 |
 | --- | --- | --- | --- |
-| 运行与安全日志 | HTTP 结果、认证/授权失败、异常、配置缺失、队列批次结果 | Cloudflare Workers Logs、Supabase 平台日志 | 否 |
+| 运行与安全日志 | HTTP 结果、认证/授权失败、异常、配置缺失、队列消息/批次结果 | Cloudflare Workers Logs、Supabase 平台日志 | 否 |
 | AI 任务审计 | 模型、状态、重试、错误码、Token、耗时、安全处置 | Supabase `private.ai_jobs` | 结果字段可能包含结构化业务内容 |
 | 业务数据 | 私人草稿、确认后的表达、共同理解 | Supabase 业务表，由现有 RLS/RPC 隔离 | 是 |
 
@@ -58,7 +58,7 @@
 | `environment` | enum | `test` / `production` / `unknown` |
 | `event_name` | enum | 事件名，见下表 |
 | `level` | enum | `info` / `warn` / `error` |
-| `request_id` | UUID | Worker 为每个 HTTP 请求生成的关联 ID |
+| `request_id` | UUID | Worker 为每个 HTTP 请求生成的关联 ID；AI 队列消息沿用该值以串联异步处理 |
 | `cloudflare_ray` | string? | 合法格式时记录，用于与 Cloudflare 平台日志关联 |
 | `route` | enum | 固定路由名；未知路径只记 `not_found` |
 | `method` | enum | 标准 HTTP 方法，未知值只记 `OTHER` |
@@ -93,10 +93,11 @@
 | --- | --- | --- |
 | `request_completed` | 2xx/3xx `info`；4xx `warn`；5xx `error` | 每个 Worker API 请求一条 |
 | `request_exception` | `error` | 未预期异常；只记异常类别，不记 message/stack |
+| `ai_queue_message_completed` | 成功 `info`；重试/丢弃 `warn` | 沿用初始 `request_id`，只记结果、稳定错误码和耗时 |
 | `ai_queue_batch_completed` | 无重试 `info`；有重试 `warn` | 只记批量计数和耗时，不记任务 ID 或内容 |
 | `ai_queue_batch_failed` | `error` | 批次级异常；由队列运行时继续重试 |
 
-认证事件由 Supabase Auth Audit Logs 记录，不在 H5 重复上报邮箱、密码或 Token。AI 单任务状态由 `private.ai_jobs` 记录，Cloudflare 只补充队列批次运行状态，避免同一敏感数据复制到多个日志系统。
+认证事件由 Supabase Auth Audit Logs 记录，不在 H5 重复上报邮箱、密码或 Token。AI 单任务业务状态由 `private.ai_jobs` 记录；Cloudflare 只补充不含任务 ID 的队列运行结果。队列使用的 `request_id` 是随机运维关联值，不写入数据库，也不是用户、房间、会话或 AI job 标识。
 
 ## 6. 明确禁止记录的数据
 
@@ -139,7 +140,7 @@ Cloudflare/Supabase 自动生成的平台请求日志可能包含 URL、来源 I
 2. 在 Cloudflare Workers Logs 按 `request_id` 查 `request_completed`，确认路由、状态、错误码和耗时。
 3. 若为认证问题，在 Supabase Auth Logs 按相同时间窗口检查登录、刷新或退出事件；不要把邮箱贴进工单。
 4. 若为数据库问题，在 Supabase API/Postgres Logs 按时间和稳定错误码核对。
-5. 若为 AI 问题，先看 `ai_queue_batch_*`，再由受权人员在 `private.ai_jobs` 查询任务状态、模型、错误码和耗时。
+5. 若为 AI 问题，用同一个 `request_id` 查 `ai_queue_message_completed`，再看 `ai_queue_batch_*`；确需定位业务任务时，由受权人员按时间窗口在 `private.ai_jobs` 查询任务状态、模型、错误码和耗时。
 6. 工单只记录 `request_id`、时间、环境、稳定错误码、影响和处置，不粘贴用户正文。
 
 ## 9. 告警建议
