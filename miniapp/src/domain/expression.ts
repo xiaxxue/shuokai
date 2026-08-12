@@ -173,7 +173,8 @@ export function parseAiExpressionCandidate(value: unknown, expectedMode: Express
     }
     fields[field.key] = content;
   }
-  const uncertainties = Array.isArray(value.uncertainties) && value.uncertainties.every((item) =>
+  const uncertainties = Array.isArray(value.uncertainties) && value.uncertainties.length <= 3 &&
+    value.uncertainties.every((item) =>
     typeof item === "string" && item.length <= 500
   ) ? value.uncertainties as string[] : [];
   const safetyDisposition = isSafetyDisposition(value.safetyDisposition)
@@ -198,6 +199,6 @@ export function expressionSharePayload(expression: EditableExpression) {
     mode: expression.mode,
     schemaVersion: 1,
     ...Object.fromEntries(Object.entries(expression.fields).map(([key, value]) => [key, value.trim()])),
-    uncertainties: expression.uncertainties.map((item) => item.trim()).filter(Boolean),
+    uncertainties: [],
   };
 }

@@ -189,7 +189,7 @@ export function expressionResultSchema(mode: SupportedExpressionMode) {
       },
       uncertainties: {
         type: "array",
-        maxItems: 8,
+        maxItems: 3,
         items: { type: "string", maxLength: 500 },
       },
       safetyDisposition: {
@@ -221,7 +221,7 @@ export function isExpressionResult(value: unknown, mode: SupportedExpressionMode
     expectedFields.some((key) => typeof fields[key] !== "string" || String(fields[key]).length > 3000)) {
     return false;
   }
-  return candidate.uncertainties.length <= 8 && candidate.uncertainties.every((item) =>
+  return candidate.uncertainties.length <= 3 && candidate.uncertainties.every((item) =>
     typeof item === "string" && item.length <= 500
   );
 }
@@ -429,7 +429,9 @@ export async function generateExpressionCandidate(
     systemText: [
       "你是‘说开’的表达整理助手。只整理用户已经表达的内容，不补造事实、不诊断任何人、不替用户作决定。",
       modeInstruction(input.mode),
-      "uncertainties 只记录无法从原文确认的关键点。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
+      "uncertainties 是给用户看的后续追问，最多 3 个，按重要性排序；每项只问一件会影响表达准确性的关键信息，写成简短、具体、非诱导的中文问句。",
+      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。信息足够时 uncertainties 返回空数组。",
+      "不要索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
       "输出中文。字段不足时留空，让用户本人补充和确认。",
     ].join("\n"),
     userData: { sourceText: input.sourceText },

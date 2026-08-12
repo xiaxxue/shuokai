@@ -20,6 +20,17 @@
       <text class="private-source-copy">{{ sourceText }}</text>
     </view>
 
+    <ExpressionClarification
+      :question="clarificationQuestion"
+      :answer="clarificationAnswer"
+      :turn-count="clarificationTurnCount"
+      :max-turns="clarificationMaxTurns"
+      :busy="clarificationBusy"
+      @update:answer="$emit('update:clarification-answer', $event)"
+      @continue="$emit('continue-clarification')"
+      @skip="$emit('skip-clarification')"
+    />
+
     <view class="share-heading">
       <text class="share-kicker">对方将看到以下卡片</text>
       <text>请确认它们准确，没有遗漏你在意的边界。</text>
@@ -45,11 +56,6 @@
       </view>
     </view>
 
-    <view v-if="modelValue.uncertainties.length" class="uncertainty-card">
-      <text class="uncertainty-title">AI 没有替你猜的地方</text>
-      <text v-for="item in modelValue.uncertainties" :key="item" class="uncertainty-item">· {{ item }}</text>
-    </view>
-
     <text class="private-note">🔒 原话和 AI 草稿仍在你的私人空间；分享内容只包含你最后确认的卡片。分享后对方可能已经阅读，撤回不能保证对方忘记已看到的内容。</text>
   </view>
 </template>
@@ -57,11 +63,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { expressionModeOption, type EditableExpression } from "../domain/expression";
+import ExpressionClarification from "./ExpressionClarification.vue";
 
-const props = defineProps<{ modelValue: EditableExpression; sourceText: string }>();
+const props = defineProps<{
+  modelValue: EditableExpression;
+  sourceText: string;
+  clarificationQuestion: string;
+  clarificationAnswer: string;
+  clarificationTurnCount: number;
+  clarificationMaxTurns: number;
+  clarificationBusy: boolean;
+}>();
 const emit = defineEmits<{
   "update-field": [key: string, value: string];
   "change-mode": [];
+  "update:clarification-answer": [value: string];
+  "continue-clarification": [];
+  "skip-clarification": [];
 }>();
 
 const option = computed(() => expressionModeOption(props.modelValue.mode));
@@ -106,8 +124,5 @@ function updateField(key: string, event: Event) {
 .card-prompt { color: #718078; font-size: 22rpx; line-height: 1.5; }
 .card-input { box-sizing: border-box; width: 100%; min-height: 190rpx; margin-top: 22rpx; padding: 22rpx; border-radius: 19rpx; background: #faf8f2; color: #233a32; font-size: 27rpx; line-height: 1.7; }
 .count { display: block; margin-top: 10rpx; color: #9a9b93; font-size: 20rpx; text-align: right; }
-.uncertainty-card { display: flex; flex-direction: column; gap: 9rpx; margin-top: 28rpx; padding: 26rpx; border-radius: 22rpx; background: #f2eadb; color: #705f49; }
-.uncertainty-title { margin-bottom: 4rpx; color: #735538; font-size: 23rpx; font-weight: 800; }
-.uncertainty-item { font-size: 23rpx; line-height: 1.55; }
 .private-note { display: block; margin-top: 30rpx; color: #6b7872; font-size: 22rpx; line-height: 1.6; }
 </style>
