@@ -5,6 +5,7 @@ import type { RoomSession } from "./types";
 const stageLabels: Record<ClientStage, string> = {
   WELCOME: "准备开始",
   GOAL: "确认沟通意图",
+  CONVERSATION: "私人对话中",
   RECORD: "整理自己的表达",
   MODE_SELECT: "选择表达路径",
   AI_PENDING: "AI 整理处理中",
@@ -54,8 +55,9 @@ export function accountStage(stage: ClientStage, room: RoomSession | null): Clie
     if (room.phaseV2 === "PAUSED") return "PAUSED";
     if (room.phaseV2 === "UNDERSTANDING_GENERATING" || room.state === "COMMON_VIEW_READY") return "AI_PENDING";
     if (room.role === "A" && room.state === "WAITING_FOR_B") return "INVITE";
-    if (room.state === "GOAL_SETTING") return "GOAL";
-    if (["A_DRAFTING", "A_REVIEWING", "B_DRAFTING", "B_REVIEWING"].includes(room.state)) return "RECORD";
+    if (room.state === "GOAL_SETTING" || ["A_DRAFTING", "A_REVIEWING", "B_DRAFTING", "B_REVIEWING"].includes(room.state)) {
+      return "CONVERSATION";
+    }
   }
   return stageForRoom(room.role, room.state);
 }

@@ -182,6 +182,13 @@ describe("private editor draft recovery", () => {
       clarificationTurns: [{ question: "当时具体说了什么？", answer: "他说另一个女生很好看。" }],
       clarificationAnswer: "还没提交的回答",
       clarificationSkipped: false,
+      conversationTurns: [
+        { id: "private-turn-1", role: "AI" as const, kind: "OPENING" as const, text: "这次想聊什么？" },
+        { id: "private-turn-2", role: "USER" as const, kind: "USER_INPUT" as const, text: "计划变了，但没人告诉我。" },
+      ],
+      conversationComposer: "还没发送的一句",
+      conversationGuidancePaused: true,
+      aiJobPurpose: "CONVERSATION" as const,
     };
     saveEditorDraft(draft);
     expect(getEditorDraft(draft.roomId, "A")).toMatchObject({
@@ -192,6 +199,10 @@ describe("private editor draft recovery", () => {
       clarificationTurns: draft.clarificationTurns,
       clarificationAnswer: draft.clarificationAnswer,
       clarificationSkipped: false,
+      conversationTurns: draft.conversationTurns,
+      conversationComposer: draft.conversationComposer,
+      conversationGuidancePaused: true,
+      aiJobPurpose: "CONVERSATION",
     });
   });
 

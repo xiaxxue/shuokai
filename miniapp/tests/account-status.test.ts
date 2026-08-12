@@ -42,6 +42,12 @@ describe("account space status", () => {
     expect(roomPhaseLabel("WELCOME", {
       ...room,
       workflowVersion: 2,
+      state: "A_DRAFTING",
+      phaseV2: "PRIVATE_EXPRESSION",
+    })).toBe("私人对话中");
+    expect(roomPhaseLabel("WELCOME", {
+      ...room,
+      workflowVersion: 2,
       phaseV2: "PAUSED",
     })).toBe("本次沟通已暂停");
     expect(roomPhaseLabel("WELCOME", {
