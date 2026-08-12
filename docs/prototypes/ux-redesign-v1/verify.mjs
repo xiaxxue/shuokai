@@ -6,6 +6,7 @@ const prototypes = [
   ["direction-a", new URL("./direction-a/index.html", import.meta.url)],
   ["direction-b", new URL("./direction-b/index.html", import.meta.url)],
 ];
+const conversationDemo = new URL("./conversation-demo.html", import.meta.url);
 
 const requiredConcepts = [
   "仅自己可见",
@@ -96,5 +97,18 @@ for (const [name, file] of prototypes) {
   assert.ok(model.stateOrder.length >= 10, `${name}: recovery coverage is incomplete`);
   console.log(`${name}: ${model.coreOrder.length} core states, ${model.stateOrder.length} recovery states — OK`);
 }
+
+const conversationHtml = await readFile(conversationDemo, "utf8");
+assert.match(conversationHtml, /<meta name="viewport"/i, "conversation-demo: missing viewport metadata");
+assert.doesNotMatch(conversationHtml, /<(script|link|img)[^>]+(?:src|href)=["']https?:/i, "conversation-demo: must not require the network");
+assert.doesNotMatch(conversationHtml, /(service_role|SUPABASE_SECRET|APP_SECRET|sk-[A-Za-z0-9_-]{16,})/, "conversation-demo: possible secret marker");
+assert.doesNotMatch(conversationHtml, /让\s*AI\s*问一句/, "conversation-demo: AI reply must not require a manual trigger");
+for (const marker of ["id=\"input\"", "id=\"send\"", "id=\"voice\"", "id=\"finish\"", "id=\"candidate-slot\"", "我还没说完，回到对话", "仍未发送"]) {
+  assert.ok(conversationHtml.includes(marker), `conversation-demo: missing interaction marker ${marker}`);
+}
+const conversationScript = conversationHtml.match(/<script>([\s\S]*?)<\/script>/i);
+assert.ok(conversationScript, "conversation-demo: missing inline interaction script");
+new Function(conversationScript[1]);
+console.log("conversation-demo: input, automatic reply, voice simulation, user-controlled candidate — OK");
 
 console.log("Prototype verification passed.");

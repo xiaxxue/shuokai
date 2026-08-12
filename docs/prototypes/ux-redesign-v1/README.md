@@ -4,12 +4,15 @@
 
 ## 快速查看
 
+- 优先打开 `conversation-demo.html`：这是可输入、可发送、会连续回应的私人 AI 对话原型；可模拟语音、继续讲述、结束后整理、撤回候选和确认候选。
 - 打开 `index.html` 比较两套方向。
 - 直接打开 `direction-a/index.html`：安静的私人准备室。
 - 直接打开 `direction-b/index.html`：两条互不窥视的路径。
 - 每套原型右上角都有“流程 / 全流程”入口，可以跳到全部核心页面、异常与恢复状态。
 - URL 支持 `?screen=<状态>`，例如 `direction-a/index.html?screen=common`。
 - 对话化主流程截图见 `screenshots/direction-a-guided-dialogue.png` 与 `screenshots/direction-b-guided-dialogue.png`。
+
+`conversation-demo.html` 不连接 AI 或任何服务端，回应由页面内的演示规则生成；用户输入只存在当前页面内。它用于验证“讲述是否真的像连续对话”，不是正式产品实现。
 
 建议用 390×844 移动端视口体验，也可以直接在微信内置浏览器或移动 H5 浏览器中打开本地静态文件。
 

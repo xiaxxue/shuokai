@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f1ecdf" />
+  <title>说开 · 私人对话交互原型</title>
+  <style>
+    :root {
+      --paper: #f1ecdf;
+      --paper-deep: #e8dfcd;
+      --surface: #fffdf7;
+      --ink: #1e3733;
+      --muted: #6d7771;
+      --line: #c9c1b2;
+      --moss: #315f55;
+      --coral: #c6533d;
+      --coral-soft: #f3ded5;
+      --gold: #caa354;
+      --shadow: 0 18px 45px rgba(42, 51, 44, .1);
+      font-synthesis: none;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: #213b36; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, rgba(202, 163, 84, .18), transparent 28%),
+        #213b36;
+      font-family: "LXGW WenKai", "Kaiti SC", "STKaiti", "Songti SC", serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, textarea:focus-visible {
+      outline: 3px solid var(--gold);
+      outline-offset: 3px;
+    }
+
+    .app {
+      position: relative;
+      width: min(100%, 430px);
+      min-height: 100svh;
+      margin: 0 auto;
+      overflow: hidden;
+      background:
+        repeating-linear-gradient(to bottom, transparent 0 31px, rgba(49,95,85,.055) 31px 32px),
+        var(--paper);
+      box-shadow: 0 0 70px rgba(0,0,0,.3);
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 20;
+      top: 0;
+      padding: calc(12px + env(safe-area-inset-top)) 18px 11px;
+      border-bottom: 1px solid rgba(49,95,85,.17);
+      background: rgba(241,236,223,.94);
+      backdrop-filter: blur(16px);
+    }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { display: flex; align-items: baseline; gap: 9px; }
+    .brand strong { font-size: 21px; letter-spacing: .15em; }
+    .brand span { color: var(--muted); font-family: Georgia, serif; font-size: 8px; letter-spacing: .2em; }
+    .reset {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(255,253,247,.62);
+      font-size: 11px;
+    }
+    .privacy {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 7px;
+      color: var(--moss);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .privacy::before {
+      width: 8px;
+      height: 8px;
+      flex: none;
+      border-radius: 50%;
+      background: var(--moss);
+      content: "";
+    }
+    .privacy button {
+      min-height: 32px;
+      margin-left: auto;
+      padding: 0;
+      border: 0;
+      color: var(--moss);
+      background: transparent;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .conversation {
+      min-height: calc(100svh - 210px);
+      padding: 24px 18px 220px;
+    }
+    .room-intro { margin-bottom: 28px; animation: arrive .45s ease-out both; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--coral);
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .15em;
+    }
+    h1 {
+      max-width: 340px;
+      margin: 0;
+      font-size: clamp(30px, 9vw, 40px);
+      font-weight: 700;
+      line-height: 1.23;
+      letter-spacing: -.035em;
+    }
+    .intro-copy {
+      max-width: 330px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .thread { display: flex; flex-direction: column; gap: 23px; }
+    .message { position: relative; animation: arrive .36s ease-out both; }
+    .speaker {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .08em;
+    }
+    .speaker::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--gold);
+      content: "";
+    }
+    .message.user .speaker { justify-content: flex-end; }
+    .message.user .speaker::before { background: var(--coral); }
+    .message-body {
+      width: fit-content;
+      max-width: 92%;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 4px 19px 19px 19px;
+      background: rgba(255,253,247,.88);
+      box-shadow: 0 9px 24px rgba(42,51,44,.055);
+      font-size: 15px;
+      line-height: 1.72;
+      white-space: pre-wrap;
+    }
+    .message.user .message-body {
+      margin-left: auto;
+      border-color: rgba(198,83,61,.26);
+      border-radius: 19px 4px 19px 19px;
+      background: var(--coral-soft);
+    }
+    .message-body p { margin: 0; }
+    .message-body p + p { margin-top: 9px; }
+    .message-body .quiet { color: var(--muted); font-size: 12px; }
+    .message-body strong { color: #8d392a; font-weight: 800; }
+    .saved {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: right;
+    }
+
+    .typing .message-body { display: flex; min-width: 86px; align-items: center; gap: 6px; }
+    .typing i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--moss);
+      animation: breathe 1.2s ease-in-out infinite;
+    }
+    .typing i:nth-child(2) { animation-delay: .18s; }
+    .typing i:nth-child(3) { animation-delay: .36s; }
+
+    .candidate {
+      margin-top: 26px;
+      padding: 20px 17px 17px;
+      border: 1px solid var(--moss);
+      border-top: 7px solid var(--moss);
+      border-radius: 4px 22px 4px 22px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      animation: arrive .42s ease-out both;
+    }
+    .candidate-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .candidate-head strong { font-size: 14px; }
+    .candidate-head span { color: var(--coral); font-size: 10px; font-weight: 900; }
+    .candidate .explain { margin: 10px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .candidate textarea {
+      width: 100%;
+      min-height: 170px;
+      padding: 13px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--ink);
+      background: #fbf7ee;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .candidate-actions { display: grid; gap: 8px; margin-top: 12px; }
+    .candidate-actions button { min-height: 48px; border-radius: 12px; font-weight: 800; }
+    .confirm { border: 0; color: white; background: var(--moss); }
+    .continue { border: 1px solid var(--moss); color: var(--moss); background: transparent; }
+    .approved {
+      padding: 14px;
+      border: 1px solid var(--moss);
+      border-radius: 12px;
+      color: var(--moss);
+      background: #e2ebe1;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .composer-wrap {
+      position: fixed;
+      z-index: 18;
+      right: max(0px, calc((100vw - 430px)/2));
+      bottom: 0;
+      left: max(0px, calc((100vw - 430px)/2));
+      width: min(100%, 430px);
+      padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+      border-top: 1px solid rgba(49,95,85,.2);
+      background: rgba(241,236,223,.97);
+      backdrop-filter: blur(18px);
+    }
+    .finish-row {
+      display: flex;
+      min-height: 32px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 7px;
+    }
+    .hint { color: var(--muted); font-size: 10px; }
+    .finish {
+      display: none;
+      min-height: 34px;
+      padding: 0 8px;
+      border: 0;
+      color: var(--moss);
+      background: transparent;
+      font-size: 11px;
+      font-weight: 900;
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+    .finish.visible { display: block; }
+    .composer {
+      display: grid;
+      grid-template-columns: 48px minmax(0,1fr) 48px;
+      gap: 8px;
+      align-items: end;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 24px 8px 24px 8px;
+      background: var(--surface);
+      box-shadow: 0 10px 30px rgba(42,51,44,.09);
+    }
+    .voice, .send {
+      width: 46px;
+      height: 46px;
+      border: 0;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .voice { color: var(--moss); background: #e1e9df; }
+    .voice.recording { color: white; background: var(--coral); animation: pulse 1.4s ease-in-out infinite; }
+    .send { color: white; background: var(--moss); }
+    .send:disabled { cursor: default; opacity: .38; }
+    #input {
+      width: 100%;
+      max-height: 120px;
+      min-height: 46px;
+      padding: 12px 4px 8px;
+      resize: none;
+      overflow-y: auto;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      background: transparent;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    #input::placeholder { color: #969c94; }
+    .record-status {
+      display: none;
+      min-height: 22px;
+      margin-top: 7px;
+      color: var(--coral);
+      font-size: 11px;
+      text-align: center;
+    }
+    .record-status.visible { display: block; }
+
+    .sheet-backdrop {
+      position: fixed;
+      z-index: 40;
+      inset: 0;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(24,38,34,.5);
+    }
+    .sheet-backdrop.open { display: flex; }
+    .sheet {
+      width: min(100%,430px);
+      padding: 23px 20px calc(24px + env(safe-area-inset-bottom));
+      border-radius: 24px 24px 0 0;
+      background: var(--surface);
+      box-shadow: 0 -20px 60px rgba(0,0,0,.16);
+    }
+    .sheet h2 { margin: 0 0 12px; font-size: 23px; }
+    .sheet ul { margin: 0; padding: 0; list-style: none; }
+    .sheet li { padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.55; }
+    .sheet li::before { margin-right: 8px; color: var(--coral); content: "◆"; font-size: 8px; }
+    .close-sheet {
+      width: 100%;
+      min-height: 48px;
+      margin-top: 14px;
+      border: 0;
+      border-radius: 12px;
+      color: white;
+      background: var(--moss);
+      font-weight: 900;
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 60;
+      right: 50%;
+      bottom: 188px;
+      max-width: 330px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      color: white;
+      background: var(--ink);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(50%,12px);
+      transition: .22s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(50%,0); }
+
+    @keyframes arrive { from { opacity: 0; transform: translateY(9px); } }
+    @keyframes breathe { 50% { opacity: .3; transform: translateY(-2px); } }
+    @keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(198,83,61,.14); } }
+    @media (min-width: 431px) {
+      body { padding: 18px 0; }
+      .app { min-height: calc(100svh - 36px); border-radius: 22px; }
+      .composer-wrap { bottom: 18px; border-radius: 0 0 22px 22px; }
+    }
+    @media (max-width: 350px) {
+      .conversation { padding-right: 14px; padding-left: 14px; }
+      .composer-wrap { padding-right: 10px; padding-left: 10px; }
+      .brand span { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topline">
+        <div class="brand"><strong>说开</strong><span>PRIVATE CONVERSATION</span></div>
+        <button class="reset" id="reset" type="button">重新开始</button>
+      </div>
+      <div class="privacy">私人对话 · 仅自己可见 <button id="privacy-button" type="button">谁能看到？</button></div>
+    </header>
+
+    <main class="conversation">
+      <section class="room-intro" id="room-intro">
+        <p class="eyebrow">先讲，不用先组织</p>
+        <h1>你说到哪里，<br />AI 就从哪里陪你往下理。</h1>
+        <p class="intro-copy">直接在下面打字发送，或点“说”模拟一段语音。这里没有题目清单，也不用主动触发 AI 提问。</p>
+      </section>
+      <div class="thread" id="thread" role="log" aria-live="polite" aria-label="与 AI 的私人对话"></div>
+      <div id="candidate-slot"></div>
+    </main>
+
+    <footer class="composer-wrap">
+      <div class="finish-row">
+        <span class="hint" id="hint">回车发送 · Shift + 回车换行</span>
+        <button class="finish" id="finish" type="button">我讲完了，帮我整理</button>
+      </div>
+      <div class="composer">
+        <button class="voice" id="voice" type="button" aria-label="模拟语音输入">说</button>
+        <textarea id="input" rows="1" maxlength="1200" aria-label="输入你想讲的话" placeholder="从任何地方开始讲……"></textarea>
+        <button class="send" id="send" type="button" disabled aria-label="发送这一段">发送</button>
+      </div>
+      <div class="record-status" id="record-status" role="status">正在记录 00:00 · 再点一次结束</div>
+    </footer>
+  </div>
+
+  <div class="sheet-backdrop" id="sheet-backdrop" role="dialog" aria-modal="true" aria-labelledby="privacy-title">
+    <div class="sheet">
+      <h2 id="privacy-title">现在只有你能看到</h2>
+      <ul>
+        <li>你输入的原话、模拟录音和每一轮 AI 回应都留在这段私人对话。</li>
+        <li>AI 整理出来的文字只是候选，不会自动发给对方。</li>
+        <li>只有你之后明确批准的版本，才可能进入邀请预览。</li>
+      </ul>
+      <button class="close-sheet" id="close-sheet" type="button">知道了，继续讲</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const thread = document.getElementById("thread");
+    const candidateSlot = document.getElementById("candidate-slot");
+    const input = document.getElementById("input");
+    const send = document.getElementById("send");
+    const finish = document.getElementById("finish");
+    const voice = document.getElementById("voice");
+    const recordStatus = document.getElementById("record-status");
+    const toast = document.getElementById("toast");
+    const sheet = document.getElementById("sheet-backdrop");
+    const userTurns = [];
+    let replying = false;
+    let recording = false;
+    let recordStartedAt = 0;
+    let recordTimer = null;
+    let lastFocus = null;
+
+    function addMessage(role, paragraphs, options = {}) {
+      const article = document.createElement("article");
+      article.className = `message ${role}`;
+      if (options.id) article.id = options.id;
+
+      const speaker = document.createElement("div");
+      speaker.className = "speaker";
+      speaker.textContent = role === "user" ? "我 · 原话" : "说开 AI · 私人回应";
+
+      const body = document.createElement("div");
+      body.className = "message-body";
+      const lines = Array.isArray(paragraphs) ? paragraphs : [paragraphs];
+      for (const item of lines) {
+        const p = document.createElement("p");
+        p.textContent = item.text || item;
+        if (item.quiet) p.className = "quiet";
+        body.appendChild(p);
+      }
+
+      article.append(speaker, body);
+      if (role === "user") {
+        const saved = document.createElement("div");
+        saved.className = "saved";
+        saved.textContent = "已留在私人对话 · 尚未共享";
+        article.appendChild(saved);
+      }
+      thread.appendChild(article);
+      scrollToLatest();
+      return article;
+    }
+
+    function addTyping() {
+      const article = document.createElement("article");
+      article.className = "message ai typing";
+      article.id = "typing";
+      const speaker = document.createElement("div");
+      speaker.className = "speaker";
+      speaker.textContent = "说开 AI · 正在回应";
+      const body = document.createElement("div");
+      body.className = "message-body";
+      body.innerHTML = "<i></i><i></i><i></i>";
+      article.append(speaker, body);
+      thread.appendChild(article);
+      scrollToLatest();
+    }
+
+    function excerpt(text, limit = 34) {
+      const compact = text.replace(/\s+/g, " ").trim();
+      return compact.length > limit ? `${compact.slice(0, limit)}…` : compact;
+    }
+
+    function aiReply(text, turn) {
+      if (/回(复|消息|微信)|秒回|失联/.test(text)) {
+        return [
+          "我先听到一个区别：你在意的可能不是“每条消息都立刻回复”，而是事情变了以后，你被留在不确定里。",
+          { text: "如果我听偏了，直接纠正我。你也可以先不回答，继续把后面发生的事讲完。", quiet: true }
+        ];
+      }
+      if (/控制|指责|吵|冲突|生气/.test(text)) {
+        return [
+          "你一边想把这件事说清楚，一边又怕开口以后变成指责或控制。这个拉扯本身就很累。",
+          { text: "你可以接着讲：你最怕对方把哪一句听成攻击？这个问法不对的话，也直接改我。", quiet: true }
+        ];
+      }
+      if (/难过|委屈|不重要|失望|害怕|焦虑/.test(text)) {
+        return [
+          `你刚才说到“${excerpt(text, 24)}”。我先不急着把它变成结论。`,
+          { text: "这份难受更像是发生那一刻的感受，还是积累了很久？你也可以不选，继续用自己的方式讲。", quiet: true }
+        ];
+      }
+      if (turn === 1) {
+        return [
+          `我先跟着你刚才这段：“${excerpt(text)}”`,
+          { text: "不用组织完整。然后发生了什么，或者这里面哪一部分最卡住你？", quiet: true }
+        ];
+      }
+      if (turn % 3 === 0) {
+        return [
+          "明白，这一段我先原样留着，不急着总结，也不继续追问。",
+          { text: "你按自己的节奏继续讲。等你觉得讲完了，再由你决定要不要整理。", quiet: true }
+        ];
+      }
+      return [
+        `前面你讲的内容里，我听到的是“${excerpt(userTurns[0] || text, 22)}”；现在你又补充了“${excerpt(text, 22)}”。`,
+        { text: "这两部分对你来说是同一件事，还是其实有点不一样？不必按这个问题答，哪里更想讲就从哪里继续。", quiet: true }
+      ];
+    }
+
+    function queueReply(text) {
+      replying = true;
+      updateControls();
+      addTyping();
+      window.setTimeout(() => {
+        document.getElementById("typing")?.remove();
+        addMessage("ai", aiReply(text, userTurns.length));
+        replying = false;
+        updateControls();
+        input.focus();
+      }, 650);
+    }
+
+    function submitText(text) {
+      const clean = text.trim();
+      if (!clean || replying) return;
+      candidateSlot.innerHTML = "";
+      userTurns.push(clean);
+      addMessage("user", clean);
+      input.value = "";
+      resizeInput();
+      document.getElementById("room-intro").style.display = "none";
+      finish.classList.add("visible");
+      queueReply(clean);
+    }
+
+    function sendCurrent() { submitText(input.value); }
+
+    function resizeInput() {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+      updateControls();
+    }
+
+    function updateControls() {
+      send.disabled = replying || !input.value.trim();
+      input.disabled = replying;
+      voice.disabled = replying;
+      finish.disabled = replying || recording;
+    }
+
+    function buildCandidate() {
+      const all = userTurns.join(" ");
+      if (/回(复|消息|微信)|秒回|失联/.test(all)) {
+        return "当计划发生变化，而我一直不知道接下来会怎样时，我会感到不安，也容易觉得自己不重要。我并不是要求你每条消息都马上回复；如果暂时还不能确定，你是否愿意先告诉我还没确定，以及大概什么时候会再更新？";
+      }
+      const first = excerpt(userTurns[0] || "", 72);
+      const last = excerpt(userTurns[userTurns.length - 1] || "", 72);
+      return userTurns.length > 1
+        ? `我想说清楚的是：${first}。后来我也意识到：${last}。这不是在替你下结论，我希望我们能先把各自看到的事情讲清楚。`
+        : `我想说清楚的是：${first}。这不是在给你下结论，我希望先让你知道这件事对我的影响。`;
+    }
+
+    function showCandidate() {
+      if (!userTurns.length || replying) return;
+      if (recording) {
+        showToast("先结束这一段录音，再整理刚才的讲述");
+        return;
+      }
+      input.blur();
+      const wrapper = document.createElement("section");
+      wrapper.className = "candidate";
+      wrapper.innerHTML = `
+        <div class="candidate-head"><strong>根据刚才的对话整理</strong><span>候选 · 尚未共享</span></div>
+        <p class="explain">这是对话结束后的可编辑文稿，不是新的表格。改到像你说的话，再决定要不要确认。</p>
+        <textarea id="candidate-text" aria-label="编辑候选内容"></textarea>
+        <div class="candidate-actions">
+          <button class="confirm" id="confirm-candidate" type="button">这版接近我的意思</button>
+          <button class="continue" id="continue-talking" type="button">我还没说完，回到对话</button>
+        </div>`;
+      candidateSlot.innerHTML = "";
+      candidateSlot.appendChild(wrapper);
+      document.getElementById("candidate-text").value = buildCandidate();
+      document.getElementById("continue-talking").addEventListener("click", continueTalking);
+      document.getElementById("confirm-candidate").addEventListener("click", confirmCandidate);
+      scrollToLatest();
+      document.getElementById("candidate-text").focus();
+    }
+
+    function continueTalking() {
+      candidateSlot.innerHTML = "";
+      addMessage("ai", [
+        "好，这一版先撤回，不算确认。你继续讲，我跟着听。",
+        { text: "刚才的原话都还在，不需要重新填任何内容。", quiet: true }
+      ]);
+      input.focus();
+    }
+
+    function confirmCandidate() {
+      const candidateText = document.getElementById("candidate-text").value.trim();
+      if (!candidateText) {
+        showToast("候选为空；可以继续讲，或写下你想保留的话");
+        document.getElementById("candidate-text").focus();
+        return;
+      }
+      candidateSlot.innerHTML = `
+        <section class="candidate">
+          <div class="candidate-head"><strong>这版已由你确认</strong><span>仍未发送</span></div>
+          <p class="explain">确认只锁定这一版文字，不会自动邀请对方，也不会分享完整私人对话。</p>
+          <div class="approved">${escapeHtml(candidateText)}</div>
+          <div class="candidate-actions"><button class="continue" id="edit-again" type="button">返回对话继续修改</button></div>
+        </section>`;
+      document.getElementById("edit-again").addEventListener("click", continueTalking);
+      showToast("已确认这版 · 没有发送给任何人");
+      scrollToLatest();
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/[&<>'"]/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
+    }
+
+    function toggleRecording() {
+      if (replying) return;
+      recording = !recording;
+      voice.classList.toggle("recording", recording);
+      voice.textContent = recording ? "停" : "说";
+      recordStatus.classList.toggle("visible", recording);
+      updateControls();
+      if (recording) {
+        recordStartedAt = Date.now();
+        updateRecordTime();
+        recordTimer = window.setInterval(updateRecordTime, 1000);
+        return;
+      }
+      window.clearInterval(recordTimer);
+      recordStatus.classList.remove("visible");
+      submitText("我其实不是在意他有没有立刻回复。我难受的是计划变了，却一直没人告诉我，好像我只能一直等。");
+    }
+
+    function updateRecordTime() {
+      const seconds = Math.floor((Date.now() - recordStartedAt) / 1000);
+      recordStatus.textContent = `正在记录 00:${String(seconds).padStart(2,"0")} · 再点一次结束`;
+    }
+
+    function scrollToLatest() {
+      window.requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    function openSheet() {
+      lastFocus = document.activeElement;
+      sheet.classList.add("open");
+      document.body.style.overflow = "hidden";
+      document.getElementById("close-sheet").focus();
+    }
+
+    function closeSheet() {
+      sheet.classList.remove("open");
+      document.body.style.overflow = "";
+      (lastFocus || input).focus();
+    }
+
+    function resetDemo() { location.reload(); }
+
+    input.addEventListener("input", resizeInput);
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendCurrent();
+      }
+    });
+    send.addEventListener("click", sendCurrent);
+    finish.addEventListener("click", showCandidate);
+    voice.addEventListener("click", toggleRecording);
+    document.getElementById("reset").addEventListener("click", resetDemo);
+    document.getElementById("privacy-button").addEventListener("click", openSheet);
+    document.getElementById("close-sheet").addEventListener("click", closeSheet);
+    sheet.addEventListener("click", event => { if (event.target === sheet) closeSheet(); });
+    document.addEventListener("keydown", event => {
+      if (!sheet.classList.contains("open")) return;
+      if (event.key === "Escape") closeSheet();
+      if (event.key === "Tab") {
+        event.preventDefault();
+        document.getElementById("close-sheet").focus();
+      }
+    });
+
+    addMessage("ai", [
+      "先不用想怎么说才“正确”。最近发生了什么，让你觉得这件事很难开口？",
+      { text: "你可以从任何地方开始。我会跟着你刚说的内容回应，不会让你按顺序填几个部分。", quiet: true }
+    ]);
+    input.focus();
+  </script>
+</body>
+</html>
