@@ -380,7 +380,7 @@
       </div>
       <div class="composer">
         <button class="voice" id="voice" type="button" aria-label="模拟语音输入">说</button>
-        <textarea id="input" rows="1" maxlength="1200" aria-label="输入你想讲的话" placeholder="从任何地方开始讲……"></textarea>
+        <textarea id="input" rows="1" maxlength="1200" aria-label="输入你想讲的话" placeholder="写下你想说的……"></textarea>
         <button class="send" id="send" type="button" disabled aria-label="发送这一段">发送</button>
       </div>
       <div class="record-status" id="record-status" role="status">正在记录 00:00 · 再点一次结束</div>
@@ -687,10 +687,7 @@
       }
     });
 
-    addMessage("ai", [
-      "先不用想怎么说才“正确”。最近发生了什么，让你觉得这件事很难开口？",
-      { text: "你可以从任何地方开始。我会跟着你刚说的内容回应，不会让你按顺序填几个部分。", quiet: true }
-    ]);
+    addMessage("ai", "这次想聊什么？");
     input.focus();
   </script>
 </body>
