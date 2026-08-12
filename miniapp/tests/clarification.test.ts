@@ -4,6 +4,7 @@ import {
   nextClarificationQuestion,
   parseClarificationSource,
   sanitizeClarificationTurns,
+  shouldPreserveDraftOnAiExit,
 } from "../src/domain/clarification";
 
 describe("private AI clarification", () => {
@@ -32,6 +33,14 @@ describe("private AI clarification", () => {
       { question: "没有回答", answer: "" },
       null,
     ])).toEqual([{ question: "发生在什么时候？", answer: "昨晚" }]);
+  });
+
+  it("preserves a prior draft when a follow-up job is canceled or fails", () => {
+    expect(shouldPreserveDraftOnAiExit({ observation: "" }, [])).toBe(false);
+    expect(shouldPreserveDraftOnAiExit({ observation: "旧草稿" }, [])).toBe(true);
+    expect(shouldPreserveDraftOnAiExit({ observation: "" }, [
+      { question: "当时发生了什么？", answer: "是在吃饭时发生的。" },
+    ])).toBe(true);
   });
 
   it("refuses to silently truncate an overlong private context", () => {

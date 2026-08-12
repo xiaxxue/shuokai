@@ -34,6 +34,13 @@ export function nextClarificationQuestion(
     .find((item) => item && !answered.has(item)) ?? "";
 }
 
+export function shouldPreserveDraftOnAiExit(
+  fields: Readonly<Record<string, string>>,
+  turns: readonly ClarificationTurn[],
+) {
+  return turns.length > 0 || Object.values(fields).some((value) => value.trim());
+}
+
 export function composeClarificationSource(
   sourceText: string,
   turns: readonly ClarificationTurn[],

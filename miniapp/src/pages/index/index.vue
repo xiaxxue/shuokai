@@ -210,7 +210,9 @@
           <text>{{ understandingFailure }}</text>
           <text>系统不会展示未经审查的半成品，双方已经确认的表达仍然保留。</text>
         </view>
-        <button v-if="aiJobId" class="secondary refresh" @tap="useManualExpression">不等了，改为手动填写</button>
+        <button v-if="aiJobId" class="secondary refresh" @tap="stopWaitingForExpression">
+          {{ clarificationTurns.length ? "不等了，保留上一版草稿" : "不等了，改为手动填写" }}
+        </button>
         <button v-else-if="understandingFailure && understandingRetryAllowed" class="secondary refresh" @tap="ensureSharedUnderstanding">重新尝试</button>
         <view v-else-if="understandingFailure" class="understanding-recovery-actions">
           <button class="secondary refresh" @tap="editOwnExpression">修改我的表达</button>
@@ -445,6 +447,7 @@ import {
   MAX_CLARIFICATION_TURNS,
   nextClarificationQuestion,
   parseClarificationSource,
+  shouldPreserveDraftOnAiExit,
   type ClarificationTurn,
 } from "../../domain/clarification";
 import {
@@ -1042,36 +1045,54 @@ function updateExpressionField(key: string, value: string) {
 }
 
 function changeExpressionMode() {
-  if (aiPollTimer) clearTimeout(aiPollTimer);
-  aiPollTimer = null;
-  aiJobId.value = "";
+  stopExpressionJobPolling();
   resetClarification();
   stage.value = "MODE_SELECT";
 }
 
-function useManualExpression() {
-  if (!selectedMode.value || selectedMode.value === "PAUSE") return;
+function stopExpressionJobPolling() {
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
+  aiJobId.value = "";
+}
+
+function returnToExistingExpressionDraft(kind: Notice["kind"], text: string) {
+  stopExpressionJobPolling();
+  clarificationAnswer.value = "";
+  clarificationSkipped.value = true;
+  stage.value = "EXPRESSION_REVIEW";
+  busy.value = false;
+  setNotice(kind, text);
+}
+
+function fallBackToManualExpression() {
+  if (!selectedMode.value || selectedMode.value === "PAUSE") return;
+  stopExpressionJobPolling();
   editableExpression.value = createEditableExpression(selectedMode.value);
   resetClarification(true);
   stage.value = "EXPRESSION_REVIEW";
+  busy.value = false;
   setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
 }
 
-function recoverExpressionJobFailure(text: string) {
-  const hasExistingDraft = Object.values(editableExpression.value.fields).some((value) => value.trim());
-  if (hasExistingDraft) {
-    if (aiPollTimer) clearTimeout(aiPollTimer);
-    aiPollTimer = null;
-    aiJobId.value = "";
-    clarificationSkipped.value = true;
-    stage.value = "EXPRESSION_REVIEW";
-    busy.value = false;
-    setNotice("error", `${text} 已保留上一次草稿和你的补充。 `);
+function stopWaitingForExpression() {
+  if (!selectedMode.value || selectedMode.value === "PAUSE") return;
+  if (shouldPreserveDraftOnAiExit(editableExpression.value.fields, clarificationTurns.value)) {
+    returnToExistingExpressionDraft(
+      "info",
+      "已停止等待，并保留上一版草稿和你的补充；你可以继续手动修改。 ",
+    );
     return;
   }
-  useManualExpression();
+  fallBackToManualExpression();
+}
+
+function recoverExpressionJobFailure(text: string) {
+  if (shouldPreserveDraftOnAiExit(editableExpression.value.fields, clarificationTurns.value)) {
+    returnToExistingExpressionDraft("error", `${text} 已保留上一版草稿和你的补充。 `);
+    return;
+  }
+  fallBackToManualExpression();
   setNotice("error", `${text} 已保留原话并切换为手动填写。 `);
 }
 
