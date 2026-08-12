@@ -8,9 +8,53 @@ export type WorkerEnv = {
   AI?: {
     run(model: string, input: Record<string, unknown>): Promise<unknown>;
   };
-  AI_JOBS_QUEUE?: { send(message: { jobId: string }): Promise<void> };
+  AI_JOBS_QUEUE?: { send(message: { jobId: string; correlationId: string }): Promise<void> };
   ALLOWED_ORIGINS?: string;
 };
+
+export const appErrorCodes = [
+  "METHOD_NOT_ALLOWED",
+  "AUTH_REQUIRED",
+  "ORIGIN_NOT_ALLOWED",
+  "NOT_FOUND",
+  "INVALID_REQUEST",
+  "PAYLOAD_TOO_LARGE",
+  "INVALID_ARGUMENTS",
+  "UNSUPPORTED_OPERATION",
+  "AUTH_SESSION_EXPIRED",
+  "SERVICE_NOT_CONFIGURED",
+  "INTERNAL_ERROR",
+  "DATABASE_REQUEST_FAILED",
+  "WORKSPACE_SAVE_FAILED",
+  "WORKSPACE_CONFLICT",
+  "DATA_SERVICE_INVALID_RESPONSE",
+  "AI_SERVICE_NOT_CONFIGURED",
+  "AI_JOB_CREATE_FAILED",
+  "AI_RATE_LIMITED",
+  "AI_QUEUE_UNAVAILABLE",
+  "UNDERSTANDING_JOB_CREATE_FAILED",
+  "UNDERSTANDING_REQUIRES_REVISION",
+  "WECHAT_AUTH_NOT_CONFIGURED",
+  "WECHAT_SESSION_EXPIRED",
+  "WECHAT_CODE_REQUIRED",
+  "WECHAT_IDENTITY_UNAVAILABLE",
+  "WECHAT_IDENTITY_INVALID",
+  "WECHAT_MAPPING_FAILED",
+  "USER_SESSION_CREATE_FAILED",
+  "USER_CREATE_FAILED",
+  "WECHAT_BIND_FAILED",
+  "LOGIN_TOKEN_CREATE_FAILED",
+  "LOGIN_SESSION_ISSUE_FAILED",
+  "TRANSCRIPTION_SERVICE_NOT_CONFIGURED",
+  "AUDIO_TOO_LARGE",
+  "AUDIO_REQUIRED",
+  "AUDIO_FORMAT_UNSUPPORTED",
+  "TRANSCRIPTION_QUOTA_UNAVAILABLE",
+  "TRANSCRIPTION_RATE_LIMITED",
+  "TRANSCRIPTION_FAILED",
+] as const;
+
+export type AppErrorCode = typeof appErrorCodes[number];
 
 export function publicSupabaseConfig(env: WorkerEnv) {
   const url = env.SUPABASE_URL;
@@ -57,9 +101,20 @@ export function json(request: Request, env: WorkerEnv, data: unknown, status = 2
   });
 }
 
+export function errorJson(
+  request: Request,
+  env: WorkerEnv,
+  code: AppErrorCode,
+  message: string,
+  status: number,
+  details: Record<string, unknown> = {},
+) {
+  return json(request, env, { ...details, message, code }, status);
+}
+
 export function preflight(request: Request, env: WorkerEnv) {
   if (!isOriginAllowed(request, env)) {
-    return json(request, env, { message: "当前网页来源不被允许。" }, 403);
+    return errorJson(request, env, "ORIGIN_NOT_ALLOWED", "当前网页来源不被允许。", 403);
   }
   return new Response(null, {
     status: 204,

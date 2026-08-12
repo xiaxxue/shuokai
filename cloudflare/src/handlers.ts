@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   bearerToken,
+  errorJson,
   json,
   publicSupabaseConfig,
   readJson,
@@ -46,24 +47,33 @@ async function verifiedUserId(
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export async function handleExpressionJob(request: Request, env: WorkerEnv) {
-  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+export async function handleExpressionJob(request: Request, env: WorkerEnv, correlationId: string) {
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
   const authorization = bearerToken(request);
-  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
   if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
-    return json(request, env, {
-      message: "AI 整理服务尚未配置，请先手动填写。",
-      code: "AI_SERVICE_NOT_CONFIGURED",
-    }, 503);
+    return errorJson(
+      request,
+      env,
+      "AI_SERVICE_NOT_CONFIGURED",
+      "AI 整理服务尚未配置，请先手动填写。",
+      503,
+    );
   }
   let body: unknown;
   try {
     body = await readJson(request, 32 * 1024);
   } catch (error) {
-    return json(request, env, { message: "请求格式无效。" }, error instanceof RangeError ? 413 : 400);
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
-  if (!body || typeof body !== "object") return json(request, env, { message: "请求格式无效。" }, 400);
+  if (!body || typeof body !== "object") {
+    return errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
+  }
   const input = body as {
     roomId?: unknown;
     expectedRevision?: unknown;
@@ -79,12 +89,12 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
     (input.manualPayload !== undefined && (
       !input.manualPayload || typeof input.manualPayload !== "object" || Array.isArray(input.manualPayload)
     ))) {
-    return json(request, env, { message: "操作参数无效。" }, 400);
+    return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
   }
 
   const supabase = userClient(config, authorization);
   if (!await verifiedUserId(supabase, authorization)) {
-    return json(request, env, { message: "登录已失效。" }, 401);
+    return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
   }
   const normalizedSource = input.sourceText.trim();
   const { data: saved, error: saveError } = await supabase.rpc("save_expression_workspace_v2", {
@@ -102,20 +112,31 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
       (current as { selectedMode?: unknown }).selectedMode === input.selectedMode;
     revision = sameSavedRequest ? (current as { revision?: unknown }).revision : null;
   } else if (saveError) {
-    const code = saveError.code ?? "SAVE_FAILED";
-    return json(request, env, {
-      message: safeDatabaseMessages[code] ?? "表达草稿没有保存，请稍后重试。",
-      code,
-    }, 400);
+    return errorJson(
+      request,
+      env,
+      "WORKSPACE_SAVE_FAILED",
+      safeDatabaseMessages[saveError.code] ?? "表达草稿没有保存，请稍后重试。",
+      400,
+    );
   }
   if (typeof revision !== "number") {
     if (saveError?.code === "40001") {
-      return json(request, env, {
-        message: safeDatabaseMessages["40001"],
-        code: "40001",
-      }, 409);
+      return errorJson(
+        request,
+        env,
+        "WORKSPACE_CONFLICT",
+        safeDatabaseMessages["40001"],
+        409,
+      );
     }
-    return json(request, env, { message: "数据服务返回了无效结果。" }, 502);
+    return errorJson(
+      request,
+      env,
+      "DATA_SERVICE_INVALID_RESPONSE",
+      "数据服务返回了无效结果。",
+      502,
+    );
   }
   const { data: job, error: jobError } = await supabase.rpc("request_understanding_job_v2", {
     p_room_id: input.roomId,
@@ -123,59 +144,82 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv) {
   });
   const jobId = job && typeof job === "object" ? (job as { jobId?: unknown }).jobId : null;
   if (jobError) {
-    return json(request, env, {
-      message: safeDatabaseMessages[jobError.code] ?? "AI 整理任务没有创建，请稍后重试。",
-      code: jobError.code,
-    }, jobError.code === "P0003" ? 429 : 502);
+    const rateLimited = jobError.code === "P0003";
+    return errorJson(
+      request,
+      env,
+      rateLimited ? "AI_RATE_LIMITED" : "AI_JOB_CREATE_FAILED",
+      safeDatabaseMessages[jobError.code] ?? "AI 整理任务没有创建，请稍后重试。",
+      rateLimited ? 429 : 502,
+    );
   }
   if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
-    return json(request, env, { message: "AI 整理任务没有创建，请稍后重试。" }, 502);
+    return errorJson(
+      request,
+      env,
+      "AI_JOB_CREATE_FAILED",
+      "AI 整理任务没有创建，请稍后重试。",
+      502,
+    );
   }
   try {
-    await env.AI_JOBS_QUEUE.send({ jobId });
+    await env.AI_JOBS_QUEUE.send({ jobId, correlationId });
   } catch {
-    return json(request, env, {
-      message: "AI 整理任务暂时未进入队列，请重试或手动填写。",
-      code: "AI_QUEUE_UNAVAILABLE",
-    }, 503);
+    return errorJson(
+      request,
+      env,
+      "AI_QUEUE_UNAVAILABLE",
+      "AI 整理任务暂时未进入队列，请重试或手动填写。",
+      503,
+    );
   }
   return json(request, env, { jobId, revision, status: (job as { status?: unknown }).status }, 202);
 }
 
-export async function handleUnderstandingJob(request: Request, env: WorkerEnv) {
-  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+export async function handleUnderstandingJob(request: Request, env: WorkerEnv, correlationId: string) {
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
   const authorization = bearerToken(request);
-  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
   if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
-    return json(request, env, {
-      message: "共同理解服务尚未配置。双方已确认的表达仍会保留。",
-      code: "AI_SERVICE_NOT_CONFIGURED",
-    }, 503);
+    return errorJson(
+      request,
+      env,
+      "AI_SERVICE_NOT_CONFIGURED",
+      "共同理解服务尚未配置。双方已确认的表达仍会保留。",
+      503,
+    );
   }
   let body: unknown;
   try {
     body = await readJson(request, 4 * 1024);
   } catch (error) {
-    return json(request, env, { message: "请求格式无效。" }, error instanceof RangeError ? 413 : 400);
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
   const roomId = body && typeof body === "object" && !Array.isArray(body) &&
     Object.keys(body).length === 1 && "roomId" in body
     ? (body as { roomId?: unknown }).roomId
     : null;
   if (typeof roomId !== "string" || !uuidPattern.test(roomId)) {
-    return json(request, env, { message: "操作参数无效。" }, 400);
+    return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
   }
   const supabase = userClient(config, authorization);
   if (!await verifiedUserId(supabase, authorization)) {
-    return json(request, env, { message: "登录已失效。" }, 401);
+    return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
   }
   const { data: job, error } = await supabase.rpc("request_consensus_job_v2", { p_room_id: roomId });
   if (error) {
-    return json(request, env, {
-      message: safeDatabaseMessages[error.code] ?? "共同理解任务没有创建，请稍后重试。",
-      code: error.code,
-    }, 400);
+    return errorJson(
+      request,
+      env,
+      "UNDERSTANDING_JOB_CREATE_FAILED",
+      safeDatabaseMessages[error.code] ?? "共同理解任务没有创建，请稍后重试。",
+      400,
+    );
   }
   const status = job && typeof job === "object" ? (job as { status?: unknown }).status : null;
   const jobId = job && typeof job === "object" ? (job as { jobId?: unknown }).jobId : null;
@@ -183,64 +227,82 @@ export async function handleUnderstandingJob(request: Request, env: WorkerEnv) {
     return json(request, env, { status: "SUCCEEDED" }, 200);
   }
   if (typeof jobId !== "string" || !uuidPattern.test(jobId)) {
-    return json(request, env, { message: "共同理解任务没有创建，请稍后重试。" }, 502);
+    return errorJson(
+      request,
+      env,
+      "UNDERSTANDING_JOB_CREATE_FAILED",
+      "共同理解任务没有创建，请稍后重试。",
+      502,
+    );
   }
   if (["FAILED_FINAL", "CANCELED", "STALE"].includes(String(status))) {
-    return json(request, env, {
-      message: "当前表达没有生成可展示的共同理解，请修改表达后再试。",
-      code: "UNDERSTANDING_REQUIRES_REVISION",
-      status,
-    }, 409);
+    return errorJson(
+      request,
+      env,
+      "UNDERSTANDING_REQUIRES_REVISION",
+      "当前表达没有生成可展示的共同理解，请修改表达后再试。",
+      409,
+      { status },
+    );
   }
   try {
-    await env.AI_JOBS_QUEUE.send({ jobId });
+    await env.AI_JOBS_QUEUE.send({ jobId, correlationId });
   } catch {
-    return json(request, env, {
-      message: "任务暂时没有进入队列，双方表达已安全保留。",
-      code: "AI_QUEUE_UNAVAILABLE",
-    }, 503);
+    return errorJson(
+      request,
+      env,
+      "AI_QUEUE_UNAVAILABLE",
+      "任务暂时没有进入队列，双方表达已安全保留。",
+      503,
+    );
   }
   return json(request, env, { jobId, status }, 202);
 }
 
 export async function handleMiniappApi(request: Request, env: WorkerEnv) {
-  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
   const authorization = bearerToken(request);
-  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const supabaseConfig = publicSupabaseConfig(env);
   if (!supabaseConfig) {
-    return json(request, env, {
-      message: "服务暂时不可用，请稍后再试。",
-      code: "SERVICE_NOT_CONFIGURED",
-    }, 503);
+    return errorJson(
+      request,
+      env,
+      "SERVICE_NOT_CONFIGURED",
+      "服务暂时不可用，请稍后再试。",
+      503,
+    );
   }
 
   let payload: unknown;
   try {
     payload = await readJson(request);
   } catch (error) {
-    const status = error instanceof RangeError ? 413 : 400;
-    return json(request, env, { message: "请求格式无效。" }, status);
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
   if (!payload || typeof payload !== "object") {
-    return json(request, env, { message: "请求格式无效。" }, 400);
+    return errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
   const { method, args } = payload as { method?: unknown; args?: unknown };
   if (typeof method !== "string" || !isAllowedRpcMethod(method)) {
-    return json(request, env, { message: "不支持的操作。" }, 400);
+    return errorJson(request, env, "UNSUPPORTED_OPERATION", "不支持的操作。", 400);
   }
   const validatedArgs = validateRpcArgs(method, args);
-  if (!validatedArgs) return json(request, env, { message: "操作参数无效。" }, 400);
+  if (!validatedArgs) return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
 
   const supabase = userClient(supabaseConfig, authorization);
   if (!await verifiedUserId(supabase, authorization)) {
-    return json(request, env, { message: "登录已失效。" }, 401);
+    return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
   }
 
   const { data, error } = await supabase.rpc(method, validatedArgs);
   if (error) {
     const message = safeDatabaseMessages[error.code] ?? "操作没有完成，请稍后重试。";
-    return json(request, env, { message, code: error.code }, 400);
+    return errorJson(request, env, "DATABASE_REQUEST_FAILED", message, 400);
   }
   return json(request, env, data);
 }
@@ -265,7 +327,9 @@ function authPayload(session: {
 }
 
 export async function handleWechatLogin(request: Request, env: WorkerEnv) {
-  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
   const configured = requireEnv(env, [
     "SUPABASE_URL",
     "SUPABASE_SECRET_KEY",
@@ -274,18 +338,19 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
   ] as const);
   const supabaseConfig = publicSupabaseConfig(env);
   if (!configured || !supabaseConfig) {
-    return json(request, env, { message: "微信登录尚未配置。" }, 503);
+    return errorJson(request, env, "WECHAT_AUTH_NOT_CONFIGURED", "微信登录尚未配置。", 503);
   }
 
   let payload: unknown;
   try {
     payload = await readJson(request, 16 * 1024);
   } catch (error) {
-    const status = error instanceof RangeError ? 413 : 400;
-    return json(request, env, { message: "请求格式无效。" }, status);
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
   if (!payload || typeof payload !== "object") {
-    return json(request, env, { message: "请求格式无效。" }, 400);
+    return errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
   const input = payload as { code?: unknown; refreshToken?: unknown };
   const code = typeof input.code === "string" ? input.code.trim() : "";
@@ -297,12 +362,18 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
   if (refreshToken) {
     const { data: refreshed, error } = await client.auth.refreshSession({ refresh_token: refreshToken });
     if (error || !refreshed.session || !refreshed.user) {
-      return json(request, env, { message: "登录已失效，请重新进入小程序。" }, 401);
+      return errorJson(
+        request,
+        env,
+        "WECHAT_SESSION_EXPIRED",
+        "登录已失效，请重新进入小程序。",
+        401,
+      );
     }
     return json(request, env, authPayload({ ...refreshed.session, user: refreshed.user }));
   }
   if (!code || code.length > 128) {
-    return json(request, env, { message: "缺少微信登录凭证。" }, 400);
+    return errorJson(request, env, "WECHAT_CODE_REQUIRED", "缺少微信登录凭证。", 400);
   }
 
   let authResponse: Response;
@@ -317,7 +388,13 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
       signal: AbortSignal.timeout(10000),
     });
   } catch {
-    return json(request, env, { message: "微信身份服务暂时不可用。" }, 502);
+    return errorJson(
+      request,
+      env,
+      "WECHAT_IDENTITY_UNAVAILABLE",
+      "微信身份服务暂时不可用。",
+      502,
+    );
   }
   const identity = await authResponse.json().catch(() => ({})) as {
     openid?: string;
@@ -325,7 +402,13 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
     errcode?: number;
   };
   if (!authResponse.ok || !identity.openid || identity.errcode) {
-    return json(request, env, { message: "微信身份校验失败，请重新进入小程序。" }, 401);
+    return errorJson(
+      request,
+      env,
+      "WECHAT_IDENTITY_INVALID",
+      "微信身份校验失败，请重新进入小程序。",
+      401,
+    );
   }
 
   const admin = adminClient(configured);
@@ -333,13 +416,17 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
     "internal_get_wechat_user",
     { p_openid: identity.openid },
   );
-  if (lookupError) return json(request, env, { message: "微信身份映射读取失败。" }, 500);
+  if (lookupError) {
+    return errorJson(request, env, "WECHAT_MAPPING_FAILED", "微信身份映射读取失败。", 500);
+  }
 
   let userId = typeof knownUser === "string" ? knownUser : null;
   let email = "";
   if (userId) {
     const { data, error } = await admin.auth.admin.getUserById(userId);
-    if (error || !data.user?.email) return json(request, env, { message: "用户会话创建失败。" }, 500);
+    if (error || !data.user?.email) {
+      return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
+    }
     email = data.user.email;
   } else {
     email = `wx_${(await digest(identity.openid)).slice(0, 32)}@users.shuokai.invalid`;
@@ -352,11 +439,13 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
       const { data: racedUser } = await admin.rpc("internal_get_wechat_user", {
         p_openid: identity.openid,
       });
-      if (typeof racedUser !== "string") return json(request, env, { message: "用户创建失败。" }, 500);
+      if (typeof racedUser !== "string") {
+        return errorJson(request, env, "USER_CREATE_FAILED", "用户创建失败。", 500);
+      }
       userId = racedUser;
       const { data: racedAccount, error: racedAccountError } = await admin.auth.admin.getUserById(userId);
       if (racedAccountError || !racedAccount.user?.email) {
-        return json(request, env, { message: "用户会话创建失败。" }, 500);
+        return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
       }
       email = racedAccount.user.email;
     } else {
@@ -368,14 +457,14 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
       });
       if (bindError || typeof boundUser !== "string") {
         await admin.auth.admin.deleteUser(createdUserId);
-        return json(request, env, { message: "微信身份绑定失败。" }, 500);
+        return errorJson(request, env, "WECHAT_BIND_FAILED", "微信身份绑定失败。", 500);
       }
       userId = boundUser;
       if (userId !== createdUserId) {
         await admin.auth.admin.deleteUser(createdUserId);
         const { data: boundAccount, error: boundAccountError } = await admin.auth.admin.getUserById(userId);
         if (boundAccountError || !boundAccount.user?.email) {
-          return json(request, env, { message: "用户会话创建失败。" }, 500);
+          return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
         }
         email = boundAccount.user.email;
       }
@@ -387,14 +476,16 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
     email,
   });
   const tokenHash = link?.properties?.hashed_token;
-  if (linkError || !tokenHash) return json(request, env, { message: "登录令牌创建失败。" }, 500);
+  if (linkError || !tokenHash) {
+    return errorJson(request, env, "LOGIN_TOKEN_CREATE_FAILED", "登录令牌创建失败。", 500);
+  }
 
   const { data: verified, error: verifyError } = await client.auth.verifyOtp({
     type: "magiclink",
     token_hash: tokenHash,
   });
   if (verifyError || !verified.session || !verified.user) {
-    return json(request, env, { message: "登录会话签发失败。" }, 500);
+    return errorJson(request, env, "LOGIN_SESSION_ISSUE_FAILED", "登录会话签发失败。", 500);
   }
   return json(request, env, authPayload({ ...verified.session, user: verified.user }));
 }
@@ -419,37 +510,51 @@ export function isSupportedAudio(file: File) {
 }
 
 export async function handleTranscribe(request: Request, env: WorkerEnv) {
-  if (request.method !== "POST") return json(request, env, { message: "Method not allowed" }, 405);
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
   const authorization = bearerToken(request);
-  if (!authorization) return json(request, env, { message: "请先登录。" }, 401);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const configured = requireEnv(env, [
     "SUPABASE_URL",
     "SUPABASE_SECRET_KEY",
   ] as const);
   const supabaseConfig = publicSupabaseConfig(env);
   if (!configured || !supabaseConfig || !env.AI) {
-    return json(request, env, { message: "语音服务尚未配置。" }, 503);
+    return errorJson(
+      request,
+      env,
+      "TRANSCRIPTION_SERVICE_NOT_CONFIGURED",
+      "语音服务尚未配置。",
+      503,
+    );
   }
 
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(declaredLength) && declaredLength > 22 * 1024 * 1024) {
-    return json(request, env, { message: "录音不能超过 20MB。" }, 413);
+    return errorJson(request, env, "AUDIO_TOO_LARGE", "录音不能超过 20MB。", 413);
   }
 
   const supabase = userClient(supabaseConfig, authorization);
   const userId = await verifiedUserId(supabase, authorization);
-  if (!userId) return json(request, env, { message: "登录已失效。" }, 401);
+  if (!userId) return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return json(request, env, { message: "没有收到录音文件。" }, 400);
+    return errorJson(request, env, "AUDIO_REQUIRED", "没有收到录音文件。", 400);
   }
   if (file.size > 20 * 1024 * 1024) {
-    return json(request, env, { message: "录音不能超过 20MB。" }, 413);
+    return errorJson(request, env, "AUDIO_TOO_LARGE", "录音不能超过 20MB。", 413);
   }
   if (!isSupportedAudio(file)) {
-    return json(request, env, { message: "当前录音格式不受支持，请改用文字输入。" }, 415);
+    return errorJson(
+      request,
+      env,
+      "AUDIO_FORMAT_UNSUPPORTED",
+      "当前录音格式不受支持，请改用文字输入。",
+      415,
+    );
   }
 
   const admin = adminClient(configured);
@@ -457,12 +562,34 @@ export async function handleTranscribe(request: Request, env: WorkerEnv) {
     "internal_reserve_transcription",
     { p_user_id: userId },
   );
-  if (quotaError) return json(request, env, { message: "暂时无法确认语音额度，请稍后重试。" }, 503);
-  if (!allowed) return json(request, env, { message: "本小时转写次数已用完，请稍后再试。" }, 429);
+  if (quotaError) {
+    return errorJson(
+      request,
+      env,
+      "TRANSCRIPTION_QUOTA_UNAVAILABLE",
+      "暂时无法确认语音额度，请稍后重试。",
+      503,
+    );
+  }
+  if (!allowed) {
+    return errorJson(
+      request,
+      env,
+      "TRANSCRIPTION_RATE_LIMITED",
+      "本小时转写次数已用完，请稍后再试。",
+      429,
+    );
+  }
 
   try {
     return json(request, env, { text: await transcribeAudio(env, file) });
   } catch {
-    return json(request, env, { message: "录音转写暂时不可用，请改用文字输入。" }, 502);
+    return errorJson(
+      request,
+      env,
+      "TRANSCRIPTION_FAILED",
+      "录音转写暂时不可用，请改用文字输入。",
+      502,
+    );
   }
 }
