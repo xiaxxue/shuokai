@@ -103,6 +103,7 @@ assert.match(conversationHtml, /<meta name="viewport"/i, "conversation-demo: mis
 assert.doesNotMatch(conversationHtml, /<(script|link|img)[^>]+(?:src|href)=["']https?:/i, "conversation-demo: must not require the network");
 assert.doesNotMatch(conversationHtml, /(service_role|SUPABASE_SECRET|APP_SECRET|sk-[A-Za-z0-9_-]{16,})/, "conversation-demo: possible secret marker");
 assert.doesNotMatch(conversationHtml, /让\s*AI\s*问一句/, "conversation-demo: AI reply must not require a manual trigger");
+assert.doesNotMatch(conversationHtml, /你说到哪里|AI\s*就从哪里陪你往下理/, "conversation-demo: must open directly in the conversation");
 for (const marker of ["id=\"input\"", "id=\"send\"", "id=\"voice\"", "id=\"finish\"", "id=\"candidate-slot\"", "我还没说完，回到对话", "仍未发送"]) {
   assert.ok(conversationHtml.includes(marker), `conversation-demo: missing interaction marker ${marker}`);
 }

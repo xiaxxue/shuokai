@@ -107,30 +107,6 @@
       min-height: calc(100svh - 210px);
       padding: 24px 18px 220px;
     }
-    .room-intro { margin-bottom: 28px; animation: arrive .45s ease-out both; }
-    .eyebrow {
-      margin: 0 0 10px;
-      color: var(--coral);
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: .15em;
-    }
-    h1 {
-      max-width: 340px;
-      margin: 0;
-      font-size: clamp(30px, 9vw, 40px);
-      font-weight: 700;
-      line-height: 1.23;
-      letter-spacing: -.035em;
-    }
-    .intro-copy {
-      max-width: 330px;
-      margin: 12px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.7;
-    }
-
     .thread { display: flex; flex-direction: column; gap: 23px; }
     .message { position: relative; animation: arrive .36s ease-out both; }
     .speaker {
@@ -393,11 +369,6 @@
     </header>
 
     <main class="conversation">
-      <section class="room-intro" id="room-intro">
-        <p class="eyebrow">先讲，不用先组织</p>
-        <h1>你说到哪里，<br />AI 就从哪里陪你往下理。</h1>
-        <p class="intro-copy">直接在下面打字发送，或点“说”模拟一段语音。这里没有题目清单，也不用主动触发 AI 提问。</p>
-      </section>
       <div class="thread" id="thread" role="log" aria-live="polite" aria-label="与 AI 的私人对话"></div>
       <div id="candidate-slot"></div>
     </main>
@@ -556,7 +527,6 @@
       addMessage("user", clean);
       input.value = "";
       resizeInput();
-      document.getElementById("room-intro").style.display = "none";
       finish.classList.add("visible");
       queueReply(clean);
     }
