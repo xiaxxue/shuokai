@@ -6,7 +6,7 @@
         <text class="turn-pill">第 {{ activeTurn }} / {{ maxTurns }} 轮</text>
       </view>
       <text class="title">不用一次说完整。</text>
-      <text class="description">AI 每次只追问一个会影响表达准确性的问题。你的回答只用于更新私人草稿，不会原样发给对方。</text>
+      <text class="description">AI 每次只追问一个会影响表达准确性的问题。回答后它会更新私人草稿；信息足够，或你选择直接确认时，才进入表达卡。</text>
     </view>
 
     <view v-if="safetyDisposition !== 'ALLOW'" class="safety-note">

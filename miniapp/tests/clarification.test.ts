@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   clarificationConversationMessages,
   composeClarificationSource,
+  expressionCandidateClarificationQuestion,
   nextClarificationQuestion,
+  optionalClarificationQuestion,
   parseClarificationSource,
   sanitizeClarificationTurns,
   shouldPreserveDraftOnAiExit,
@@ -17,6 +19,25 @@ describe("private AI clarification", () => {
       ...turns,
       { question: uncertainties[1], answer: "我在意被尊重。" },
       { question: "你希望怎样？", answer: "希望他降低音量。" },
+    ])).toBe("");
+  });
+
+  it("offers an open-ended continuation only while another private turn remains", () => {
+    expect(optionalClarificationQuestion([])).toContain("具体细节");
+    expect(optionalClarificationQuestion([
+      { question: "发生了什么？", answer: "我们在视频通话。" },
+    ])).toContain("不像你真正想说的话");
+    expect(optionalClarificationQuestion([
+      { question: "一？", answer: "一" },
+      { question: "二？", answer: "二" },
+      { question: "三？", answer: "三" },
+    ])).toBe("");
+  });
+
+  it("never skips the private chat for an initial candidate with no model question", () => {
+    expect(expressionCandidateClarificationQuestion([], [])).toContain("具体细节");
+    expect(expressionCandidateClarificationQuestion([], [
+      { question: "发生了什么？", answer: "我们在视频通话。" },
     ])).toBe("");
   });
 

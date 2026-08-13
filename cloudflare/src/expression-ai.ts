@@ -51,6 +51,8 @@ export type QueueBatch = {
   messages: QueueMessageEnvelope[];
 };
 
+const privateClarificationMarker = "<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>";
+
 const fieldSchemas: Record<SupportedExpressionMode, Record<string, unknown>> = {
   NVC: {
     observation: { type: "string", maxLength: 3000 },
@@ -173,7 +175,7 @@ export const understandingReviewSchema = {
   },
 } as const;
 
-export function expressionResultSchema(mode: SupportedExpressionMode) {
+export function expressionResultSchema(mode: SupportedExpressionMode, requireClarification = false) {
   const fields = fieldSchemas[mode];
   return {
     type: "object",
@@ -189,7 +191,8 @@ export function expressionResultSchema(mode: SupportedExpressionMode) {
       },
       uncertainties: {
         type: "array",
-        maxItems: 3,
+        ...(requireClarification ? { minItems: 1 } : {}),
+        maxItems: 1,
         items: { type: "string", maxLength: 500 },
       },
       safetyDisposition: {
@@ -221,7 +224,7 @@ export function isExpressionResult(value: unknown, mode: SupportedExpressionMode
     expectedFields.some((key) => typeof fields[key] !== "string" || String(fields[key]).length > 3000)) {
     return false;
   }
-  return candidate.uncertainties.length <= 3 && candidate.uncertainties.every((item) =>
+  return candidate.uncertainties.length <= 1 && candidate.uncertainties.every((item) =>
     typeof item === "string" && item.length <= 500
   );
 }
@@ -423,20 +426,24 @@ export async function generateExpressionCandidate(
   env: WorkerEnv,
   input: { mode: SupportedExpressionMode; sourceText: string },
 ) {
+  const requireClarification = !input.sourceText.includes(privateClarificationMarker);
   return requestStructuredOutput(env, {
     schemaName: `shuokai_${input.mode.toLowerCase()}_expression`,
-    schema: expressionResultSchema(input.mode),
+    schema: expressionResultSchema(input.mode, requireClarification),
     systemText: [
       "你是‘说开’的表达整理助手。只整理用户已经表达的内容，不补造事实、不诊断任何人、不替用户作决定。",
       modeInstruction(input.mode),
-      "uncertainties 是给用户看的后续追问，最多 3 个，按重要性排序；每项只问一件会影响表达准确性的关键信息，写成简短、具体、非诱导的中文问句。",
-      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。信息足够时 uncertainties 返回空数组。",
+      "uncertainties 是给用户看的下一句追问。只返回当前最重要的 1 个问题，不要一次列多个；只问一件会影响表达准确性的关键信息，写成简短、具体、非诱导的中文问句。",
+      "第一次整理原话时 uncertainties 必须包含 1 个基于原话的背景问题，让用户先通过对话补全信息，再确认表达卡。",
+      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。至少完成一轮问答后，信息足够时 uncertainties 才可以返回空数组。",
       "不要索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
+      "普通的难过、嫉妒、失望、争吵、关系不安、分手或情感困扰本身不是阻止分享的理由，通常应为 ALLOW。只有分享本身可能带来现实危险时才使用 WARN；只有明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。",
       "输出中文。字段不足时留空，让用户本人补充和确认。",
     ].join("\n"),
     userData: { sourceText: input.sourceText },
     maxTokens: 1800,
-    validate: (value) => isExpressionResult(value, input.mode),
+    validate: (value) => isExpressionResult(value, input.mode) &&
+      (!requireClarification || (value as { uncertainties: unknown[] }).uncertainties.length === 1),
   });
 }
 

@@ -457,8 +457,10 @@ import {
 } from "../../domain/expression";
 import {
   composeClarificationSource,
+  expressionCandidateClarificationQuestion,
   MAX_CLARIFICATION_TURNS,
   nextClarificationQuestion,
+  optionalClarificationQuestion,
   parseClarificationSource,
   shouldPreserveDraftOnAiExit,
   type ClarificationTurn,
@@ -666,7 +668,10 @@ const nextLabel = computed(() => {
 });
 const backLabel = computed(() => {
   if (stage.value !== "EXPRESSION_REVIEW") return "返回修改";
-  return expressionReviewIsSummary.value ? "继续补充" : "返回表达卡";
+  if (!expressionReviewIsSummary.value) return "返回表达卡";
+  return clarificationTurns.value.length < MAX_CLARIFICATION_TURNS
+    ? "继续和 AI 说"
+    : "修改表达卡";
 });
 const reviewDateLabel = computed(() => formatReviewDate(reviewAt.value));
 const ownAccepted = computed(() => {
@@ -741,8 +746,25 @@ function openExpressionReview(showSummary = true) {
   stage.value = "EXPRESSION_REVIEW";
 }
 
+function addOptionalClarificationQuestion() {
+  const question = optionalClarificationQuestion(clarificationTurns.value);
+  if (!question) return "";
+  editableExpression.value = {
+    ...editableExpression.value,
+    uncertainties: [question],
+  };
+  return question;
+}
+
 function openExpressionCandidate() {
-  if (currentClarificationQuestion.value) stage.value = "CLARIFICATION_CHAT";
+  const question = expressionCandidateClarificationQuestion(
+    editableExpression.value.uncertainties,
+    clarificationTurns.value,
+  );
+  if (question && !currentClarificationQuestion.value) {
+    editableExpression.value = { ...editableExpression.value, uncertainties: [question] };
+  }
+  if (question) stage.value = "CLARIFICATION_CHAT";
   else openExpressionReview();
 }
 
@@ -1235,7 +1257,9 @@ async function pollExpressionJob(jobId: string) {
       busy.value = false;
       openExpressionCandidate();
       setNotice("success", currentClarificationQuestion.value
-        ? "AI 已更新私人草稿，还有一个问题想向你确认。 "
+        ? clarificationTurns.value.length
+          ? "AI 已结合你的补充更新草稿，还有一个问题想向你确认。 "
+          : "AI 已整理第一版，想先向你确认一个重要背景。 "
         : clarificationTurns.value.length
           ? "AI 已结合你的补充整理成表达卡，请确认或继续补充。 "
           : "AI 已整理成可编辑的表达卡，请确认或继续补充。 ");
@@ -1462,12 +1486,24 @@ function goBack() {
       return;
     }
     clarificationSkipped.value = false;
-    if (shouldResumeExpressionClarification(currentClarificationQuestion.value)) {
+    const pendingQuestion = currentClarificationQuestion.value;
+    if (shouldResumeExpressionClarification(
+      pendingQuestion,
+      clarificationTurns.value.length,
+      MAX_CLARIFICATION_TURNS,
+    )) {
+      const question = pendingQuestion || addOptionalClarificationQuestion();
+      if (!question) return;
       stage.value = "CLARIFICATION_CHAT";
-      setNotice("info", "继续和 AI 补充。刚才的对话与表达卡都已保留。 ");
+      setNotice(
+        "info",
+        pendingQuestion
+          ? "继续回答 AI。刚才的对话与表达卡都已保留。 "
+          : "AI 没有必须追问的问题；你仍可以继续告诉它遗漏的背景。 ",
+      );
     } else {
       expressionReviewStep.value = 0;
-      setNotice("info", "AI 追问已完成。你可以直接补充或修改表达卡内容。 ");
+      setNotice("info", "三轮私人对话已完成。你仍可以直接修改表达卡内容。 ");
     }
     return;
   }
