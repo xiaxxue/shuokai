@@ -5,7 +5,7 @@
         v-if="stage !== 'WELCOME'"
         class="room-back"
         aria-label="返回首页"
-        :disabled="busy"
+        :disabled="busy && (stage !== 'CLARIFICATION_CHAT' || !aiJobId)"
         @tap="returnToWelcome"
       >
         <text class="room-back-arrow">←</text>
@@ -225,17 +225,27 @@
         v-else-if="stage === 'EXPRESSION_REVIEW'"
         :model-value="editableExpression"
         :source-text="transcript"
-        :clarification-question="currentClarificationQuestion"
-        :clarification-answer="clarificationAnswer"
-        :clarification-turns="clarificationTurns"
-        :clarification-turn-count="clarificationTurns.length"
-        :clarification-max-turns="MAX_CLARIFICATION_TURNS"
-        :clarification-busy="busy"
+        :current-step="expressionReviewStep"
         @update-field="updateExpressionField"
         @change-mode="changeExpressionMode"
-        @update:clarification-answer="clarificationAnswer = $event"
-        @continue-clarification="continueClarification"
-        @skip-clarification="skipClarification"
+        @edit-step="expressionReviewStep = $event"
+      />
+
+      <ExpressionClarification
+        v-else-if="stage === 'CLARIFICATION_CHAT'"
+        :question="currentClarificationQuestion"
+        :answer="clarificationAnswer"
+        :turns="clarificationTurns"
+        :max-turns="MAX_CLARIFICATION_TURNS"
+        :busy="busy"
+        :source-text="transcript"
+        :mode-title="currentExpressionOption.title"
+        :safety-disposition="editableExpression.safetyDisposition"
+        :safety-message="editableExpression.safetyMessage"
+        @update:answer="clarificationAnswer = $event"
+        @continue="continueClarification"
+        @finish="skipClarification"
+        @change-mode="changeExpressionMode"
       />
 
       <view v-else-if="stage === 'PAUSED'" class="screen paused-screen">
@@ -433,10 +443,12 @@ import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
 import NvcStepEditor from "../../components/NvcStepEditor.vue";
 import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
+import ExpressionClarification from "../../components/ExpressionClarification.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
 import {
   createEditableExpression,
+  expressionModeOption,
   expressionIsComplete,
   expressionSharePayload,
   parseAiExpressionCandidate,
@@ -451,6 +463,11 @@ import {
   shouldPreserveDraftOnAiExit,
   type ClarificationTurn,
 } from "../../domain/clarification";
+import {
+  expressionReviewIsSummary as isExpressionReviewSummary,
+  nextExpressionReviewStep,
+  previousExpressionReviewStep,
+} from "../../domain/expression-review";
 import {
   loginForPlatform,
   requestExpressionOrganization,
@@ -484,6 +501,7 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   RECORD: { step: 2, label: "表达" },
   MODE_SELECT: { step: 2, label: "路径" },
   AI_PENDING: { step: 2, label: "AI 整理" },
+  CLARIFICATION_CHAT: { step: 2, label: "AI 对话" },
   EXPRESSION_REVIEW: { step: 3, label: "确认" },
   PAUSED: { step: 2, label: "暂停" },
   NVC_OBSERVATION: { step: 2, label: "整理" },
@@ -523,6 +541,7 @@ const aiJobId = ref("");
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
+const expressionReviewStep = ref(0);
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -603,14 +622,26 @@ const showBottomBar = computed(() => {
 const currentClarificationQuestion = computed(() => clarificationSkipped.value
   ? ""
   : nextClarificationQuestion(editableExpression.value.uncertainties, clarificationTurns.value));
+const currentExpressionOption = computed(() => expressionModeOption(editableExpression.value.mode));
+const expressionReviewIsSummary = computed(() => isExpressionReviewSummary(
+  expressionReviewStep.value,
+  currentExpressionOption.value.fields.length,
+));
+const currentExpressionField = computed(() => expressionReviewIsSummary.value
+  ? null
+  : currentExpressionOption.value.fields[expressionReviewStep.value]);
 const canContinue = computed(() => {
   if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
   if (stage.value === "MODE_SELECT") return Boolean(selectedMode.value);
   if (stage.value === "EXPRESSION_REVIEW") {
-    return !currentClarificationQuestion.value &&
-      expressionIsComplete(editableExpression.value) &&
-      editableExpression.value.safetyDisposition !== "BLOCK_SHARE" &&
-      editableExpression.value.safetyDisposition !== "PAUSE";
+    if (!expressionReviewIsSummary.value) {
+      const field = currentExpressionField.value;
+      if (!field) return false;
+      if (editableExpression.value.mode === "BOUNDARY" && field.key === "reason") return true;
+      return Boolean(editableExpression.value.fields[field.key]?.trim());
+    }
+    return expressionIsComplete(editableExpression.value) &&
+      !["BLOCK_SHARE", "PAUSE"].includes(editableExpression.value.safetyDisposition);
   }
   if (activeNvcCard.value) return perspective[activeNvcCard.value.key].trim().length > 0;
   if (stage.value === "REVIEW") return Object.values(perspective).every((value) => value.trim().length > 0);
@@ -620,7 +651,12 @@ const canContinue = computed(() => {
 const nextLabel = computed(() => {
   if (stage.value === "RECORD") return "选择表达路径";
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
-  if (stage.value === "EXPRESSION_REVIEW") return "确认并分享这些卡片";
+  if (stage.value === "EXPRESSION_REVIEW") {
+    if (expressionReviewIsSummary.value) return `确认并分享 ${currentExpressionOption.value.fields.length} 张卡片`;
+    return expressionReviewStep.value === currentExpressionOption.value.fields.length - 1
+      ? "查看分享总览"
+      : "确认这一项，继续";
+  }
   if (activeNvcCard.value) {
     const nextStage = nextNvcStage(activeNvcCard.value.stage);
     const nextCard = nextStage ? nvcCardForStage(nextStage) : null;
@@ -696,6 +732,16 @@ function resetClarification(skipped = false) {
   clarificationSkipped.value = skipped;
 }
 
+function openExpressionReview() {
+  expressionReviewStep.value = 0;
+  stage.value = "EXPRESSION_REVIEW";
+}
+
+function openExpressionCandidate() {
+  if (currentClarificationQuestion.value) stage.value = "CLARIFICATION_CHAT";
+  else openExpressionReview();
+}
+
 function resetPrivateWorkspace() {
   workspaceGeneration += 1;
   if (recording.value) stopRecording();
@@ -711,6 +757,7 @@ function resetPrivateWorkspace() {
   editableExpression.value = createEditableExpression("NVC");
   workspaceRevision.value = 0;
   aiJobId.value = "";
+  expressionReviewStep.value = 0;
   resetClarification();
   sharedUnderstanding.reset();
   if (aiPollTimer) clearTimeout(aiPollTimer);
@@ -770,8 +817,11 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.clarificationAnswer !== undefined) clarificationAnswer.value = draft.clarificationAnswer;
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
   if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
+  if (stage.value === "EXPRESSION_REVIEW" && currentClarificationQuestion.value) {
+    stage.value = "CLARIFICATION_CHAT";
+  }
   draftSaveState.value = "saved";
-  if (draft.aiJobId && ["AI_PENDING", "EXPRESSION_REVIEW"].includes(draft.editorStage ?? "")) {
+  if (draft.aiJobId && ["AI_PENDING", "CLARIFICATION_CHAT", "EXPRESSION_REVIEW"].includes(draft.editorStage ?? "")) {
     busy.value = true;
     void pollExpressionJob(draft.aiJobId);
   }
@@ -821,11 +871,12 @@ async function loadSnapshot(roomSession: RoomSession) {
     if (workspace.flowState === "PAUSED") authoritativeEditorStage = "PAUSED";
     else if (workspace.selectedMode && workspace.selectedMode !== "PAUSE" && workspace.aiCandidate) {
       editableExpression.value = parseAiExpressionCandidate(workspace.aiCandidate, workspace.selectedMode);
-      authoritativeEditorStage = "EXPRESSION_REVIEW";
+      authoritativeEditorStage = currentClarificationQuestion.value ? "CLARIFICATION_CHAT" : "EXPRESSION_REVIEW";
     }
   }
   restoreEditorDraft(roomSession, minimumWorkspaceRevision);
-  if (authoritativeEditorStage) stage.value = authoritativeEditorStage;
+  if (authoritativeEditorStage === "PAUSED") stage.value = authoritativeEditorStage;
+  else if (authoritativeEditorStage) openExpressionCandidate();
 }
 
 function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
@@ -1049,6 +1100,7 @@ function updateExpressionField(key: string, value: string) {
 function changeExpressionMode() {
   stopExpressionJobPolling();
   resetClarification();
+  expressionReviewStep.value = 0;
   stage.value = "MODE_SELECT";
 }
 
@@ -1062,7 +1114,7 @@ function returnToExistingExpressionDraft(kind: Notice["kind"], text: string) {
   stopExpressionJobPolling();
   clarificationAnswer.value = "";
   clarificationSkipped.value = true;
-  stage.value = "EXPRESSION_REVIEW";
+  openExpressionReview();
   busy.value = false;
   setNotice(kind, text);
 }
@@ -1072,7 +1124,7 @@ function fallBackToManualExpression() {
   stopExpressionJobPolling();
   editableExpression.value = createEditableExpression(selectedMode.value);
   resetClarification(true);
-  stage.value = "EXPRESSION_REVIEW";
+  openExpressionReview();
   busy.value = false;
   setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
 }
@@ -1114,7 +1166,7 @@ async function beginManualExpression() {
     workspaceRevision.value = saved.revision;
     editableExpression.value = empty;
     resetClarification(true);
-    stage.value = "EXPRESSION_REVIEW";
+    openExpressionReview();
     setNotice("info", "已进入手动填写，AI 不会读取这次原话。 ");
   } catch (error) {
     setNotice("error", message(error, "私人草稿没有保存，请稍后重试。"));
@@ -1126,6 +1178,7 @@ async function beginManualExpression() {
 function skipClarification() {
   clarificationSkipped.value = true;
   clarificationAnswer.value = "";
+  openExpressionReview();
   setNotice("info", "已保留当前草稿；AI 不会替你猜没有补充的部分。 ");
 }
 
@@ -1152,12 +1205,11 @@ async function continueClarification() {
     clarificationSkipped.value = false;
     workspaceRevision.value = job.revision;
     aiJobId.value = job.jobId;
-    stage.value = "EXPRESSION_REVIEW";
     void pollExpressionJob(job.jobId);
   } catch (error) {
     clarificationTurns.value = previousTurns;
     clarificationAnswer.value = answer;
-    setNotice("error", message(error, "这次补充没有保存，请稍后重试。"));
+    setNotice("error", message(error, "这次补充没有保存。请检查网络后再次发送，刚才的回答仍然保留。"));
   } finally {
     if (!aiJobId.value) busy.value = false;
   }
@@ -1168,15 +1220,21 @@ async function pollExpressionJob(jobId: string) {
   try {
     const status = await roomApi.aiJobStatus(jobId);
     if (aiJobId.value !== jobId) return;
+    if (stage.value === "WELCOME") {
+      busy.value = false;
+      return;
+    }
     if (status.status === "SUCCEEDED") {
       if (!selectedMode.value || selectedMode.value === "PAUSE") return;
       editableExpression.value = parseAiExpressionCandidate(status.result, selectedMode.value);
       aiJobId.value = "";
-      stage.value = "EXPRESSION_REVIEW";
       busy.value = false;
-      setNotice("success", clarificationTurns.value.length
-        ? "AI 已结合你的补充重新整理，请逐项确认。 "
-        : "AI 已整理成可编辑草稿，请逐项确认。 ");
+      openExpressionCandidate();
+      setNotice("success", currentClarificationQuestion.value
+        ? "AI 已更新私人草稿，还有一个问题想向你确认。 "
+        : clarificationTurns.value.length
+          ? "AI 已结合你的补充整理完成，现在逐张确认。 "
+          : "AI 已整理成可编辑草稿，现在逐张确认。 ");
       return;
     }
     if (["FAILED_FINAL", "STALE", "CANCELED"].includes(status.status)) {
@@ -1205,6 +1263,14 @@ function confirmPause() {
 
 async function next() {
   if (!room.value || !canContinue.value) return;
+  if (stage.value === "EXPRESSION_REVIEW" && !expressionReviewIsSummary.value) {
+    expressionReviewStep.value = nextExpressionReviewStep(
+      expressionReviewStep.value,
+      currentExpressionOption.value.fields.length,
+    );
+    return;
+  }
+  const attemptedStage = stage.value;
   clearNotice();
   busy.value = true;
   try {
@@ -1303,7 +1369,12 @@ async function next() {
       setNotice("success", "实验已提出，等待双方分别确认。 ");
     }
   } catch (error) {
-    setNotice("error", message(error, "操作没有完成，请稍后重试。"));
+    setNotice("error", message(
+      error,
+      attemptedStage === "EXPRESSION_REVIEW"
+        ? "卡片没有分享。请检查网络后重试，私人草稿仍然保留。"
+        : "操作没有完成，请稍后重试。",
+    ));
   } finally {
     busy.value = false;
   }
@@ -1384,6 +1455,10 @@ async function acceptAgreement() {
 
 function goBack() {
   clearNotice();
+  if (stage.value === "EXPRESSION_REVIEW" && expressionReviewStep.value > 0) {
+    expressionReviewStep.value = previousExpressionReviewStep(expressionReviewStep.value);
+    return;
+  }
   stage.value = previousStage(stage.value);
 }
 
@@ -1391,6 +1466,9 @@ function returnToWelcome() {
   if (recording.value) stopRecording();
   recording.value = false;
   flushEditorDraft();
+  if (aiPollTimer) clearTimeout(aiPollTimer);
+  aiPollTimer = null;
+  busy.value = false;
   clearNotice();
   stage.value = "WELCOME";
 }
