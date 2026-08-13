@@ -198,7 +198,7 @@
         <view v-if="aiJobId" class="ai-steps">
           <view class="ai-step done"><text>✓</text><text>读取本次原话</text></view>
           <view class="ai-step active"><text class="processing-dot" /><text>整理表达卡</text></view>
-          <view class="ai-step"><text>3</text><text>等待本人确认</text></view>
+          <view class="ai-step"><text>3</text><text>等待本人确认表达卡</text></view>
         </view>
         <view v-else class="ai-steps">
           <view class="ai-step done"><text>✓</text><text>双方表达已确认</text></view>
@@ -406,7 +406,7 @@
     </scroll-view>
 
     <view v-if="showBottomBar" class="bottom-bar">
-      <button v-if="canNavigateBack(stage)" class="back" @tap="goBack">返回修改</button>
+      <button v-if="canNavigateBack(stage)" class="back" @tap="goBack">{{ backLabel }}</button>
       <view v-else class="back-placeholder" />
       <button
         class="primary next"
@@ -465,8 +465,8 @@ import {
 } from "../../domain/clarification";
 import {
   expressionReviewIsSummary as isExpressionReviewSummary,
-  nextExpressionReviewStep,
-  previousExpressionReviewStep,
+  expressionReviewSummaryStep,
+  shouldResumeExpressionClarification,
 } from "../../domain/expression-review";
 import {
   loginForPlatform,
@@ -652,10 +652,8 @@ const nextLabel = computed(() => {
   if (stage.value === "RECORD") return "选择表达路径";
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
   if (stage.value === "EXPRESSION_REVIEW") {
-    if (expressionReviewIsSummary.value) return `确认并分享 ${currentExpressionOption.value.fields.length} 张卡片`;
-    return expressionReviewStep.value === currentExpressionOption.value.fields.length - 1
-      ? "查看分享总览"
-      : "确认这一项，继续";
+    if (expressionReviewIsSummary.value) return "确认并分享这张表达卡";
+    return "保存修改，返回表达卡";
   }
   if (activeNvcCard.value) {
     const nextStage = nextNvcStage(activeNvcCard.value.stage);
@@ -665,6 +663,10 @@ const nextLabel = computed(() => {
   if (stage.value === "REVIEW") return "确认并分享";
   if (stage.value === "COMMON") return "提出 7 天实验";
   return "继续";
+});
+const backLabel = computed(() => {
+  if (stage.value !== "EXPRESSION_REVIEW") return "返回修改";
+  return expressionReviewIsSummary.value ? "继续补充" : "返回表达卡";
 });
 const reviewDateLabel = computed(() => formatReviewDate(reviewAt.value));
 const ownAccepted = computed(() => {
@@ -732,8 +734,10 @@ function resetClarification(skipped = false) {
   clarificationSkipped.value = skipped;
 }
 
-function openExpressionReview() {
-  expressionReviewStep.value = 0;
+function openExpressionReview(showSummary = true) {
+  expressionReviewStep.value = showSummary
+    ? expressionReviewSummaryStep(currentExpressionOption.value.fields.length)
+    : 0;
   stage.value = "EXPRESSION_REVIEW";
 }
 
@@ -1124,7 +1128,7 @@ function fallBackToManualExpression() {
   stopExpressionJobPolling();
   editableExpression.value = createEditableExpression(selectedMode.value);
   resetClarification(true);
-  openExpressionReview();
+  openExpressionReview(false);
   busy.value = false;
   setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
 }
@@ -1166,7 +1170,7 @@ async function beginManualExpression() {
     workspaceRevision.value = saved.revision;
     editableExpression.value = empty;
     resetClarification(true);
-    openExpressionReview();
+    openExpressionReview(false);
     setNotice("info", "已进入手动填写，AI 不会读取这次原话。 ");
   } catch (error) {
     setNotice("error", message(error, "私人草稿没有保存，请稍后重试。"));
@@ -1179,7 +1183,7 @@ function skipClarification() {
   clarificationSkipped.value = true;
   clarificationAnswer.value = "";
   openExpressionReview();
-  setNotice("info", "已保留当前草稿；AI 不会替你猜没有补充的部分。 ");
+  setNotice("info", "已保留当前草稿。请确认表达卡；需要时仍可继续补充。 ");
 }
 
 async function continueClarification() {
@@ -1233,8 +1237,8 @@ async function pollExpressionJob(jobId: string) {
       setNotice("success", currentClarificationQuestion.value
         ? "AI 已更新私人草稿，还有一个问题想向你确认。 "
         : clarificationTurns.value.length
-          ? "AI 已结合你的补充整理完成，现在逐张确认。 "
-          : "AI 已整理成可编辑草稿，现在逐张确认。 ");
+          ? "AI 已结合你的补充整理成表达卡，请确认或继续补充。 "
+          : "AI 已整理成可编辑的表达卡，请确认或继续补充。 ");
       return;
     }
     if (["FAILED_FINAL", "STALE", "CANCELED"].includes(status.status)) {
@@ -1264,10 +1268,7 @@ function confirmPause() {
 async function next() {
   if (!room.value || !canContinue.value) return;
   if (stage.value === "EXPRESSION_REVIEW" && !expressionReviewIsSummary.value) {
-    expressionReviewStep.value = nextExpressionReviewStep(
-      expressionReviewStep.value,
-      currentExpressionOption.value.fields.length,
-    );
+    expressionReviewStep.value = expressionReviewSummaryStep(currentExpressionOption.value.fields.length);
     return;
   }
   const attemptedStage = stage.value;
@@ -1455,8 +1456,19 @@ async function acceptAgreement() {
 
 function goBack() {
   clearNotice();
-  if (stage.value === "EXPRESSION_REVIEW" && expressionReviewStep.value > 0) {
-    expressionReviewStep.value = previousExpressionReviewStep(expressionReviewStep.value);
+  if (stage.value === "EXPRESSION_REVIEW") {
+    if (!expressionReviewIsSummary.value) {
+      expressionReviewStep.value = expressionReviewSummaryStep(currentExpressionOption.value.fields.length);
+      return;
+    }
+    clarificationSkipped.value = false;
+    if (shouldResumeExpressionClarification(currentClarificationQuestion.value)) {
+      stage.value = "CLARIFICATION_CHAT";
+      setNotice("info", "继续和 AI 补充。刚才的对话与表达卡都已保留。 ");
+    } else {
+      expressionReviewStep.value = 0;
+      setNotice("info", "AI 追问已完成。你可以直接补充或修改表达卡内容。 ");
+    }
     return;
   }
   stage.value = previousStage(stage.value);

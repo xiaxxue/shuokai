@@ -2,11 +2,11 @@
   <view class="review-screen">
     <view class="review-intro">
       <view class="intro-meta">
-        <text class="eyebrow">本人确认后才会分享</text>
-        <text class="step-pill">{{ isSummary ? "分享总览" : `${currentStep + 1} / ${option.fields.length}` }}</text>
+        <text class="eyebrow">{{ isSummary ? "AI 对话已整理完成" : "修改表达卡" }}</text>
+        <text class="step-pill">{{ isSummary ? "待你确认" : `${currentStep + 1} / ${option.fields.length}` }}</text>
       </view>
-      <text class="title">{{ isSummary ? "分享前，再看一遍。" : "一次只确认一张卡。" }}</text>
-      <text class="description">{{ isSummary ? "对方只会看到下面这些卡片，不会看到你的原话和 AI 对话。" : "这不是 AI 给出的答案。请把文字改到真正符合你的意思，再继续。" }}</text>
+      <text class="title">{{ isSummary ? "这是根据刚才对话整理的表达卡。" : `修改「${activeField?.label ?? "表达"}」` }}</text>
+      <text class="description">{{ isSummary ? "请确认它准确表达了你的意思。你可以修改任一部分，也可以继续补充；确认后才会分享给对方。" : "把文字改到真正符合你的意思。保存后会回到整张表达卡，再由你确认。" }}</text>
     </view>
 
     <view v-if="modelValue.safetyDisposition !== 'ALLOW'" class="safety-note">
@@ -54,8 +54,8 @@
 
     <view v-else class="share-summary">
       <view class="summary-heading">
-        <text>对方将看到</text>
-        <text>{{ option.fields.length }} 张表达卡</text>
+        <text>你的表达卡</text>
+        <text>{{ option.fields.length }} 个部分 · 点击可修改</text>
       </view>
       <view class="summary-list">
         <button
@@ -77,7 +77,7 @@
         <text class="privacy-mark">私</text>
         <view>
           <text class="privacy-title">仍然只属于你的内容</text>
-          <text>原话、AI 追问与中间草稿不会进入共同空间。分享后对方可能已经阅读，撤回不能保证对方忘记已看到的内容。</text>
+          <text>原话、AI 追问与中间草稿不会进入共同空间。只有这张表达卡会在你确认后分享；对方阅读后无法保证完全撤回。</text>
         </view>
       </view>
     </view>
