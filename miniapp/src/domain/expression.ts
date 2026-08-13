@@ -142,6 +142,24 @@ export function expressionModeOption(mode: ExpressionMode) {
   return expressionModeOptions.find((option) => option.mode === mode) ?? expressionModeOptions[0];
 }
 
+export function expressionFieldIsOptional(mode: ExpressionMode, fieldKey: string) {
+  return mode === "BOUNDARY" && fieldKey === "reason";
+}
+
+export type ExpressionFieldProgress = ExpressionField & {
+  value: string;
+  optional: boolean;
+  complete: boolean;
+};
+
+export function expressionFieldProgress(expression: EditableExpression): ExpressionFieldProgress[] {
+  return expressionModeOption(expression.mode).fields.map((field) => {
+    const value = expression.fields[field.key]?.trim() ?? "";
+    const optional = expressionFieldIsOptional(expression.mode, field.key);
+    return { ...field, value, optional, complete: optional || Boolean(value) };
+  });
+}
+
 export function createEditableExpression(mode: ExpressionMode): EditableExpression {
   return {
     mode,
@@ -188,10 +206,7 @@ export function parseAiExpressionCandidate(value: unknown, expectedMode: Express
 
 export function expressionIsComplete(expression: EditableExpression) {
   if (expression.mode === "PAUSE") return true;
-  const requiredFields = expressionModeOption(expression.mode).fields.filter((field) =>
-    !(expression.mode === "BOUNDARY" && field.key === "reason")
-  );
-  return requiredFields.every((field) => expression.fields[field.key]?.trim());
+  return expressionFieldProgress(expression).every((field) => field.complete);
 }
 
 export function expressionSharePayload(expression: EditableExpression) {

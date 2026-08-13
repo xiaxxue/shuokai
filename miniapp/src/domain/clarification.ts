@@ -14,6 +14,17 @@ export type ClarificationMessage = {
   content: string;
 };
 
+type ClarificationExpression = {
+  fields: Readonly<Record<string, string>>;
+};
+
+type ClarificationField = {
+  key: string;
+  label: string;
+  prompt: string;
+  optional?: boolean;
+};
+
 const optionalClarificationPrompts = [
   "这件事里，还有哪个具体细节会影响别人准确理解你的感受？",
   "现在这张表达卡里，哪一部分还不像你真正想说的话？",
@@ -54,9 +65,26 @@ export function optionalClarificationQuestion(turns: readonly ClarificationTurn[
 export function expressionCandidateClarificationQuestion(
   uncertainties: readonly string[],
   turns: readonly ClarificationTurn[],
+  expression?: ClarificationExpression,
+  fields: readonly ClarificationField[] = [],
 ) {
   return nextClarificationQuestion(uncertainties, turns) ||
+    nextMissingFieldQuestion(expression, fields, turns) ||
     (turns.length === 0 ? optionalClarificationQuestion(turns) : "");
+}
+
+export function nextMissingFieldQuestion(
+  expression: ClarificationExpression | undefined,
+  fields: readonly ClarificationField[],
+  turns: readonly ClarificationTurn[],
+) {
+  if (!expression || turns.length >= MAX_CLARIFICATION_TURNS) return "";
+  const answered = new Set(turns.map((turn) => turn.question.trim()));
+  return fields.flatMap((field) => {
+    if (field.optional || expression.fields[field.key]?.trim()) return [];
+    const question = `表达卡的「${field.label}」还没有补全。${field.prompt}`;
+    return answered.has(question) ? [] : [question];
+  })[0] ?? "";
 }
 
 export function clarificationConversationMessages(
