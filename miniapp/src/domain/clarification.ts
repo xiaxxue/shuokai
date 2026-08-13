@@ -14,6 +14,12 @@ export type ClarificationMessage = {
   content: string;
 };
 
+const optionalClarificationPrompts = [
+  "这件事里，还有哪个具体细节会影响别人准确理解你的感受？",
+  "现在这张表达卡里，哪一部分还不像你真正想说的话？",
+  "如果对方只记住一件事，你最希望对方理解什么？",
+] as const;
+
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -38,6 +44,19 @@ export function nextClarificationQuestion(
   return uncertainties
     .map((item) => item.trim())
     .find((item) => item && !answered.has(item)) ?? "";
+}
+
+export function optionalClarificationQuestion(turns: readonly ClarificationTurn[]) {
+  if (turns.length >= MAX_CLARIFICATION_TURNS) return "";
+  return optionalClarificationPrompts[turns.length] ?? "";
+}
+
+export function expressionCandidateClarificationQuestion(
+  uncertainties: readonly string[],
+  turns: readonly ClarificationTurn[],
+) {
+  return nextClarificationQuestion(uncertainties, turns) ||
+    (turns.length === 0 ? optionalClarificationQuestion(turns) : "");
 }
 
 export function clarificationConversationMessages(

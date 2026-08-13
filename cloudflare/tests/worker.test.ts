@@ -428,10 +428,12 @@ test("queue handler correlates unexpected processing failures and explicitly ret
 });
 
 test("each AI schema is strict and path-specific", () => {
-  const nvc = expressionResultSchema("NVC");
+  const nvc = expressionResultSchema("NVC", true);
   assert.equal(nvc.additionalProperties, false);
   assert.deepEqual(nvc.properties.fields.required, ["observation", "feeling", "need", "request"]);
-  assert.equal(nvc.properties.uncertainties.maxItems, 3);
+  assert.equal(nvc.properties.uncertainties.minItems, 1);
+  assert.equal(nvc.properties.uncertainties.maxItems, 1);
+  assert.equal("minItems" in expressionResultSchema("NVC").properties.uncertainties, false);
   const dispute = expressionResultSchema("FACT_DISPUTE");
   assert.deepEqual(dispute.properties.fields.required, ["claim", "basis", "verificationRequest"]);
 });
@@ -557,7 +559,7 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
           choices: [{ message: { content: null, reasoning: JSON.stringify({
             mode: "NVC",
             fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-            uncertainties: [],
+            uncertainties: ["你最希望对方理解这次没有消息对你的哪种影响？"],
             safetyDisposition: "ALLOW",
             safetyMessage: "",
           }) } }],
@@ -581,8 +583,10 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   assert.equal(captured.input?.max_tokens, 1800);
   assert.equal(captured.input?.temperature, 0.1);
   assert.deepEqual(captured.input?.chat_template_kwargs, { enable_thinking: false });
-  assert.match(JSON.stringify(captured.input), /最多 3 个/);
+  assert.match(JSON.stringify(captured.input), /当前最重要的 1 个问题/);
+  assert.match(JSON.stringify(captured.input), /第一次整理原话时 uncertainties 必须包含 1 个/);
   assert.match(JSON.stringify(captured.input), /不要重复已经回答的问题/);
+  assert.match(JSON.stringify(captured.input), /情感困扰本身不是阻止分享的理由/);
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
@@ -665,7 +669,7 @@ test("Workers AI retries invalid structured output once and accounts for both at
   const valid = {
     mode: "NVC",
     fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-    uncertainties: [],
+    uncertainties: ["没有消息时，你最在意什么？"],
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   };
@@ -683,6 +687,49 @@ test("Workers AI retries invalid structured output once and accounts for both at
   assert.equal(calls, 2);
   assert.equal(generated.tokenInput, 20);
   assert.equal(generated.tokenOutput, 40);
+});
+
+test("initial expression generation refuses to skip the first AI question", async () => {
+  let calls = 0;
+  await assert.rejects(generateExpressionCandidate({
+    AI: {
+      async run() {
+        calls += 1;
+        return {
+          response: JSON.stringify({
+            mode: "NVC",
+            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+            uncertainties: [],
+            safetyDisposition: "ALLOW",
+            safetyMessage: "",
+          }),
+        };
+      },
+    },
+  }, { mode: "NVC", sourceText: "周日还没有消息。" }), /CLOUDFLARE_AI_INVALID_OUTPUT/);
+  assert.equal(calls, 2);
+});
+
+test("AI may finish questioning after a private clarification answer", async () => {
+  const generated = await generateExpressionCandidate({
+    AI: {
+      async run() {
+        return {
+          response: JSON.stringify({
+            mode: "NVC",
+            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+            uncertainties: [],
+            safetyDisposition: "ALLOW",
+            safetyMessage: "",
+          }),
+        };
+      },
+    },
+  }, {
+    mode: "NVC",
+    sourceText: "周日还没有消息。\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n{\"privateClarifications\":[]}",
+  });
+  assert.deepEqual((generated.result as { uncertainties: unknown }).uncertainties, []);
 });
 
 test("Workers AI quota exhaustion is reported without an automatic retry", async () => {

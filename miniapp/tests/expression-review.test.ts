@@ -17,8 +17,9 @@ describe("expression card review navigation", () => {
     expect(expressionReviewIsSummary(0, 0)).toBe(true);
   });
 
-  it("returns to AI only when another clarification question exists", () => {
-    expect(shouldResumeExpressionClarification("你还希望对方理解什么？")).toBe(true);
-    expect(shouldResumeExpressionClarification("   ")).toBe(false);
+  it("returns to AI for a pending question or an explicit extra turn", () => {
+    expect(shouldResumeExpressionClarification("你还希望对方理解什么？", 1, 3)).toBe(true);
+    expect(shouldResumeExpressionClarification("   ", 1, 3)).toBe(true);
+    expect(shouldResumeExpressionClarification("   ", 3, 3)).toBe(false);
   });
 });

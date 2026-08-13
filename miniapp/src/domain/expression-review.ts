@@ -6,6 +6,10 @@ export function expressionReviewSummaryStep(fieldCount: number) {
   return Math.max(0, fieldCount);
 }
 
-export function shouldResumeExpressionClarification(question: string) {
-  return Boolean(question.trim());
+export function shouldResumeExpressionClarification(
+  question: string,
+  completedTurns: number,
+  maxTurns: number,
+) {
+  return Boolean(question.trim()) || completedTurns < maxTurns;
 }
