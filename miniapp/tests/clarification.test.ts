@@ -4,6 +4,7 @@ import {
   composeClarificationSource,
   expressionCandidateClarificationQuestion,
   nextClarificationQuestion,
+  nextMissingFieldQuestion,
   optionalClarificationQuestion,
   parseClarificationSource,
   sanitizeClarificationTurns,
@@ -38,6 +39,20 @@ describe("private AI clarification", () => {
     expect(expressionCandidateClarificationQuestion([], [])).toContain("具体细节");
     expect(expressionCandidateClarificationQuestion([], [
       { question: "发生了什么？", answer: "我们在视频通话。" },
+    ])).toBe("");
+  });
+
+  it("targets an unfilled required card field instead of asking a generic question", () => {
+    const fields = [
+      { key: "observation", label: "观察", prompt: "发生了什么？" },
+      { key: "feeling", label: "感受", prompt: "你有什么感受？" },
+      { key: "reason", label: "原因", prompt: "为什么？", optional: true },
+    ];
+    const expression = { fields: { observation: "昨晚没有收到回复", feeling: "", reason: "" } };
+    const question = nextMissingFieldQuestion(expression, fields, []);
+    expect(question).toBe("表达卡的「感受」还没有补全。你有什么感受？");
+    expect(nextMissingFieldQuestion(expression, fields, [
+      { question, answer: "我感到失望。" },
     ])).toBe("");
   });
 

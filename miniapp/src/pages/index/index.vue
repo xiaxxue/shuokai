@@ -260,8 +260,7 @@
         :busy="busy"
         :source-text="transcript"
         :mode-title="currentExpressionOption.title"
-        :safety-disposition="editableExpression.safetyDisposition"
-        :safety-message="editableExpression.safetyMessage"
+        :model-value="editableExpression"
         @update:answer="clarificationAnswer = $event"
         @continue="continueClarification"
         @finish="skipClarification"
@@ -475,6 +474,7 @@ import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
 import InvitationIntro from "../../components/InvitationIntro.vue";
 import {
   createEditableExpression,
+  expressionFieldProgress,
   expressionModeOption,
   expressionIsComplete,
   expressionSharePayload,
@@ -821,6 +821,8 @@ function openExpressionCandidate() {
   const question = expressionCandidateClarificationQuestion(
     editableExpression.value.uncertainties,
     clarificationTurns.value,
+    editableExpression.value,
+    expressionFieldProgress(editableExpression.value),
   );
   if (question && !currentClarificationQuestion.value) {
     editableExpression.value = { ...editableExpression.value, uncertainties: [question] };

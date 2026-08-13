@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createEditableExpression,
+  expressionFieldProgress,
   expressionIsComplete,
   expressionModeOption,
   expressionModeOptions,
@@ -31,6 +32,20 @@ describe("expression modes", () => {
     boundary.fields.selfProtectiveAction = "结束当次谈话";
     expect(expressionIsComplete(boundary)).toBe(true);
     expect(expressionIsComplete(createEditableExpression("PAUSE"))).toBe(true);
+  });
+
+  it("reports the complete card shape and missing state while AI is still clarifying", () => {
+    const nvc = createEditableExpression("NVC");
+    nvc.fields.observation = "视频聊天时，对方大声说另一个女生很好看";
+    nvc.fields.feeling = "难过";
+    expect(expressionFieldProgress(nvc).map(({ key, value, optional, complete }) => ({
+      key, value, optional, complete,
+    }))).toEqual([
+      { key: "observation", value: nvc.fields.observation, optional: false, complete: true },
+      { key: "feeling", value: "难过", optional: false, complete: true },
+      { key: "need", value: "", optional: false, complete: false },
+      { key: "request", value: "", optional: false, complete: false },
+    ]);
   });
 
   it("parses bounded structured AI output and keeps safety state explicit", () => {

@@ -6,12 +6,12 @@
         <text class="turn-pill">第 {{ activeTurn }} / {{ maxTurns }} 轮</text>
       </view>
       <text class="title">不用一次说完整。</text>
-      <text class="description">AI 每次只追问一个会影响表达准确性的问题。回答后它会更新私人草稿；信息足够，或你选择直接确认时，才进入表达卡。</text>
+      <text class="description">下面始终是 AI 当前整理出的完整表达卡。每次回答后，卡片会更新；AI 只继续追问真正缺失或含混的部分。</text>
     </view>
 
-    <view v-if="safetyDisposition !== 'ALLOW'" class="safety-note">
+    <view v-if="modelValue.safetyDisposition !== 'ALLOW'" class="safety-note">
       <text class="safety-title">{{ safetyLabel }}</text>
-      <text>{{ safetyMessage || "继续前，请先确认当前情境是否适合分享。" }}</text>
+      <text>{{ modelValue.safetyMessage || "继续前，请先确认当前情境是否适合分享。" }}</text>
     </view>
 
     <view class="context-bar">
@@ -26,6 +26,40 @@
     <view v-if="sourceOpen" class="private-source">
       <view class="private-source-meta"><text>你的原话</text><text>仅自己可见</text></view>
       <text class="private-source-copy">{{ sourceText }}</text>
+    </view>
+
+    <view class="draft-card" aria-label="当前完整表达卡">
+      <view class="draft-heading">
+        <view>
+          <text class="draft-eyebrow">当前表达卡</text>
+          <text class="draft-caption">这是目前整理结果，还没有分享给对方</text>
+        </view>
+        <text class="draft-progress" :class="{ complete: missingRequiredCount === 0 }">
+          {{ completedRequiredCount }} / {{ requiredFieldCount }} 已补全
+        </text>
+      </view>
+      <view class="draft-fields">
+        <view
+          v-for="(field, index) in fieldProgress"
+          :key="field.key"
+          class="draft-field"
+          :class="{ missing: !field.complete }"
+        >
+          <text class="draft-index">{{ String(index + 1).padStart(2, "0") }}</text>
+          <view class="draft-copy">
+            <view class="draft-label-line">
+              <text class="draft-label">{{ field.label }}</text>
+              <text class="draft-status" :class="{ missing: !field.complete }">
+                {{ field.value ? "已有草稿" : field.optional ? "可选" : "待补充" }}
+              </text>
+            </view>
+            <text v-if="field.value" class="draft-value">{{ field.value }}</text>
+            <text v-else class="draft-placeholder">{{ field.prompt }}</text>
+          </view>
+        </view>
+      </view>
+      <text v-if="missingRequiredCount" class="draft-note">还有 {{ missingRequiredCount }} 个必要部分没有补全。你可以回答 AI，也可以进入表达卡手动填写。</text>
+      <text v-else class="draft-note ready">必要部分都已有内容；你仍可继续补充，或查看整卡并确认。</text>
     </view>
 
     <view class="conversation" aria-live="polite">
@@ -51,7 +85,7 @@
 
     <view class="composer-dock">
       <view class="composer-tools">
-        <button class="text-action" :disabled="busy" @tap="$emit('finish')">直接确认现有草稿</button>
+        <button class="text-action" :disabled="busy" @tap="$emit('finish')">{{ reviewActionLabel }}</button>
         <button class="text-action subtle" :disabled="busy" @tap="$emit('change-mode')">更换表达路径</button>
       </view>
       <view class="composer-heading">
@@ -90,7 +124,10 @@ import {
   clarificationConversationMessages,
   type ClarificationTurn,
 } from "../domain/clarification";
-import type { SafetyDisposition } from "../domain/expression";
+import {
+  expressionFieldProgress,
+  type EditableExpression,
+} from "../domain/expression";
 
 const props = defineProps<{
   question: string;
@@ -100,8 +137,7 @@ const props = defineProps<{
   busy: boolean;
   sourceText: string;
   modeTitle: string;
-  safetyDisposition: SafetyDisposition;
-  safetyMessage: string;
+  modelValue: EditableExpression;
 }>();
 
 const sourceOpen = ref(false);
@@ -111,12 +147,20 @@ const messages = computed(() => clarificationConversationMessages(
   props.busy,
 ));
 const activeTurn = computed(() => Math.min(props.turns.length + 1, props.maxTurns));
+const fieldProgress = computed(() => expressionFieldProgress(props.modelValue));
+const requiredFields = computed(() => fieldProgress.value.filter((field) => !field.optional));
+const requiredFieldCount = computed(() => requiredFields.value.length);
+const completedRequiredCount = computed(() => requiredFields.value.filter((field) => field.complete).length);
+const missingRequiredCount = computed(() => requiredFieldCount.value - completedRequiredCount.value);
+const reviewActionLabel = computed(() => missingRequiredCount.value
+  ? "查看并手动补齐表达卡"
+  : "查看并确认完整表达卡");
 const safetyLabel = computed(() => ({
   WARN: "分享前请留意",
   BLOCK_SHARE: "这份内容暂时不能分享",
   PAUSE: "建议先暂停",
   ALLOW: "",
-})[props.safetyDisposition]);
+})[props.modelValue.safetyDisposition]);
 
 const emit = defineEmits<{
   "update:answer": [value: string];
@@ -148,6 +192,28 @@ function updateAnswer(event: Event) {
 .private-source-meta { display: flex; justify-content: space-between; color: #315b49; font-size: 20rpx; font-weight: 800; }
 .private-source-meta text:last-child { color: #8b928e; font-weight: 500; }
 .private-source-copy { display: block; margin-top: 12rpx; color: #66716b; font-size: 25rpx; line-height: 1.65; white-space: pre-wrap; }
+.draft-card { overflow: hidden; margin-top: 24rpx; border: 1rpx solid #d4d0c5; border-radius: 26rpx; background: rgba(255,253,248,.82); box-shadow: 0 18rpx 44rpx rgba(35,48,41,.06); }
+.draft-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18rpx; padding: 24rpx 24rpx 20rpx; border-bottom: 1rpx solid #e5e0d7; }
+.draft-heading view { min-width: 0; }
+.draft-heading text { display: block; }
+.draft-eyebrow { color: #1f4335; font-family: "Songti SC", "STSong", serif; font-size: 30rpx; font-weight: 700; }
+.draft-caption { margin-top: 5rpx; color: #7b8580; font-size: 19rpx; line-height: 1.5; }
+.draft-progress { flex: none; margin-top: 2rpx; padding: 7rpx 12rpx; border-radius: 999rpx; background: #f7ded7; color: #a54532; font-size: 18rpx; font-weight: 800; }
+.draft-progress.complete { background: #dce9df; color: #315b49; }
+.draft-field { display: flex; align-items: flex-start; gap: 15rpx; padding: 19rpx 23rpx; border-left: 5rpx solid transparent; }
+.draft-field + .draft-field { border-top: 1rpx solid #ebe6dd; }
+.draft-field.missing { border-left-color: #d75a42; background: rgba(250,232,226,.4); }
+.draft-index { padding-top: 3rpx; color: #b84a35; font-family: Georgia, serif; font-size: 18rpx; }
+.draft-copy { min-width: 0; flex: 1; }
+.draft-label-line { display: flex; align-items: center; justify-content: space-between; gap: 14rpx; }
+.draft-label { color: #1e3b30; font-size: 25rpx; font-weight: 800; }
+.draft-status { flex: none; color: #658072; font-size: 18rpx; }
+.draft-status.missing { color: #b44733; font-weight: 800; }
+.draft-value, .draft-placeholder { display: block; margin-top: 7rpx; font-size: 23rpx; line-height: 1.6; white-space: pre-wrap; }
+.draft-value { color: #4f5f57; }
+.draft-placeholder { color: #9a857f; }
+.draft-note { display: block; padding: 17rpx 23rpx 19rpx; border-top: 1rpx solid #e5e0d7; background: #faf0ec; color: #89584d; font-size: 20rpx; line-height: 1.55; }
+.draft-note.ready { background: #e6eee7; color: #4e6b5d; }
 .conversation { min-height: 250rpx; padding-bottom: 24rpx; display: flex; flex: 1; flex-direction: column; gap: 22rpx; margin-top: 34rpx; }
 .conversation-guide { display: flex; align-items: flex-start; gap: 14rpx; padding-right: 50rpx; color: #718078; font-size: 24rpx; line-height: 1.6; }
 .message-row { display: flex; align-items: flex-end; gap: 12rpx; }

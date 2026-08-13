@@ -86,7 +86,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { expressionModeOption, type EditableExpression } from "../domain/expression";
+import {
+  expressionFieldIsOptional,
+  expressionModeOption,
+  type EditableExpression,
+} from "../domain/expression";
 
 const props = defineProps<{
   modelValue: EditableExpression;
@@ -112,7 +116,7 @@ const safetyLabel = computed(() => ({
 })[props.modelValue.safetyDisposition]);
 
 function isOptionalField(key: string) {
-  return props.modelValue.mode === "BOUNDARY" && key === "reason";
+  return expressionFieldIsOptional(props.modelValue.mode, key);
 }
 
 function updateField(key: string, event: Event) {
