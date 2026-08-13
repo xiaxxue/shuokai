@@ -8,6 +8,12 @@ export type ClarificationTurn = {
   answer: string;
 };
 
+export type ClarificationMessage = {
+  role: "assistant" | "user";
+  kind: "message" | "typing";
+  content: string;
+};
+
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -32,6 +38,24 @@ export function nextClarificationQuestion(
   return uncertainties
     .map((item) => item.trim())
     .find((item) => item && !answered.has(item)) ?? "";
+}
+
+export function clarificationConversationMessages(
+  turns: readonly ClarificationTurn[],
+  currentQuestion: string,
+  busy: boolean,
+): ClarificationMessage[] {
+  const messages: ClarificationMessage[] = sanitizeClarificationTurns(turns).flatMap((turn) => [
+    { role: "assistant", kind: "message", content: turn.question } as const,
+    { role: "user", kind: "message", content: turn.answer } as const,
+  ]);
+  if (busy) {
+    messages.push({ role: "assistant", kind: "typing", content: "" });
+    return messages;
+  }
+  const question = cleanText(currentQuestion, 500);
+  if (question) messages.push({ role: "assistant", kind: "message", content: question });
+  return messages;
 }
 
 export function shouldPreserveDraftOnAiExit(

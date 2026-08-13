@@ -1,8 +1,8 @@
 <template>
   <view class="review-screen">
-    <text class="eyebrow">AI 已按你选择的路径整理</text>
-    <text class="title">这不是答案，是一份等你确认的草稿。</text>
-    <text class="description">逐项修改到准确为止。只有你点“确认并分享”后，对方才能看到下面这些表达卡。</text>
+    <text class="eyebrow">{{ clarificationActive ? "AI 正在和你一起补全背景" : "AI 已按你选择的路径整理" }}</text>
+    <text class="title">{{ clarificationActive ? "不用一次说完整，我们慢慢把它说清楚。" : "这不是答案，是一份等你确认的草稿。" }}</text>
+    <text class="description">{{ clarificationActive ? "AI 一次只问一个会影响表达准确性的问题。你每回答一次，它都会结合上下文更新草稿；你也可以随时结束对话。" : "逐项修改到准确为止。只有你点“确认并分享”后，对方才能看到下面这些表达卡。" }}</text>
 
     <view v-if="modelValue.safetyDisposition !== 'ALLOW'" class="safety-card" :class="`safety-${modelValue.safetyDisposition.toLowerCase()}`">
       <text class="safety-label">{{ safetyLabel }}</text>
@@ -23,6 +23,7 @@
     <ExpressionClarification
       :question="clarificationQuestion"
       :answer="clarificationAnswer"
+      :turns="clarificationTurns"
       :turn-count="clarificationTurnCount"
       :max-turns="clarificationMaxTurns"
       :busy="clarificationBusy"
@@ -32,8 +33,8 @@
     />
 
     <view class="share-heading">
-      <text class="share-kicker">对方将看到以下卡片</text>
-      <text>请确认它们准确，没有遗漏你在意的边界。</text>
+      <text class="share-kicker">{{ clarificationActive ? "对话正在更新这份草稿" : "对方将看到以下卡片" }}</text>
+      <text>{{ clarificationActive ? "可以先浏览，不必现在定稿；结束对话后再逐项确认。" : "请确认它们准确，没有遗漏你在意的边界。" }}</text>
     </view>
 
     <view class="expression-stack">
@@ -63,6 +64,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { expressionModeOption, type EditableExpression } from "../domain/expression";
+import type { ClarificationTurn } from "../domain/clarification";
 import ExpressionClarification from "./ExpressionClarification.vue";
 
 const props = defineProps<{
@@ -70,6 +72,7 @@ const props = defineProps<{
   sourceText: string;
   clarificationQuestion: string;
   clarificationAnswer: string;
+  clarificationTurns: ClarificationTurn[];
   clarificationTurnCount: number;
   clarificationMaxTurns: number;
   clarificationBusy: boolean;
@@ -83,6 +86,7 @@ const emit = defineEmits<{
 }>();
 
 const option = computed(() => expressionModeOption(props.modelValue.mode));
+const clarificationActive = computed(() => Boolean(props.clarificationQuestion) || props.clarificationBusy);
 const safetyLabel = computed(() => ({
   WARN: "分享前请留意",
   BLOCK_SHARE: "暂不建议分享",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clarificationConversationMessages,
   composeClarificationSource,
   nextClarificationQuestion,
   parseClarificationSource,
@@ -17,6 +18,22 @@ describe("private AI clarification", () => {
       { question: uncertainties[1], answer: "我在意被尊重。" },
       { question: "你希望怎样？", answer: "希望他降低音量。" },
     ])).toBe("");
+  });
+
+  it("builds a continuous private chat and shows thinking in place", () => {
+    const turns = [{ question: "当时具体说了什么？", answer: "他说另一个女生很好看。" }];
+    expect(clarificationConversationMessages(turns, "你最在意什么？", false)).toEqual([
+      { role: "assistant", kind: "message", content: "当时具体说了什么？" },
+      { role: "user", kind: "message", content: "他说另一个女生很好看。" },
+      { role: "assistant", kind: "message", content: "你最在意什么？" },
+    ]);
+    const thinkingMessages = clarificationConversationMessages(turns, "不会提前显示的下一问", true);
+    expect(thinkingMessages).toHaveLength(3);
+    expect(thinkingMessages.at(-1)).toEqual({
+      role: "assistant",
+      kind: "typing",
+      content: "",
+    });
   });
 
   it("round-trips private answers without changing the visible original text", () => {
