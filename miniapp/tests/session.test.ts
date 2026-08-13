@@ -17,8 +17,10 @@ import {
   clearActiveRoom,
   clearEditorDraft,
   clearPrivateDeviceData,
+  acknowledgeInvitation,
   getActiveRoom,
   getEditorDraft,
+  hasAcknowledgedInvitation,
   saveActiveRoom,
   saveEditorDraft,
 } from "../src/services/session";
@@ -121,6 +123,15 @@ describe("active room recovery", () => {
     });
 
     expect(getActiveRoom()).toBeNull();
+  });
+
+  it("remembers that the receiver has read the invitation on this device", () => {
+    const roomId = "11111111-1111-4111-8111-111111111111";
+    expect(hasAcknowledgedInvitation(roomId)).toBe(false);
+    acknowledgeInvitation(roomId);
+    expect(hasAcknowledgedInvitation(roomId)).toBe(true);
+    clearPrivateDeviceData();
+    expect(hasAcknowledgedInvitation(roomId)).toBe(false);
   });
 });
 

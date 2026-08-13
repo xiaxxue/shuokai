@@ -11,6 +11,7 @@ import {
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
+import { invitationContextFromRecords } from "./invitation-context.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
@@ -305,6 +306,83 @@ export async function handleMiniappApi(request: Request, env: WorkerEnv) {
     return errorJson(request, env, "DATABASE_REQUEST_FAILED", message, 400);
   }
   return json(request, env, data);
+}
+
+export async function handleInvitationContext(request: Request, env: WorkerEnv) {
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
+  const authorization = bearerToken(request);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
+  const config = publicSupabaseConfig(env);
+  if (!config) {
+    return errorJson(request, env, "SERVICE_NOT_CONFIGURED", "服务暂时不可用，请稍后再试。", 503);
+  }
+  let body: unknown;
+  try {
+    body = await readJson(request, 4 * 1024);
+  } catch (error) {
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
+  }
+  const roomId = body && typeof body === "object" && !Array.isArray(body) &&
+    Object.keys(body).length === 1 && "roomId" in body
+    ? (body as { roomId?: unknown }).roomId
+    : null;
+  if (typeof roomId !== "string" || !uuidPattern.test(roomId)) {
+    return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
+  }
+
+  const supabase = userClient(config, authorization);
+  if (!await verifiedUserId(supabase, authorization)) {
+    return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
+  }
+  const { data: snapshot, error: snapshotError } = await supabase.rpc("get_room_snapshot", {
+    p_room_id: roomId,
+  });
+  if (snapshotError || !snapshot || typeof snapshot !== "object") {
+    return errorJson(
+      request,
+      env,
+      "INVITATION_CONTEXT_UNAVAILABLE",
+      safeDatabaseMessages[snapshotError?.code ?? ""] ?? "暂时无法读取这次邀请，请稍后重试。",
+      snapshotError?.code === "42501" ? 403 : 502,
+    );
+  }
+
+  const { data: inviters, error: inviterError } = await supabase
+    .from("participants")
+    .select("current_expression_id")
+    .eq("room_id", roomId)
+    .eq("role", "A")
+    .limit(1);
+  if (inviterError) {
+    return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取邀请主题。", 502);
+  }
+  const currentExpressionId = Array.isArray(inviters) && inviters[0] &&
+    typeof inviters[0].current_expression_id === "string" &&
+    uuidPattern.test(inviters[0].current_expression_id)
+    ? inviters[0].current_expression_id
+    : "";
+  let expression: unknown = null;
+  if (currentExpressionId) {
+    const { data: expressions, error: expressionError } = await supabase
+      .from("expression_versions")
+      .select("mode,payload")
+      .eq("id", currentExpressionId)
+      .eq("room_id", roomId)
+      .limit(1);
+    if (expressionError) {
+      return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取邀请主题。", 502);
+    }
+    expression = Array.isArray(expressions) ? expressions[0] : null;
+  }
+  const context = invitationContextFromRecords(snapshot, expression);
+  if (!context) {
+    return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取这次邀请。", 502);
+  }
+  return json(request, env, context);
 }
 
 async function digest(value: string) {

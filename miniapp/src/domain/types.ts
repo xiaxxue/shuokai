@@ -42,6 +42,7 @@ export type RoomSnapshot = {
     goal: string | null;
   };
   me: { id: string; role: "A" | "B"; display_name: string };
+  participants: Array<{ role: "A" | "B"; display_name: string; joined_at: string }>;
   privateDraft: null | {
     transcript: string;
     clarification: string | null;

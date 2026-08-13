@@ -153,10 +153,30 @@
         </view>
       </view>
 
+      <InvitationIntro
+        v-else-if="stage === 'INVITATION_INTRO'"
+        :context="resolvedInvitationContext"
+        :clarification-message="currentInvitationClarificationMessage"
+        :clarifying="invitationClarifying"
+        :busy="busy"
+        @start="startInvitedExpression"
+        @clarify="invitationClarifying = true"
+        @back="invitationClarifying = false"
+        @copy-request="copyInvitationClarification"
+        @leave="leaveInvitation"
+      />
+
       <view v-else-if="stage === 'RECORD'" class="screen record-screen">
+        <view v-if="room?.role === 'B'" class="response-context">
+          <view class="response-context-copy">
+            <text class="response-context-label">正在回应</text>
+            <text class="response-context-topic">{{ resolvedInvitationContext.topic || "邀请方还需要补充具体背景" }}</text>
+          </view>
+          <button class="response-context-link" @tap="showInvitationIntro">查看邀请</button>
+        </view>
         <text class="eyebrow">只说你的版本</text>
-        <text class="title">先把事情说出来。</text>
-        <text class="description">不用组织得很完美。录音结束后会转成文字，你仍然可以删改。</text>
+        <text class="title">{{ recordTitle }}</text>
+        <text class="description">{{ recordDescription }}</text>
         <button
           class="record-button"
           :class="{ recording }"
@@ -179,7 +199,7 @@
           v-model="transcript"
           class="transcript"
           :maxlength="12000"
-          placeholder="也可以直接打字。试着描述具体发生了什么，以及它为什么让你在意。"
+          :placeholder="recordPlaceholder"
         />
         <text class="privacy-note">🔒 {{ editorPrivacyNote }}</text>
       </view>
@@ -276,17 +296,23 @@
         <view class="completion-mark small">✓</view>
         <text class="eyebrow">你的部分已经保存</text>
         <text class="title">现在，邀请对方讲自己的版本。</text>
-        <text class="description centered">对方会先在自己的私人空间表达。双方都确认后，你们才能看到共同视图。</text>
+        <text class="description centered">对方会先看见一段你确认过的主题说明，再在自己的私人空间表达。不会提前看到其余表达内容或私人草稿。</text>
+        <view class="invite-preview">
+          <text class="invite-preview-label">对方将先看到</text>
+          <text class="invite-preview-topic">{{ resolvedInvitationContext.topic || "请先确认一件具体发生的事" }}</text>
+          <text class="invite-preview-note">这是从你已确认表达卡的第一部分提取的主题说明。请确认它足够具体，也没有遗漏你在意的边界。</text>
+          <button class="invite-preview-edit" :disabled="busy" @tap="editOwnExpression">这段说明不准确，返回修改</button>
+        </view>
         <view class="room-card">
           <text class="room-label">沟通房间码</text>
           <text class="room-code">{{ room?.code }}</text>
           <text class="room-hint">长按或点击下方按钮分享</text>
         </view>
         <!-- #ifdef MP-WEIXIN -->
-        <button class="primary full" open-type="share">微信邀请对方</button>
+        <button class="primary full" open-type="share" :disabled="!resolvedInvitationContext.topic">微信邀请对方</button>
         <!-- #endif -->
         <!-- #ifndef MP-WEIXIN -->
-        <button class="primary full" @tap="shareInvite">分享邀请链接</button>
+        <button class="primary full" :disabled="!resolvedInvitationContext.topic" @tap="shareInvite">分享邀请链接</button>
         <!-- #endif -->
         <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">
           {{ busy ? "正在确认进展" : "我已邀请，检查对方进展" }}
@@ -446,6 +472,7 @@ import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
 import ExpressionClarification from "../../components/ExpressionClarification.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
+import InvitationIntro from "../../components/InvitationIntro.vue";
 import {
   createEditableExpression,
   expressionModeOption,
@@ -471,6 +498,11 @@ import {
   shouldResumeExpressionClarification,
 } from "../../domain/expression-review";
 import {
+  invitationClarificationMessage,
+  topicFromEditableExpression,
+  type InvitationContext,
+} from "../../domain/invitation";
+import {
   loginForPlatform,
   requestExpressionOrganization,
   requestSharedUnderstanding,
@@ -484,8 +516,10 @@ import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearEditorDraft,
   clearPrivateDeviceData,
+  acknowledgeInvitation,
   getActiveRoom,
   getEditorDraft,
+  hasAcknowledgedInvitation,
   saveActiveRoom,
   saveEditorDraft,
 } from "../../services/session";
@@ -499,6 +533,7 @@ const participantRoles = ["A", "B"] as const;
 const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
+  INVITATION_INTRO: { step: 1, label: "邀请" },
   GOAL: { step: 1, label: "意图" },
   RECORD: { step: 2, label: "表达" },
   MODE_SELECT: { step: 2, label: "路径" },
@@ -543,6 +578,8 @@ const aiJobId = ref("");
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
+const invitationContext = ref<InvitationContext | null>(null);
+const invitationClarifying = ref(false);
 const expressionReviewStep = ref(0);
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -694,6 +731,30 @@ const editorPrivacyNote = computed(() => {
   if (draftSaveState.value === "saved") return "当前内容已保存在此设备的私人草稿中";
   return "开始输入后，内容会自动保存为此设备的私人草稿";
 });
+const resolvedInvitationContext = computed<InvitationContext>(() => {
+  if (invitationContext.value) return invitationContext.value;
+  const inviter = snapshot.value?.participants.find((item) => item.role === "A")?.display_name;
+  return {
+    inviterName: !inviter || ["我", "Lin"].includes(inviter) ? "邀请你的人" : inviter,
+    topic: room.value?.role === "A" ? topicFromEditableExpression(editableExpression.value) : "",
+  };
+});
+const currentInvitationClarificationMessage = computed(() => invitationClarificationMessage(
+  resolvedInvitationContext.value,
+  room.value?.code ?? "",
+));
+const recordTitle = computed(() => room.value?.role === "B"
+  ? "从你的角度，当时发生了什么？"
+  : "先把事情说出来。");
+const recordDescription = computed(() => room.value?.role === "B"
+  ? "不用回应对方的结论，只说你看到、听到和理解的事情。说不完整也没关系，AI 会继续追问。"
+  : "不用组织得很完美。录音结束后会转成文字，你仍然可以删改。");
+const recordPlaceholder = computed(() => room.value?.role === "B"
+  ? "也可以直接打字。例如：当时我们正在……我看到或听到的是……我原本想表达的是……"
+  : "也可以直接打字。试着描述具体发生了什么，以及它为什么让你在意。");
+const invitationShareTitle = computed(() => resolvedInvitationContext.value.topic
+  ? `我想和你说开：${resolvedInvitationContext.value.topic.slice(0, 22)}`
+  : "我想和你把一件事说开");
 
 function defaultReviewAt() {
   const date = new Date();
@@ -785,6 +846,8 @@ function resetPrivateWorkspace() {
   aiJobId.value = "";
   expressionReviewStep.value = 0;
   resetClarification();
+  invitationContext.value = null;
+  invitationClarifying.value = false;
   sharedUnderstanding.reset();
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
@@ -879,6 +942,14 @@ async function loadSnapshot(roomSession: RoomSession) {
   const latest = await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
   stage.value = stageForCurrentRoom(roomSession, latest.room.state);
+  if ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
+    (roomSession.role === "A" && stage.value === "INVITE")) {
+    try {
+      invitationContext.value = await roomApi.invitationContext(roomSession.roomId);
+    } catch {
+      invitationContext.value = null;
+    }
+  }
   if (roomSession.workflowVersion === 2 && latest.room.state === "COMMON_VIEW_READY") {
     void ensureSharedUnderstanding();
   }
@@ -900,9 +971,11 @@ async function loadSnapshot(roomSession: RoomSession) {
       authoritativeEditorStage = currentClarificationQuestion.value ? "CLARIFICATION_CHAT" : "EXPRESSION_REVIEW";
     }
   }
-  restoreEditorDraft(roomSession, minimumWorkspaceRevision);
-  if (authoritativeEditorStage === "PAUSED") stage.value = authoritativeEditorStage;
-  else if (authoritativeEditorStage) openExpressionCandidate();
+  if (stage.value !== "INVITATION_INTRO") restoreEditorDraft(roomSession, minimumWorkspaceRevision);
+  if (stage.value !== "INVITATION_INTRO") {
+    if (authoritativeEditorStage === "PAUSED") stage.value = authoritativeEditorStage;
+    else if (authoritativeEditorStage) openExpressionCandidate();
+  }
 }
 
 function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
@@ -916,7 +989,9 @@ function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state
     if (state === "A_DRAFTING" || state === "A_REVIEWING") return "RECORD";
     return "INVITE";
   }
-  if (state === "B_DRAFTING" || state === "B_REVIEWING") return "RECORD";
+  if (state === "B_DRAFTING" || state === "B_REVIEWING") {
+    return hasAcknowledgedInvitation(roomSession.roomId) ? "RECORD" : "INVITATION_INTRO";
+  }
   return "WELCOME";
 }
 
@@ -977,7 +1052,7 @@ onLoad((options) => {
 });
 
 onShareAppMessage(() => ({
-  title: "我想和你把这件事说开",
+  title: invitationShareTitle.value,
   path: `/pages/index/index?room=${room.value?.code ?? ""}`,
 }));
 
@@ -1021,8 +1096,19 @@ async function joinRoom() {
     updateRoom(joined);
     const joinedStage = stageForCurrentRoom(joined);
     if (["COMMON", "AGREEMENT", "COMPLETE"].includes(joinedStage)) await loadSnapshot(joined);
-    else stage.value = joinedStage;
-    setNotice("success", "已进入沟通房间。你的草稿不会直接分享给对方。 ");
+    else {
+      stage.value = joinedStage;
+      if (joinedStage === "INVITATION_INTRO") {
+        try {
+          invitationContext.value = await roomApi.invitationContext(joined.roomId);
+        } catch {
+          invitationContext.value = null;
+        }
+      }
+    }
+    setNotice("success", joinedStage === "INVITATION_INTRO"
+      ? "已进入沟通房间。先看看对方为什么邀请你。 "
+      : "已进入沟通房间。你的草稿不会直接分享给对方。 ");
   } catch (error) {
     setNotice("error", message(error, "加入失败，请检查房间码后重试。"));
   } finally {
@@ -1346,6 +1432,10 @@ async function next() {
         setNotice("success", "双方表达卡已确认，正在生成并审查共同理解。 ");
         await ensureSharedUnderstanding();
       } else {
+        invitationContext.value = {
+          inviterName: "邀请你的人",
+          topic: topicFromEditableExpression(editableExpression.value),
+        };
         stage.value = "INVITE";
         try {
           await requestSharedUnderstanding(room.value.roomId);
@@ -1384,6 +1474,10 @@ async function next() {
         await loadSnapshot(room.value);
         setNotice("success", "双方都已确认，现在可以查看共同视图。 ");
       } else {
+        invitationContext.value = {
+          inviterName: "邀请你的人",
+          topic: perspective.fact.trim().slice(0, 180),
+        };
         stage.value = "INVITE";
         setNotice("success", "你的版本已确认，不会再分享草稿内容。 ");
       }
@@ -1424,13 +1518,20 @@ async function refreshRoom() {
 
 async function shareInvite() {
   if (!room.value) return;
-  const fallback = `我想和你把这件事说开。沟通房间码：${room.value.code}`;
+  const topic = resolvedInvitationContext.value.topic;
+  if (!topic) {
+    setNotice("error", "还没有可供对方理解的主题说明，请先返回修改表达卡。 ");
+    return;
+  }
+  const fallback = topic
+    ? `我想和你把一件事说开。关于：${topic}。沟通房间码：${room.value.code}`
+    : `我想和你把这件事说开。沟通房间码：${room.value.code}`;
   const shareUrl = typeof location === "undefined"
     ? fallback
     : `${location.origin}${location.pathname}?room=${room.value.code}`;
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
-      await navigator.share({ title: "我想和你把这件事说开", text: fallback, url: shareUrl });
+      await navigator.share({ title: invitationShareTitle.value, text: fallback, url: shareUrl });
       setNotice("success", "邀请已分享。 ");
       return;
     } catch (error) {
@@ -1442,6 +1543,41 @@ async function shareInvite() {
     success: () => setNotice("success", "邀请链接已复制。 "),
     fail: () => setNotice("error", "无法复制，请手动分享房间码。 "),
   });
+}
+
+async function startInvitedExpression() {
+  if (!room.value || room.value.role !== "B") return;
+  acknowledgeInvitation(room.value.roomId);
+  invitationClarifying.value = false;
+  busy.value = true;
+  try {
+    await loadSnapshot(room.value);
+    if (stage.value === "INVITATION_INTRO") stage.value = "RECORD";
+    setNotice("info", "先说你的版本。对方暂时看不到这里的内容。 ");
+  } catch (error) {
+    stage.value = "RECORD";
+    setNotice("error", message(error, "暂时无法同步房间进展，你仍可以先写下自己的版本。"));
+  } finally {
+    busy.value = Boolean(aiJobId.value);
+  }
+}
+
+function showInvitationIntro() {
+  invitationClarifying.value = false;
+  stage.value = "INVITATION_INTRO";
+}
+
+function copyInvitationClarification() {
+  uni.setClipboardData({
+    data: currentInvitationClarificationMessage.value,
+    success: () => setNotice("success", "澄清消息已复制。请把它发给邀请你的人。 "),
+    fail: () => setNotice("error", "复制失败，请手动联系邀请你的人补充背景。 "),
+  });
+}
+
+function leaveInvitation() {
+  returnToWelcome();
+  setNotice("info", "你暂时离开了这次邀请，房间仍会保留，可以稍后再回来。 ");
 }
 
 function isAccepted(role: "A" | "B") {

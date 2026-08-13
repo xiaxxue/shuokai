@@ -30,6 +30,7 @@ export function canTransition(from: RoomState, to: RoomState) {
 
 export type ClientStage =
   | "WELCOME"
+  | "INVITATION_INTRO"
   | "GOAL"
   | "RECORD"
   | "MODE_SELECT"
@@ -49,6 +50,7 @@ export type ClientStage =
 
 export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
+  "INVITATION_INTRO",
   "GOAL",
   "RECORD",
   "MODE_SELECT",

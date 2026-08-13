@@ -1,5 +1,6 @@
 import {
   handleExpressionJob,
+  handleInvitationContext,
   handleMiniappApi,
   handleTranscribe,
   handleUnderstandingJob,
@@ -29,6 +30,8 @@ export async function handleRequest(request: Request, env: WorkerEnv): Promise<R
         response = await handleWechatLogin(request, env);
       } else if (pathname === "/miniapp-api") {
         response = await handleMiniappApi(request, env);
+      } else if (pathname === "/room/invitation-context") {
+        response = await handleInvitationContext(request, env);
       } else if (pathname === "/ai/expression") {
         response = await handleExpressionJob(request, env, context.requestId);
       } else if (pathname === "/ai/understanding") {

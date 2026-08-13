@@ -4,6 +4,7 @@ import type {
   RoomSession,
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
+import { parseInvitationContext } from "../domain/invitation";
 import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
   parseAcceptanceResult,
@@ -189,6 +190,23 @@ export const roomApi = {
     )),
   snapshot: async (roomId: string) =>
     parseRoomSnapshot(await rpc<unknown>("get_room_snapshot", { p_room_id: roomId })),
+  invitationContext: async (roomId: string) => {
+    const session = await activeSession();
+    const response = await request<unknown>({
+      url: apiUrl("/room/invitation-context"),
+      method: "POST",
+      header: {
+        Authorization: `Bearer ${session.accessToken}`,
+        "content-type": "application/json",
+      },
+      data: { roomId },
+      timeout: 15000,
+    });
+    if (response.statusCode !== 200) {
+      throw new Error(errorMessage(response.data, "暂时无法读取这次邀请。"));
+    }
+    return parseInvitationContext(response.data);
+  },
   expressionWorkspace: async (roomId: string) =>
     rpc<{
       revision: number;
