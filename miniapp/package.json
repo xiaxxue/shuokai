@@ -28,8 +28,25 @@
     "fs-extra": "11.3.1",
     "sass": "1.89.2",
     "typescript": "5.9.3",
-    "vite": "5.2.8",
+    "vite": "6.4.3",
     "vitest": "3.2.7",
     "vue-tsc": "2.2.12"
+  },
+  "overrides": {
+    "@babel/core": "7.29.7",
+    "@dcloudio/uni-cli-shared": {
+      "esbuild": "0.25.12"
+    },
+    "@intlify/core-base": "9.14.5",
+    "@intlify/vue-devtools": {
+      ".": "9.14.1",
+      "@intlify/shared": "9.14.5"
+    },
+    "adm-zip": "0.6.0",
+    "express": "4.22.2",
+    "jpeg-js": "0.4.4",
+    "phin": "3.7.1",
+    "postcss": "8.5.26",
+    "ws": "8.21.3"
   }
 }
