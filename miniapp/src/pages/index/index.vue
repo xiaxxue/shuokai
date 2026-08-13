@@ -227,6 +227,7 @@
         :source-text="transcript"
         :clarification-question="currentClarificationQuestion"
         :clarification-answer="clarificationAnswer"
+        :clarification-turns="clarificationTurns"
         :clarification-turn-count="clarificationTurns.length"
         :clarification-max-turns="MAX_CLARIFICATION_TURNS"
         :clarification-busy="busy"
@@ -770,7 +771,8 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
   if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
   draftSaveState.value = "saved";
-  if (draft.editorStage === "AI_PENDING" && draft.aiJobId) {
+  if (draft.aiJobId && ["AI_PENDING", "EXPRESSION_REVIEW"].includes(draft.editorStage ?? "")) {
+    busy.value = true;
     void pollExpressionJob(draft.aiJobId);
   }
 }
@@ -847,14 +849,14 @@ async function restoreSavedRoom() {
   busy.value = true;
   room.value = savedRoom;
   stage.value = stageForCurrentRoom(savedRoom);
-  restoreEditorDraft(savedRoom);
   try {
     await loadSnapshot(savedRoom);
     setNotice("success", "已恢复上次的沟通进度。");
   } catch {
+    restoreEditorDraft(savedRoom);
     setNotice("error", "暂时无法同步最新进展，房间信息已保留，可以稍后重试。 ");
   } finally {
-    busy.value = false;
+    busy.value = Boolean(aiJobId.value);
   }
 }
 
@@ -1134,8 +1136,11 @@ async function continueClarification() {
   if (!question || !answer) return;
   clearNotice();
   busy.value = true;
+  const previousTurns = clarificationTurns.value;
+  const nextTurns = [...previousTurns, { question, answer }];
+  clarificationTurns.value = nextTurns;
+  clarificationAnswer.value = "";
   try {
-    const nextTurns = [...clarificationTurns.value, { question, answer }];
     const privateSource = composeClarificationSource(transcript.value, nextTurns);
     const job = await requestExpressionOrganization(
       room.value.roomId,
@@ -1144,17 +1149,17 @@ async function continueClarification() {
       selectedMode.value,
       editableExpression.value.fields,
     );
-    clarificationTurns.value = nextTurns;
-    clarificationAnswer.value = "";
     clarificationSkipped.value = false;
     workspaceRevision.value = job.revision;
     aiJobId.value = job.jobId;
-    stage.value = "AI_PENDING";
+    stage.value = "EXPRESSION_REVIEW";
     void pollExpressionJob(job.jobId);
   } catch (error) {
+    clarificationTurns.value = previousTurns;
+    clarificationAnswer.value = answer;
     setNotice("error", message(error, "这次补充没有保存，请稍后重试。"));
   } finally {
-    if (stage.value !== "AI_PENDING") busy.value = false;
+    if (!aiJobId.value) busy.value = false;
   }
 }
 
@@ -1402,7 +1407,7 @@ async function resumeCurrentRoom() {
     restoreEditorDraft(room.value);
     setNotice("error", message(error, "暂时无法同步最新进展，已打开本机保存的进度。"));
   } finally {
-    busy.value = false;
+    busy.value = Boolean(aiJobId.value);
   }
 }
 
