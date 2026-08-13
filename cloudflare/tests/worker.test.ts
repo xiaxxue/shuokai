@@ -15,6 +15,10 @@ import {
 } from "../src/observability.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 import {
+  invitationContextFromRecords,
+  invitationTopicFromExpression,
+} from "../src/invitation-context.ts";
+import {
   expressionResultSchema,
   generateExpressionCandidate,
   generateSharedUnderstanding,
@@ -178,6 +182,38 @@ test("business API rejects unauthenticated requests before touching Supabase", a
   assert.deepEqual(await response.json(), { message: "请先登录。", code: "AUTH_REQUIRED" });
 });
 
+test("invitation context rejects unauthenticated room reads", async () => {
+  const response = await handleRequest(
+    new Request("https://shuokai.example/room/invitation-context", { method: "POST" }),
+    {},
+  );
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { message: "请先登录。", code: "AUTH_REQUIRED" });
+});
+
+test("invitation context exposes only the selected shareable topic field", () => {
+  const expression = {
+    mode: "NVC",
+    payload: {
+      observation: "  视频聊天时，提到另一个女生好看。  ",
+      feeling: "不应出现在邀请摘要里的难过",
+      need: "不应出现在邀请摘要里的尊重",
+      request: "不应出现在邀请摘要里的要求",
+    },
+  };
+  assert.equal(invitationTopicFromExpression(expression), "视频聊天时，提到另一个女生好看。");
+  const context = invitationContextFromRecords({
+    room: { goal: "让我被准确理解" },
+    me: { role: "B" },
+    participants: [{ role: "A", display_name: "我" }],
+  }, expression);
+  assert.deepEqual(context, {
+    inviterName: "邀请你的人",
+    topic: "视频聊天时，提到另一个女生好看。",
+  });
+  assert.doesNotMatch(JSON.stringify(context), /难过|尊重|要求|准确理解/);
+});
+
 test("every Worker error response exposes a controlled application code", async () => {
   const requests = [
     new Request("https://shuokai.example/unknown"),
@@ -326,6 +362,7 @@ test("test deployment routes both AI endpoints through the Worker", async () => 
   const configText = await readFile(new URL("../wrangler.test.jsonc", import.meta.url), "utf8");
   assert.match(configText, /"\/ai\/expression\*"/);
   assert.match(configText, /"\/ai\/understanding\*"/);
+  assert.match(configText, /"\/room\/invitation-context\*"/);
   assert.match(configText, /"ai"\s*:\s*\{\s*"binding"\s*:\s*"AI"/);
   assert.match(configText, /"observability"\s*:\s*\{[\s\S]*?"enabled"\s*:\s*true/);
   assert.match(configText, /"head_sampling_rate"\s*:\s*1/);

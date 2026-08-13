@@ -48,10 +48,13 @@ export function parseRoomSession(value: unknown): RoomSession {
 
 export function parseRoomSnapshot(value: unknown): RoomSnapshot {
   if (!isRecord(value) || !isRecord(value.room) || !isRecord(value.me)) invalidResponse();
-  const { room, me, privateDraft, ownPerspective, approvedPerspectives, sharedView, agreement } = value;
+  const { room, me, participants, privateDraft, ownPerspective, approvedPerspectives, sharedView, agreement } = value;
   const validRoom = isText(room.id) && isText(room.code) && isRoomState(room.state) &&
     (room.goal === null || isText(room.goal));
   const validMe = isText(me.id) && isRole(me.role) && isText(me.display_name);
+  const validParticipants = Array.isArray(participants) && participants.every((item) =>
+    isRecord(item) && isRole(item.role) && isText(item.display_name) && isText(item.joined_at)
+  );
   const validDraft = privateDraft === null || (
     isRecord(privateDraft) && isText(privateDraft.transcript) &&
     (privateDraft.clarification === null || isText(privateDraft.clarification))
@@ -70,7 +73,7 @@ export function parseRoomSnapshot(value: unknown): RoomSnapshot {
     (agreement.activated_at === null || isText(agreement.activated_at)) &&
     isText(agreement.created_at)
   );
-  if (!validRoom || !validMe || !validDraft ||
+  if (!validRoom || !validMe || !validParticipants || !validDraft ||
     (ownPerspective !== null && !isPerspective(ownPerspective)) ||
     !validApproved || !validSharedView || !validAgreement
   ) invalidResponse();

@@ -25,6 +25,7 @@
       "/health*",
       "/wechat-login*",
       "/miniapp-api*",
+      "/room/invitation-context*",
       "/transcribe*"
     ]
   }

@@ -22,6 +22,10 @@ describe("room API response validation", () => {
         goal: "让我被准确理解",
       },
       me: { id: "participant-b", role: "B", display_name: "我" },
+      participants: [
+        { role: "A", display_name: "发起者", joined_at: "2026-08-13T10:00:00.000Z" },
+        { role: "B", display_name: "我", joined_at: "2026-08-13T10:01:00.000Z" },
+      ],
       privateDraft: null,
       ownPerspective: null,
       approvedPerspectives: [],

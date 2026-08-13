@@ -9,6 +9,7 @@ const knownRoutes = new Map([
   ["/health", "health"],
   ["/wechat-login", "wechat_login"],
   ["/miniapp-api", "miniapp_api"],
+  ["/room/invitation-context", "invitation_context"],
   ["/ai/expression", "ai_expression"],
   ["/ai/understanding", "ai_understanding"],
   ["/transcribe", "transcribe"],

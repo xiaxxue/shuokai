@@ -15,6 +15,7 @@ const SESSION_KEY = "shuokai.session.v2";
 const ACTIVE_ROOM_KEY = "shuokai.active-room.v1";
 const ACTIVE_ROOM_OWNER_KEY = "shuokai.active-room-owner.v1";
 const EDITOR_DRAFT_KEY = "shuokai.editor-draft.v1";
+const INVITATION_ACKNOWLEDGEMENTS_KEY = "shuokai.invitation-acknowledgements.v1";
 const roomIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const roomCodePattern = /^[A-Z0-9]{7}$/;
 
@@ -159,7 +160,26 @@ export function clearEditorDraft() {
   uni.removeStorageSync(EDITOR_DRAFT_KEY);
 }
 
+function invitationAcknowledgements() {
+  const value: unknown = uni.getStorageSync(INVITATION_ACKNOWLEDGEMENTS_KEY);
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string =>
+    typeof item === "string" && roomIdPattern.test(item)
+  ).slice(-20);
+}
+
+export function hasAcknowledgedInvitation(roomId: string) {
+  return roomIdPattern.test(roomId) && invitationAcknowledgements().includes(roomId);
+}
+
+export function acknowledgeInvitation(roomId: string) {
+  if (!roomIdPattern.test(roomId)) return;
+  const next = [...new Set([...invitationAcknowledgements(), roomId])].slice(-20);
+  uni.setStorageSync(INVITATION_ACKNOWLEDGEMENTS_KEY, next);
+}
+
 export function clearPrivateDeviceData() {
   clearActiveRoom();
   clearEditorDraft();
+  uni.removeStorageSync(INVITATION_ACKNOWLEDGEMENTS_KEY);
 }
