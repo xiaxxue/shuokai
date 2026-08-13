@@ -8,6 +8,7 @@ const stageLabels: Record<ClientStage, string> = {
   RECORD: "整理自己的表达",
   MODE_SELECT: "选择表达路径",
   AI_PENDING: "AI 整理处理中",
+  CLARIFICATION_CHAT: "与 AI 私下补充背景",
   EXPRESSION_REVIEW: "本人确认表达卡",
   PAUSED: "本次沟通已暂停",
   NVC_OBSERVATION: "非暴力沟通 · 观察",
