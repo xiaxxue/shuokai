@@ -58,6 +58,37 @@ export type UnderstandingConfirmation = {
   phase: "UNDERSTANDING_CONFIRMING" | "ACTION_GENERATING";
 };
 
+function canonicalDisplayText(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function uniqueDisplayItems<T>(items: readonly T[], key: (item: T) => string) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const normalizedKey = key(item);
+    if (seen.has(normalizedKey)) return false;
+    seen.add(normalizedKey);
+    return true;
+  });
+}
+
+export function sharedUnderstandingDisplay(value: SharedUnderstanding): SharedUnderstanding {
+  const evidence = (items: readonly EvidenceItem[]) => uniqueDisplayItems(
+    items,
+    (item) => canonicalDisplayText(item.text),
+  );
+  return {
+    ...value,
+    commonGround: evidence(value.commonGround),
+    differences: uniqueDisplayItems(
+      value.differences,
+      (item) => [item.topic, item.sideA, item.sideB].map(canonicalDisplayText).join("\u0000"),
+    ),
+    unverifiedFacts: evidence(value.unverifiedFacts),
+    boundaries: evidence(value.boundaries),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

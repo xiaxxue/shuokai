@@ -26,6 +26,7 @@ import {
   isExpressionResult,
   isUnderstandingResult,
   isUnderstandingReview,
+  normalizeUnderstandingResult,
   parseQueueMessage,
   processExpressionQueue,
   understandingResultSchema,
@@ -557,6 +558,27 @@ test("shared understanding schemas are strict, traceable, and independently revi
   }), false);
 });
 
+test("shared understanding normalization removes repeated model sections before review", () => {
+  const difference = {
+    topic: "关于沟通和需求的分歧",
+    sideA: "A 希望被关心和理解",
+    sideB: "B 希望对方不要烦他",
+    sources: ["A.need", "B.request"],
+  };
+  const normalized = normalizeUnderstandingResult({
+    schemaVersion: 1,
+    commonGround: [],
+    differences: [difference, { ...difference }, { ...difference }],
+    unverifiedFacts: [],
+    boundaries: [],
+    candidateUnderstanding: { text: "双方表达不同", sources: ["A.need", "B.request"] },
+    coreQuestion: { text: "如何同时回应双方需要？", sources: ["A.need", "B.request"] },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }) as { differences: unknown[] };
+  assert.equal(normalized.differences.length, 1);
+});
+
 test("understanding confirmation validation binds the exact reviewed hash", () => {
   const roomId = "11111111-1111-4111-8111-111111111111";
   const resultId = "22222222-2222-4222-8222-222222222222";
@@ -634,6 +656,9 @@ test("consensus Agent sends only confirmed cards to Workers AI", async () => {
     differences: [{
       topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
       sources: ["A.request", "B.request"],
+    }, {
+      topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
+      sources: ["A.request", "B.request"],
     }],
     unverifiedFacts: [],
     boundaries: [{ text: "模型虚构的边界", sources: ["A.boundary"] }],
@@ -665,6 +690,10 @@ test("consensus Agent sends only confirmed cards to Workers AI", async () => {
   assert.equal(requestText.includes("不得发送"), false);
   assert.equal(requestText.includes("绝不能填写 A.request"), true);
   assert.deepEqual((generated.result as { boundaries?: unknown }).boundaries, []);
+  assert.equal(
+    (generated.result as { differences?: unknown[] }).differences?.length,
+    1,
+  );
 });
 
 test("review Agent uses a separate Cloudflare-hosted reasoning model", async () => {
