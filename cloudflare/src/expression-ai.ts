@@ -363,6 +363,42 @@ function withoutUnavailableBoundaries(value: unknown, sources: Set<string>) {
   };
 }
 
+function canonicalGeneratedText(value: unknown) {
+  return typeof value === "string"
+    ? value.normalize("NFKC").trim().replace(/\s+/g, " ")
+    : "";
+}
+
+function uniqueGeneratedItems(
+  value: unknown,
+  key: (item: Record<string, unknown>) => string,
+) {
+  if (!Array.isArray(value)) return value;
+  const seen = new Set<string>();
+  return value.filter((item) => {
+    if (!isRecord(item)) return true;
+    const normalizedKey = key(item);
+    if (!normalizedKey || seen.has(normalizedKey)) return !normalizedKey;
+    seen.add(normalizedKey);
+    return true;
+  });
+}
+
+export function normalizeUnderstandingResult(value: unknown) {
+  if (!isRecord(value)) return value;
+  const evidenceKey = (item: Record<string, unknown>) => canonicalGeneratedText(item.text);
+  const differenceKey = (item: Record<string, unknown>) => [item.topic, item.sideA, item.sideB]
+    .map(canonicalGeneratedText)
+    .join("\u0000");
+  return {
+    ...value,
+    commonGround: uniqueGeneratedItems(value.commonGround, evidenceKey),
+    differences: uniqueGeneratedItems(value.differences, differenceKey),
+    unverifiedFacts: uniqueGeneratedItems(value.unverifiedFacts, evidenceKey),
+    boundaries: uniqueGeneratedItems(value.boundaries, evidenceKey),
+  };
+}
+
 function sourceRestrictedSchema<T>(schema: T, sources: string[]) {
   const copy = structuredClone(schema) as unknown;
   const boundarySources = sources.filter((source) =>
@@ -475,6 +511,7 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
       "共同点必须是具体语义重叠，不能仅写‘双方都有负面情绪’等空泛类别；找不到真实重叠时 commonGround 必须为空数组，绝不能为了填满结构制造共同点。每个共同点、候选理解和核心问题的 sources 都必须同时包含 A 与 B。",
       "边界只允许来自 boundary、acceptableRange、selfProtectiveAction 字段；普通 request 绝不能写入 boundaries。边界必须原样保留其约束性。",
       "differences.sideA 和 sideB 必须写双方表达的自然语言摘要，绝不能填写 A.request、B.need 等字段名。",
+      "同一项共同点、分歧、未核实事实或边界只能输出一次。相同 topic、sideA 和 sideB 的分歧必须合并，绝不能用换序或重复措辞凑满数组。",
       "任何摘要里出现观察、感受、需要或请求的内容，sources 都必须逐项包含对应字段；如果 sources 只写 observation，side 文本就绝不能顺带加入 feeling。",
       "unverifiedFacts 只收录输入中确实出现但仍有争议或不确定的事实，不得把输入未提及的细节包装成待核实事实。",
       "candidateUnderstanding 表达双方现在可以共同确认的最小理解；优先用‘A 表示……；B 表示……；双方尚未对……达成一致’这种带归属的对照摘要。不得把双方不同观察拼接成一条共同事实，不代表认错、原谅或接受方案。",
@@ -487,7 +524,9 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
     ].join("\n"),
     userData: modelInput,
     maxTokens: 2400,
-    normalize: (value) => withoutUnavailableBoundaries(value, sourceSet),
+    normalize: (value) => normalizeUnderstandingResult(
+      withoutUnavailableBoundaries(value, sourceSet),
+    ),
     validate: (value) => isUnderstandingResult(value) && usesOnlyAvailableSources(value, sourceSet),
   });
 }

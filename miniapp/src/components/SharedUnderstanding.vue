@@ -6,17 +6,17 @@
       <text class="lede">这份共同理解只使用双方已经分享的表达卡。它不会替你认错、原谅，也不会自动进入下一步方案。</text>
     </view>
 
-    <view v-if="result.commonGround.length" class="section section-common">
+    <view v-if="displayResult.commonGround.length" class="section section-common">
       <view class="section-heading"><text class="section-number">01</text><text>双方明确的共同点</text></view>
-      <view v-for="(item, index) in result.commonGround" :key="`common-${index}`" class="evidence-card">
+      <view v-for="(item, index) in displayResult.commonGround" :key="`common-${index}`" class="evidence-card">
         <text class="evidence-text">{{ item.text }}</text>
         <view class="source-row"><text v-for="source in item.sources" :key="source" class="source-chip">{{ sourceLabel(source) }}</text></view>
       </view>
     </view>
 
-    <view v-if="result.differences.length" class="section section-difference">
+    <view v-if="displayResult.differences.length" class="section section-difference">
       <view class="section-heading"><text class="section-number">02</text><text>仍然不同的地方</text></view>
-      <view v-for="(item, index) in result.differences" :key="`difference-${index}`" class="difference-card">
+      <view v-for="(item, index) in displayResult.differences" :key="`difference-${index}`" class="difference-card">
         <text class="difference-topic">{{ item.topic }}</text>
         <view class="side-grid">
           <view><text class="side-label">发起者的表达</text><text class="side-copy">{{ item.sideA }}</text></view>
@@ -26,17 +26,17 @@
       </view>
     </view>
 
-    <view v-if="result.unverifiedFacts.length" class="section section-unverified">
+    <view v-if="displayResult.unverifiedFacts.length" class="section section-unverified">
       <view class="section-heading"><text class="section-number">03</text><text>尚未核实的事实</text></view>
-      <view v-for="(item, index) in result.unverifiedFacts" :key="`fact-${index}`" class="evidence-card compact">
+      <view v-for="(item, index) in displayResult.unverifiedFacts" :key="`fact-${index}`" class="evidence-card compact">
         <text class="evidence-text">{{ item.text }}</text>
         <view class="source-row"><text v-for="source in item.sources" :key="source" class="source-chip">{{ sourceLabel(source) }}</text></view>
       </view>
     </view>
 
-    <view v-if="result.boundaries.length" class="section section-boundary">
+    <view v-if="displayResult.boundaries.length" class="section section-boundary">
       <view class="section-heading"><text class="section-number">04</text><text>已经声明的边界</text></view>
-      <view v-for="(item, index) in result.boundaries" :key="`boundary-${index}`" class="evidence-card compact">
+      <view v-for="(item, index) in displayResult.boundaries" :key="`boundary-${index}`" class="evidence-card compact">
         <text class="evidence-text">{{ item.text }}</text>
         <view class="source-row"><text v-for="source in item.sources" :key="source" class="source-chip">{{ sourceLabel(source) }}</text></view>
       </view>
@@ -44,11 +44,11 @@
 
     <view class="candidate-card">
       <text class="candidate-label">候选共同理解</text>
-      <text class="candidate-copy">{{ result.candidateUnderstanding.text }}</text>
-      <view class="source-row"><text v-for="source in result.candidateUnderstanding.sources" :key="source" class="source-chip light">{{ sourceLabel(source) }}</text></view>
+      <text class="candidate-copy">{{ displayResult.candidateUnderstanding.text }}</text>
+      <view class="source-row"><text v-for="source in displayResult.candidateUnderstanding.sources" :key="source" class="source-chip light">{{ sourceLabel(source) }}</text></view>
       <view class="core-question">
         <text>此刻真正需要一起看见的问题</text>
-        <text>{{ result.coreQuestion.text }}</text>
+        <text>{{ displayResult.coreQuestion.text }}</text>
       </view>
     </view>
 
@@ -77,15 +77,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import { sourceLabel, type SharedUnderstanding } from "../domain/understanding";
+import { computed, ref } from "vue";
+import {
+  sharedUnderstandingDisplay,
+  sourceLabel,
+  type SharedUnderstanding,
+} from "../domain/understanding";
 
-defineProps<{
+const props = defineProps<{
   result: SharedUnderstanding;
   ownDecision: "ACCURATE" | "INACCURATE" | null;
   accurateCount: number;
   busy: boolean;
 }>();
+
+const displayResult = computed(() => sharedUnderstandingDisplay(props.result));
 
 defineEmits<{
   decide: [decision: "ACCURATE" | "INACCURATE", feedback: string];

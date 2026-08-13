@@ -3,7 +3,9 @@ import {
   isSharedUnderstanding,
   parseUnderstandingConfirmation,
   parseUnderstandingStatus,
+  sharedUnderstandingDisplay,
   sourceLabel,
+  type SharedUnderstanding,
 } from "../src/domain/understanding";
 
 const payload = {
@@ -47,6 +49,19 @@ describe("shared understanding", () => {
     });
     expect(status.result?.payload.differences[0].sideB).toBe("确认变化后");
     expect("safetyDisposition" in status.result!.payload).toBe(false);
+  });
+
+  it("collapses repeated cards for display without changing the reviewed payload", () => {
+    const repeated = {
+      ...payload,
+      differences: [payload.differences[0], { ...payload.differences[0] }, { ...payload.differences[0] }],
+      commonGround: [payload.commonGround[0], { ...payload.commonGround[0] }],
+    };
+    const display = sharedUnderstandingDisplay(repeated as unknown as SharedUnderstanding);
+    expect(display.differences).toHaveLength(1);
+    expect(display.commonGround).toHaveLength(1);
+    expect(repeated.differences).toHaveLength(3);
+    expect(repeated.commonGround).toHaveLength(2);
   });
 
   it("rejects a malformed public result", () => {
