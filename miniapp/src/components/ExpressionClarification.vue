@@ -50,6 +50,10 @@
     </view>
 
     <view class="composer-dock">
+      <view class="composer-tools">
+        <button class="text-action" :disabled="busy" @tap="$emit('finish')">直接确认现有草稿</button>
+        <button class="text-action subtle" :disabled="busy" @tap="$emit('change-mode')">更换表达路径</button>
+      </view>
       <view class="composer-heading">
         <text class="composer-label">回复 AI</text>
         <text>{{ answer.length }} / 1200</text>
@@ -70,12 +74,11 @@
           :disabled="busy || !answer.trim()"
           :aria-label="busy ? 'AI 正在整理，暂时不能重复发送' : '发送给 AI'"
           @tap="$emit('continue')"
-        >{{ busy ? "AI 整理中" : "发送回复" }}</button>
+        ><text aria-hidden="true">{{ busy ? "…" : "↑" }}</text></button>
       </view>
-      <text class="private-hint">🔒 私人补充会自动保存；退出后可以继续。</text>
-      <view class="secondary-actions">
-        <button class="text-action" :disabled="busy" @tap="$emit('finish')">不再补充，直接确认草稿</button>
-        <button class="text-action subtle" :disabled="busy" @tap="$emit('change-mode')">更换表达路径</button>
+      <view class="composer-meta" aria-live="polite">
+        <text class="private-hint">🔒 私人补充自动保存，退出后可以继续</text>
+        <text v-if="busy" class="busy-hint">AI 正在整理…</text>
       </view>
     </view>
   </view>
@@ -128,7 +131,7 @@ function updateAnswer(event: Event) {
 </script>
 
 <style scoped lang="scss">
-.clarification-screen { min-height: calc(100vh - 184rpx); padding: 54rpx 44rpx calc(36rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
+.clarification-screen { min-height: calc(100vh - 184rpx); min-height: calc(100dvh - 184rpx); padding: 54rpx 44rpx calc(24rpx + env(safe-area-inset-bottom)); display: flex; flex-direction: column; box-sizing: border-box; }
 .intro-meta { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
 .eyebrow { color: #bd4933; font-size: 22rpx; font-weight: 800; letter-spacing: .14em; }
 .turn-pill { padding: 9rpx 16rpx; border: 1rpx solid rgba(49,91,71,.18); border-radius: 999rpx; background: rgba(255,253,248,.62); color: #526c60; font-size: 20rpx; font-weight: 700; }
@@ -145,7 +148,7 @@ function updateAnswer(event: Event) {
 .private-source-meta { display: flex; justify-content: space-between; color: #315b49; font-size: 20rpx; font-weight: 800; }
 .private-source-meta text:last-child { color: #8b928e; font-weight: 500; }
 .private-source-copy { display: block; margin-top: 12rpx; color: #66716b; font-size: 25rpx; line-height: 1.65; white-space: pre-wrap; }
-.conversation { display: flex; flex-direction: column; gap: 22rpx; margin-top: 34rpx; padding-bottom: 20rpx; }
+.conversation { min-height: 250rpx; padding-bottom: 24rpx; display: flex; flex: 1; flex-direction: column; gap: 22rpx; margin-top: 34rpx; }
 .conversation-guide { display: flex; align-items: flex-start; gap: 14rpx; padding-right: 50rpx; color: #718078; font-size: 24rpx; line-height: 1.6; }
 .message-row { display: flex; align-items: flex-end; gap: 12rpx; }
 .message-row.assistant { padding-right: 56rpx; }
@@ -159,23 +162,28 @@ function updateAnswer(event: Event) {
 .typing text:nth-child(2) { animation-delay: .15s; }
 .typing text:nth-child(3) { animation-delay: .3s; }
 @keyframes typing-pulse { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-5rpx); } }
-.composer-dock { position: sticky; bottom: 0; margin: 8rpx -10rpx 0; padding: 18rpx 10rpx calc(10rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 20%, #f3efe6); }
-.composer-heading { display: flex; justify-content: space-between; margin: 0 4rpx 10rpx; color: #7d8781; font-size: 19rpx; }
+.composer-dock { position: sticky; bottom: 0; margin: auto -10rpx 0; padding: 20rpx 10rpx calc(8rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 20%, #f3efe6); }
+.composer-tools { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 5rpx; }
+.composer-heading { display: flex; justify-content: space-between; margin: 0 4rpx 10rpx; color: #858c87; font-size: 19rpx; }
 .composer-label { color: #315847; font-weight: 800; }
-.composer { display: flex; align-items: flex-end; gap: 12rpx; padding: 10rpx 10rpx 10rpx 20rpx; border: 1rpx solid #cbd3cb; border-radius: 24rpx; background: #fffdf9; box-shadow: 0 12rpx 30rpx rgba(33,60,48,.09); }
-.composer-busy { opacity: .72; }
-.answer { box-sizing: border-box; flex: 1; width: auto; min-height: 48px; max-height: 230rpx; padding: 13rpx 3rpx; background: transparent; color: #233a32; font-size: 27rpx; line-height: 1.6; }
-.send { flex: 0 0 auto; min-width: 108rpx; min-height: 48px; margin: 0; padding: 0 16rpx; border-radius: 18rpx; background: #d9543b; color: #fffaf3; font-size: 22rpx; font-weight: 800; line-height: 48px; }
+.composer { display: flex; align-items: flex-end; gap: 12rpx; padding: 9rpx 9rpx 9rpx 21rpx; border: 2rpx solid #cbc8bf; border-radius: 30rpx; background: #fffdf9; box-shadow: 0 10rpx 28rpx rgba(33,60,48,.08); transition: border-color .18s ease, box-shadow .18s ease; }
+.composer:focus-within { border-color: #557765; box-shadow: 0 0 0 5rpx rgba(49,88,71,.09), 0 10rpx 28rpx rgba(33,60,48,.08); }
+.composer-busy { border-color: #d7d4ca; background: #faf8f2; }
+.answer { box-sizing: border-box; flex: 1; width: auto; min-height: 48px; max-height: 230rpx; padding: 13rpx 3rpx 11rpx; background: transparent; color: #233a32; font-size: 27rpx; line-height: 1.6; }
+.send { width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; flex: 0 0 48px; align-items: center; justify-content: center; border-radius: 50%; background: #d9543b; box-shadow: 0 7rpx 16rpx rgba(217,84,59,.24); color: #fffaf3; font-family: Georgia, serif; font-size: 29px; font-weight: 500; line-height: 1; }
+.send text { display: block; transform: translateY(-1px); }
 .send::after { border: 0; }
-.send[disabled] { background: #d7d8d1; color: #858d88; }
-.private-hint { display: block; margin: 10rpx 4rpx 0; color: #7b8580; font-size: 21rpx; line-height: 1.5; }
-.secondary-actions { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; margin-top: 4rpx; }
+.send[disabled] { background: #e2e2dc; box-shadow: none; color: #929893; }
+.composer-meta { min-height: 42rpx; margin: 9rpx 4rpx 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 18rpx; }
+.private-hint { display: block; color: #7b8580; font-size: 20rpx; line-height: 1.5; }
+.busy-hint { flex: none; color: #4f6e5f; font-size: 20rpx; font-weight: 700; }
 .text-action { flex: 1; color: #a74432; }
 .text-action.subtle { color: #6f7974; }
 .text-action[disabled] { opacity: .42; }
 @media (max-width: 360px) {
   .clarification-screen { padding-right: 36rpx; padding-left: 36rpx; }
   .title { font-size: 46rpx; }
-  .secondary-actions { align-items: stretch; flex-direction: column; gap: 0; }
+  .composer-tools { gap: 4rpx; }
+  .text-action { font-size: 21rpx; }
 }
 </style>
