@@ -97,6 +97,18 @@ export function canNavigateBack(stage: ClientStage) {
   ].includes(stage);
 }
 
+const joinedStagesRequiringSnapshot: readonly ClientStage[] = [
+  "DIALOGUE",
+  "AI_PENDING",
+  "COMMON",
+  "AGREEMENT",
+  "COMPLETE",
+];
+
+export function shouldLoadSnapshotAfterJoin(stage: ClientStage) {
+  return joinedStagesRequiringSnapshot.includes(stage);
+}
+
 export const editorClientStages: readonly ClientStage[] = [
   "RECORD",
   "MODE_SELECT",

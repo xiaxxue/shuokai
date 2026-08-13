@@ -421,7 +421,7 @@
         <text class="privacy-note centered-note">只有双方都确认后，实验才会正式开始。</text>
       </view>
 
-      <view v-else class="screen complete-screen">
+      <view v-else-if="stage === 'COMPLETE'" class="screen complete-screen">
         <view class="completion-mark">✓</view>
         <text class="eyebrow">这一次已经说开</text>
         <text class="title complete-title">不是谁赢了，<br />是你们终于在讨论同一个问题。</text>
@@ -435,6 +435,14 @@
           </view>
         </view>
         <button class="primary full" @tap="startAnotherRoom">发起新的沟通</button>
+      </view>
+
+      <view v-else class="screen ai-pending-screen">
+        <view class="ai-orbit"><text class="ai-orbit-core">···</text></view>
+        <text class="eyebrow">正在恢复沟通</text>
+        <text class="title">正在读取双方刚才的进展。</text>
+        <text class="description centered">这里不会把尚未完成的沟通显示成“已经说开”。如果等待较久，可以重新检查房间状态。</text>
+        <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">重新检查进展</button>
       </view>
 
       <view class="scroll-spacer" />
@@ -457,7 +465,13 @@
 import { computed, onUnmounted, reactive, ref, watch } from "vue";
 import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
-import { canNavigateBack, isEditorClientStage, previousStage, stageForRoom } from "../../domain/room-state";
+import {
+  canNavigateBack,
+  isEditorClientStage,
+  previousStage,
+  shouldLoadSnapshotAfterJoin,
+  stageForRoom,
+} from "../../domain/room-state";
 import {
   accountPlatformSummary,
   draftStatusLabel,
@@ -1128,8 +1142,9 @@ async function joinRoom() {
     resetPrivateWorkspace();
     updateRoom(joined);
     const joinedStage = stageForCurrentRoom(joined);
-    if (["COMMON", "AGREEMENT", "COMPLETE"].includes(joinedStage)) await loadSnapshot(joined);
-    else {
+    if (shouldLoadSnapshotAfterJoin(joinedStage)) {
+      await loadSnapshot(joined);
+    } else {
       stage.value = joinedStage;
       if (joinedStage === "INVITATION_INTRO") {
         try {

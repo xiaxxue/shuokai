@@ -3,6 +3,7 @@ import {
   canNavigateBack,
   canTransition,
   previousStage,
+  shouldLoadSnapshotAfterJoin,
   stageForRoom,
 } from "../src/domain/room-state";
 
@@ -38,5 +39,13 @@ describe("room state machine", () => {
     expect(stageForRoom("B", "COMMON_VIEW_READY")).toBe("COMMON");
     expect(stageForRoom("A", "AGREEMENT_PENDING")).toBe("AGREEMENT");
     expect(stageForRoom("B", "COMPLETED")).toBe("COMPLETE");
+  });
+
+  it("loads authoritative shared state after joining an in-progress room", () => {
+    expect(shouldLoadSnapshotAfterJoin("DIALOGUE")).toBe(true);
+    expect(shouldLoadSnapshotAfterJoin("AI_PENDING")).toBe(true);
+    expect(shouldLoadSnapshotAfterJoin("COMMON")).toBe(true);
+    expect(shouldLoadSnapshotAfterJoin("RECORD")).toBe(false);
+    expect(shouldLoadSnapshotAfterJoin("INVITATION_INTRO")).toBe(false);
   });
 });
