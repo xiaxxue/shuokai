@@ -3,7 +3,7 @@
     <view class="understanding-intro">
       <text class="kicker">理解层 · 双方分别确认</text>
       <text class="headline">先确认是否准确，<br />不是确认谁对谁错。</text>
-      <text class="lede">这份共同理解只使用双方已经分享的表达卡。它不会替你认错、原谅，也不会自动进入下一步方案。</text>
+      <text class="lede">这份共同理解只使用双方已经分享并确认过的表达与多轮沟通。它不会替你认错、原谅，也不会自动进入下一步方案。</text>
     </view>
 
     <view v-if="displayResult.commonGround.length" class="section section-common">

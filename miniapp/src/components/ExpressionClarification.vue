@@ -3,7 +3,7 @@
     <view class="intro">
       <view class="intro-meta">
         <text class="eyebrow">AI 私人对话</text>
-        <text class="turn-pill">第 {{ activeTurn }} / {{ maxTurns }} 轮</text>
+        <text class="turn-pill">按需要继续</text>
       </view>
       <text class="title">不用一次说完整。</text>
       <text class="description">下面始终是 AI 当前整理出的完整表达卡。每次回答后，卡片会更新；AI 只继续追问真正缺失或含混的部分。</text>
@@ -133,7 +133,6 @@ const props = defineProps<{
   question: string;
   answer: string;
   turns: ClarificationTurn[];
-  maxTurns: number;
   busy: boolean;
   sourceText: string;
   modeTitle: string;
@@ -146,7 +145,6 @@ const messages = computed(() => clarificationConversationMessages(
   props.question,
   props.busy,
 ));
-const activeTurn = computed(() => Math.min(props.turns.length + 1, props.maxTurns));
 const fieldProgress = computed(() => expressionFieldProgress(props.modelValue));
 const requiredFields = computed(() => fieldProgress.value.filter((field) => !field.optional));
 const requiredFieldCount = computed(() => requiredFields.value.length);

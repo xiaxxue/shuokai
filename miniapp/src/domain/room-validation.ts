@@ -40,7 +40,7 @@ export function parseRoomSession(value: unknown): RoomSession {
   if (workflowVersion !== undefined && workflowVersion !== 1 && workflowVersion !== 2) invalidResponse();
   const phaseV2 = value.phaseV2;
   if (phaseV2 !== undefined && ![
-    "SETUP", "PRIVATE_EXPRESSION", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
+    "SETUP", "PRIVATE_EXPRESSION", "DIALOGUE", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
     "ACTION_GENERATING", "ACTION_CONFIRMING", "PAUSED", "COMPLETED", "ENDED",
   ].includes(String(phaseV2))) invalidResponse();
   return value as RoomSession;

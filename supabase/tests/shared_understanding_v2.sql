@@ -52,6 +52,22 @@ select public.confirm_expression_version_v2(
   '{"mode":"FACT_DISPUTE","schemaVersion":1,"claim":"计划当时还没有确定","basis":"当时仍在等待确认","verificationRequest":"核对最终确认时间","uncertainties":[]}'::jsonb
 ) from test_m3_context;
 
+-- M4 requires one complete guided exchange before a new shared understanding.
+-- This older consensus-focused fixture seeds the already-tested response event.
+reset role;
+insert into private.dialogue_turns (
+  room_id, generation_no, sequence_no, round_no, participant_id, turn_kind,
+  reply_to_turn_id, payload, content_hash
+)
+select context.room_id, room.dialogue_generation, 3, 1, participant.id, 'RESPONSE', room.dialogue_focus_turn_id,
+  '{"text":"我已经完成本轮回应。"}'::jsonb,
+  encode(extensions.digest(convert_to('{"text":"我已经完成本轮回应。"}', 'UTF8'), 'sha256'), 'hex')
+from test_m3_context context
+join public.rooms room on room.id = context.room_id
+join public.participants participant on participant.room_id = context.room_id and participant.role = 'B';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"30000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+
 update test_m3_context context set consensus_job_id = (requested->>'jobId')::uuid
 from (select public.request_consensus_job_v2(room_id) requested from test_m3_context) result;
 select ok(consensus_job_id is not null, 'either member can idempotently request consensus') from test_m3_context;

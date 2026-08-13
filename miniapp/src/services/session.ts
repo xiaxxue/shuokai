@@ -59,7 +59,7 @@ export function getActiveRoom(ownerUserId?: string): RoomSession | null {
     (candidate.role !== "A" && candidate.role !== "B") ||
     (candidate.workflowVersion !== undefined && candidate.workflowVersion !== 1 && candidate.workflowVersion !== 2) ||
     (candidate.phaseV2 !== undefined && ![
-      "SETUP", "PRIVATE_EXPRESSION", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
+      "SETUP", "PRIVATE_EXPRESSION", "DIALOGUE", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
       "ACTION_GENERATING", "ACTION_CONFIRMING", "PAUSED", "COMPLETED", "ENDED",
     ].includes(candidate.phaseV2)) ||
     !roomStates.includes(candidate.state as RoomSession["state"])

@@ -91,6 +91,14 @@ describe("shared understanding", () => {
   it("turns stable evidence paths into human labels", () => {
     expect(sourceLabel("A.observation")).toBe("发起者 · 观察");
     expect(sourceLabel("B.selfProtectiveAction")).toBe("受邀者 · 自我保护行动");
+    expect(sourceLabel("DIALOGUE.RESPONSE.B.7")).toBe("第 7 条 · 受邀者回应");
+    expect(isSharedUnderstanding({
+      ...payload,
+      candidateUnderstanding: {
+        text: "双方在沟通中确认了新的理解",
+        sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
+      },
+    })).toBe(true);
   });
 
   it("rejects confirmation responses whose count and phase disagree", () => {

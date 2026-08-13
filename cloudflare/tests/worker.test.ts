@@ -521,6 +521,28 @@ test("shared understanding schemas are strict, traceable, and independently revi
   assert.equal(isUnderstandingResult(corrected), true);
   assert.equal(isUnderstandingResult({
     ...corrected,
+    commonGround: [{
+      text: "双方在后续沟通中确认了新的理解",
+      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
+    }],
+    candidateUnderstanding: {
+      text: "双方仍在继续澄清",
+      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
+    },
+    coreQuestion: {
+      text: "下一轮最需要澄清什么",
+      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
+    },
+  }), true);
+  assert.equal(isUnderstandingResult({
+    ...corrected,
+    commonGround: [{
+      text: "B 复述了 A 的需要",
+      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.REFLECTION.B.7"],
+    }],
+  }), false);
+  assert.equal(isUnderstandingResult({
+    ...corrected,
     commonGround: [{ text: "他故意忽略我", sources: ["A.diagnosis"] }],
   }), false);
   assert.equal(isUnderstandingResult({
@@ -605,6 +627,29 @@ test("understanding confirmation validation binds the exact reviewed hash", () =
   }), null);
 });
 
+test("dialogue RPC validation binds each append to a revision and focus turn", () => {
+  const roomId = "11111111-1111-4111-8111-111111111111";
+  const turnId = "22222222-2222-4222-8222-222222222222";
+  assert.equal(isAllowedRpcMethod("get_dialogue_state_v2"), true);
+  assert.deepEqual(validateRpcArgs("append_dialogue_turn_v2", {
+    p_room_id: roomId,
+    p_expected_revision: 4,
+    p_turn_kind: "REFLECTION",
+    p_reply_to_turn_id: turnId,
+    p_payload: { text: "我听见你希望先把话说完。" },
+  }), {
+    p_room_id: roomId,
+    p_expected_revision: 4,
+    p_turn_kind: "REFLECTION",
+    p_reply_to_turn_id: turnId,
+    p_payload: { text: "我听见你希望先把话说完。" },
+  });
+  assert.equal(validateRpcArgs("append_dialogue_turn_v2", {
+    p_room_id: roomId, p_expected_revision: 4, p_turn_kind: "AI_SUMMARY",
+    p_reply_to_turn_id: turnId, p_payload: { text: "伪造总结" },
+  }), null);
+});
+
 test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   const captured: { model?: string; input?: Record<string, unknown> } = {};
   const generated = await generateExpressionCandidate({
@@ -682,13 +727,22 @@ test("consensus Agent sends only confirmed cards to Workers AI", async () => {
       payload: { need: "确定感", request: "可能变化时告诉我", internalNote: "不得发送" },
     },
     expressionB: { mode: "NVC", payload: { need: "准确", request: "确认变化后告诉你" } },
+    dialogueTimeline: [{
+      sequence: 7,
+      round: 2,
+      kind: "REFLECTION_CONFIRMATION",
+      authorRole: "A",
+      payload: { decision: "ACCURATE", feedback: "", expressionId: "不得发送的内部 ID" },
+    }],
   });
   const requestText = JSON.stringify(captured.input);
   assert.equal(requestText.includes("sourceText"), false);
   assert.equal(requestText.includes("raw transcript"), false);
   assert.equal(requestText.includes("internalNote"), false);
   assert.equal(requestText.includes("不得发送"), false);
+  assert.equal(requestText.includes("内部 ID"), false);
   assert.equal(requestText.includes("绝不能填写 A.request"), true);
+  assert.equal(requestText.includes("confirmedDialogueTimeline"), true);
   assert.deepEqual((generated.result as { boundaries?: unknown }).boundaries, []);
   assert.equal(
     (generated.result as { differences?: unknown[] }).differences?.length,

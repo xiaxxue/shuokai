@@ -12,7 +12,7 @@ import {
 } from "../src/domain/clarification";
 
 describe("private AI clarification", () => {
-  it("asks one unanswered question at a time and stops after three turns", () => {
+  it("asks one unanswered question at a time beyond the old three-turn cutoff", () => {
     const uncertainties = ["当时具体说了什么？", "你最在意的是什么？"];
     const turns = [{ question: uncertainties[0], answer: "他说那位女生很好看。" }];
     expect(nextClarificationQuestion(uncertainties, turns)).toBe(uncertainties[1]);
@@ -20,7 +20,7 @@ describe("private AI clarification", () => {
       ...turns,
       { question: uncertainties[1], answer: "我在意被尊重。" },
       { question: "你希望怎样？", answer: "希望他降低音量。" },
-    ])).toBe("");
+    ])).toBe("还要补充吗？");
   });
 
   it("offers an open-ended continuation only while another private turn remains", () => {

@@ -31,6 +31,17 @@ type UnderstandingClaimPayload = {
   reviewIssues?: unknown;
 };
 
+type DialogueContext = unknown[];
+
+type ConfirmedDialogueTurn = {
+  sequence: number;
+  round: number;
+  kind: "OPENING" | "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE";
+  authorRole: "A" | "B";
+  source: `DIALOGUE.${"OPENING" | "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE"}.${"A" | "B"}.${number}`;
+  payload: Record<string, unknown>;
+};
+
 type QueueMessage = { jobId: string; correlationId?: string };
 
 type QueueMessageEnvelope = {
@@ -233,10 +244,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isDialogueSource(value: string) {
+  return /^DIALOGUE\.(OPENING|REFLECTION|REFLECTION_CONFIRMATION|RESPONSE)\.[AB]\.[1-9]\d*$/.test(value);
+}
+
+function isUnderstandingSource(value: string) {
+  return understandingSourceKeys.includes(value as typeof understandingSourceKeys[number]) ||
+    isDialogueSource(value);
+}
+
+function sourceRole(value: string) {
+  if (value.startsWith("A.")) return "A";
+  if (value.startsWith("B.")) return "B";
+  const dialogue = /^DIALOGUE\.(OPENING|REFLECTION|REFLECTION_CONFIRMATION|RESPONSE)\.([AB])\./.exec(value);
+  return dialogue?.[1] === "REFLECTION" ? null : dialogue?.[2] ?? null;
+}
+
+function isDialogueBoundarySource(value: string) {
+  return /^DIALOGUE\.(OPENING|REFLECTION_CONFIRMATION|RESPONSE)\.[AB]\.[1-9]\d*$/.test(value);
+}
+
 function isSourceList(value: unknown, allowEmpty = false): value is string[] {
   return Array.isArray(value) && (allowEmpty || value.length > 0) && value.length <= 8 &&
-    value.every((item) => typeof item === "string" &&
-      understandingSourceKeys.includes(item as typeof understandingSourceKeys[number]));
+    value.every((item) => typeof item === "string" && isUnderstandingSource(item));
 }
 
 function isEvidenceItem(value: unknown) {
@@ -246,13 +276,13 @@ function isEvidenceItem(value: unknown) {
 }
 
 function hasBothSides(sources: unknown) {
-  return isSourceList(sources) && sources.some((source) => source.startsWith("A.")) &&
-    sources.some((source) => source.startsWith("B."));
+  return isSourceList(sources) && sources.some((source) => sourceRole(source) === "A") &&
+    sources.some((source) => sourceRole(source) === "B");
 }
 
 function isBoundaryEvidenceItem(value: unknown) {
   return isEvidenceItem(value) && (value as { sources: string[] }).sources.every((source) =>
-    boundarySourceKeys.includes(source as typeof boundarySourceKeys[number])
+    boundarySourceKeys.includes(source as typeof boundarySourceKeys[number]) || isDialogueBoundarySource(source)
   );
 }
 
@@ -315,7 +345,52 @@ function sanitizedConfirmedExpression(expression: ConfirmedExpression): Confirme
   return { mode: expression.mode, payload };
 }
 
-function availableSources(input: { expressionA: ConfirmedExpression; expressionB: ConfirmedExpression }) {
+function sanitizedDialogueTimeline(value: DialogueContext | undefined): ConfirmedDialogueTurn[] {
+  if (!Array.isArray(value)) return [];
+  const turns: ConfirmedDialogueTurn[] = [];
+  for (const item of value.slice(-80)) {
+    if (!isRecord(item) || !Number.isSafeInteger(item.sequence) || Number(item.sequence) < 1 ||
+      !Number.isSafeInteger(item.round) || Number(item.round) < 1 ||
+      !["OPENING", "REFLECTION", "REFLECTION_CONFIRMATION", "RESPONSE"].includes(String(item.kind)) ||
+      !["A", "B"].includes(String(item.authorRole)) || !isRecord(item.payload)) continue;
+    const sequence = Number(item.sequence);
+    const authorRole = item.authorRole as "A" | "B";
+    const kind = item.kind as ConfirmedDialogueTurn["kind"];
+    const source = `DIALOGUE.${kind}.${authorRole}.${sequence}` as const;
+    let payload: Record<string, unknown>;
+    if (item.kind === "OPENING") {
+      const mode = item.payload.mode;
+      const card = item.payload.card;
+      if (!isSupportedExpressionMode(mode) || !isRecord(card)) continue;
+      payload = { mode, card: sanitizedConfirmedExpression({ mode, payload: card }).payload };
+    } else if (item.kind === "REFLECTION_CONFIRMATION") {
+      if (!["ACCURATE", "NEEDS_CORRECTION"].includes(String(item.payload.decision)) ||
+        typeof item.payload.feedback !== "string") continue;
+      payload = {
+        decision: item.payload.decision,
+        feedback: item.payload.feedback.slice(0, 1200),
+      };
+    } else {
+      if (typeof item.payload.text !== "string") continue;
+      payload = { text: item.payload.text.slice(0, 3000) };
+    }
+    turns.push({
+      sequence,
+      round: Number(item.round),
+      kind,
+      authorRole,
+      source,
+      payload,
+    });
+  }
+  return turns;
+}
+
+function availableSources(input: {
+  expressionA: ConfirmedExpression;
+  expressionB: ConfirmedExpression;
+  confirmedDialogueTimeline?: ConfirmedDialogueTurn[];
+}) {
   const sources: string[] = [];
   for (const [prefix, expression] of [["A", input.expressionA], ["B", input.expressionB]] as const) {
     for (const field of Object.keys(fieldSchemas[expression.mode])) {
@@ -324,6 +399,7 @@ function availableSources(input: { expressionA: ConfirmedExpression; expressionB
       }
     }
   }
+  for (const turn of input.confirmedDialogueTimeline ?? []) sources.push(turn.source);
   return sources;
 }
 
@@ -402,7 +478,7 @@ export function normalizeUnderstandingResult(value: unknown) {
 function sourceRestrictedSchema<T>(schema: T, sources: string[]) {
   const copy = structuredClone(schema) as unknown;
   const boundarySources = sources.filter((source) =>
-    boundarySourceKeys.includes(source as typeof boundarySourceKeys[number])
+    boundarySourceKeys.includes(source as typeof boundarySourceKeys[number]) || isDialogueBoundarySource(source)
   );
   const visit = (value: unknown, withinBoundaries = false) => {
     if (Array.isArray(value)) {
@@ -471,7 +547,7 @@ export async function generateExpressionCandidate(
       modeInstruction(input.mode),
       "uncertainties 是给用户看的下一句追问。只返回当前最重要的 1 个问题，不要一次列多个；只问一件会影响表达准确性的关键信息，写成简短、具体、非诱导的中文问句。",
       "第一次整理原话时 uncertainties 必须包含 1 个基于原话的背景问题，让用户先通过对话补全信息，再确认表达卡。",
-      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。至少完成一轮问答后，信息足够时 uncertainties 才可以返回空数组。",
+      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。不要因为已经问过一次就结束。只有必要字段都有具体内容、指代与时间背景不再影响理解、用户希望对方理解的重点和具体请求已经清楚时，uncertainties 才可以返回空数组；否则继续问当前最关键的一件事。",
       "不要索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
       "普通的难过、嫉妒、失望、争吵、关系不安、分手或情感困扰本身不是阻止分享的理由，通常应为 ALLOW。只有分享本身可能带来现实危险时才使用 WARN；只有明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。",
       "输出中文。字段不足时留空，让用户本人补充和确认。",
@@ -488,12 +564,15 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
   expressionB: ConfirmedExpression;
   previousCandidate?: unknown;
   reviewIssues?: unknown;
+  dialogueTimeline?: DialogueContext;
 }) {
+  const confirmedDialogueTimeline = sanitizedDialogueTimeline(input.dialogueTimeline);
   const modelInput = {
     expressionA: sanitizedConfirmedExpression(input.expressionA),
     expressionB: sanitizedConfirmedExpression(input.expressionB),
     ...(input.previousCandidate === undefined ? {} : { previousCandidate: input.previousCandidate }),
     ...(input.reviewIssues === undefined ? {} : { reviewIssues: input.reviewIssues }),
+    ...(confirmedDialogueTimeline.length ? { confirmedDialogueTimeline } : {}),
   };
   const sourceKeys = availableSources(modelInput);
   const sourceSet = new Set(sourceKeys);
@@ -507,9 +586,10 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
     systemText: [
       "你是‘说开’的共识 Agent，只生成理解层候选，不裁判谁对谁错，也不提出行动方案。",
       "输入只包含双方本人确认并同意分享的表达卡。不得推断私人原话、人格、动机、诊断或关系结论。",
+      "若输入含 confirmedDialogueTimeline，它是双方在房间内已共享的多轮表达、复述、确认与回应，每条 source 都可作为证据。必须以其中较新的纠正和确认作为阶段总结依据；不能只复述最初两张表达卡。",
       "共同点必须是双方表达中都有依据的重叠；不同主张必须保留为分歧；未经双方确认的事实只能放进未核实事实。",
       "共同点必须是具体语义重叠，不能仅写‘双方都有负面情绪’等空泛类别；找不到真实重叠时 commonGround 必须为空数组，绝不能为了填满结构制造共同点。每个共同点、候选理解和核心问题的 sources 都必须同时包含 A 与 B。",
-      "边界只允许来自 boundary、acceptableRange、selfProtectiveAction 字段；普通 request 绝不能写入 boundaries。边界必须原样保留其约束性。",
+      "边界只允许来自 boundary、acceptableRange、selfProtectiveAction 字段，或 confirmedDialogueTimeline 中某一方后来明确声明的边界；普通 request 绝不能写入 boundaries。边界必须原样保留其约束性。",
       "differences.sideA 和 sideB 必须写双方表达的自然语言摘要，绝不能填写 A.request、B.need 等字段名。",
       "同一项共同点、分歧、未核实事实或边界只能输出一次。相同 topic、sideA 和 sideB 的分歧必须合并，绝不能用换序或重复措辞凑满数组。",
       "任何摘要里出现观察、感受、需要或请求的内容，sources 都必须逐项包含对应字段；如果 sources 只写 observation，side 文本就绝不能顺带加入 feeling。",
@@ -535,11 +615,14 @@ export function reviewSharedUnderstanding(env: WorkerEnv, input: {
   expressionA: ConfirmedExpression;
   expressionB: ConfirmedExpression;
   candidate: unknown;
+  dialogueTimeline?: DialogueContext;
 }) {
+  const confirmedDialogueTimeline = sanitizedDialogueTimeline(input.dialogueTimeline);
   const modelInput = {
     expressionA: sanitizedConfirmedExpression(input.expressionA),
     expressionB: sanitizedConfirmedExpression(input.expressionB),
     candidate: input.candidate,
+    ...(confirmedDialogueTimeline.length ? { confirmedDialogueTimeline } : {}),
   };
   const sourceKeys = availableSources(modelInput);
   const sourceSet = new Set(sourceKeys);
@@ -624,18 +707,30 @@ async function processMessage(
         throw new Error("INVALID_JOB_INPUT");
       }
       if (input.jobType === "CONSENSUS") {
+        const { data: dialogueContext, error: dialogueError } = await admin.rpc(
+          "internal_get_dialogue_context_v2",
+          { p_job_id: parsed.jobId },
+        );
+        if (dialogueError || !Array.isArray(dialogueContext)) throw new Error("DIALOGUE_CONTEXT_FAILED");
         generated = await generateSharedUnderstanding(env, {
           expressionA: input.expressionA,
           expressionB: input.expressionB,
           previousCandidate: input.previousCandidate,
           reviewIssues: input.reviewIssues,
+          dialogueTimeline: dialogueContext,
         });
         completionRpc = "internal_complete_consensus_job_v2";
       } else if (input.jobType === "REVIEW_UNDERSTANDING" && isUnderstandingResult(input.candidate)) {
+        const { data: dialogueContext, error: dialogueError } = await admin.rpc(
+          "internal_get_dialogue_context_v2",
+          { p_job_id: parsed.jobId },
+        );
+        if (dialogueError || !Array.isArray(dialogueContext)) throw new Error("DIALOGUE_CONTEXT_FAILED");
         generated = await reviewSharedUnderstanding(env, {
           expressionA: input.expressionA,
           expressionB: input.expressionB,
           candidate: input.candidate,
+          dialogueTimeline: dialogueContext,
         });
         completionRpc = "internal_complete_understanding_review_v2";
       } else {

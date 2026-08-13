@@ -4,6 +4,7 @@ import type {
   RoomSession,
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
+import { parseDialogueState, type DialogueTurnKind } from "../domain/dialogue";
 import { parseInvitationContext } from "../domain/invitation";
 import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
@@ -226,6 +227,25 @@ export const roomApi = {
     }>("get_ai_job_status_v2", { p_job_id: jobId }),
   understandingStatus: async (roomId: string) =>
     parseUnderstandingStatus(await rpc<unknown>("get_understanding_status_v2", { p_room_id: roomId })),
+  startDialogue: async (roomId: string) => {
+    await rpc("start_dialogue_v2", { p_room_id: roomId });
+    return parseDialogueState(await rpc<unknown>("get_dialogue_state_v2", { p_room_id: roomId }));
+  },
+  dialogueState: async (roomId: string) =>
+    parseDialogueState(await rpc<unknown>("get_dialogue_state_v2", { p_room_id: roomId })),
+  appendDialogueTurn: async (
+    roomId: string,
+    revision: number,
+    kind: Extract<DialogueTurnKind, "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE">,
+    replyToTurnId: string,
+    payload: Record<string, unknown>,
+  ) => rpc<{ turnId: string; revision: number }>("append_dialogue_turn_v2", {
+    p_room_id: roomId,
+    p_expected_revision: revision,
+    p_turn_kind: kind,
+    p_reply_to_turn_id: replyToTurnId,
+    p_payload: payload,
+  }),
   confirmUnderstanding: async (
     roomId: string,
     resultId: string,

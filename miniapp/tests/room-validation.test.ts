@@ -34,6 +34,8 @@ describe("room API response validation", () => {
     };
 
     expect(parseRoomSession(session)).toEqual(session);
+    expect(parseRoomSession({ ...session, workflowVersion: 2, phaseV2: "DIALOGUE" }).phaseV2)
+      .toBe("DIALOGUE");
     expect(parseRoomSnapshot(snapshot).room.state).toBe("COMMON_VIEW_READY");
   });
 

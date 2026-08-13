@@ -4,10 +4,13 @@ const understandingFields = [
   "observation", "feeling", "need", "request", "claim", "basis", "verificationRequest",
   "boundary", "reason", "acceptableRange", "selfProtectiveAction",
 ] as const;
-export type UnderstandingSource = `${"A" | "B"}.${typeof understandingFields[number]}`;
+export type UnderstandingSource =
+  | `${"A" | "B"}.${typeof understandingFields[number]}`
+  | `DIALOGUE.${"OPENING" | "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE"}.${"A" | "B"}.${number}`;
 
 function isUnderstandingSource(value: unknown): value is UnderstandingSource {
   if (typeof value !== "string") return false;
+  if (/^DIALOGUE\.(OPENING|REFLECTION|REFLECTION_CONFIRMATION|RESPONSE)\.[AB]\.[1-9]\d*$/.test(value)) return true;
   const [role, field] = value.split(".");
   return ["A", "B"].includes(role) && understandingFields.includes(field as typeof understandingFields[number]);
 }
@@ -117,7 +120,7 @@ export function isSharedUnderstanding(value: unknown): value is SharedUnderstand
 
 export function parseUnderstandingStatus(value: unknown): UnderstandingStatus {
   const phases: Array<NonNullable<RoomSession["phaseV2"]>> = [
-    "SETUP", "PRIVATE_EXPRESSION", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
+    "SETUP", "PRIVATE_EXPRESSION", "DIALOGUE", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
     "ACTION_GENERATING", "ACTION_CONFIRMING", "PAUSED", "COMPLETED", "ENDED",
   ];
   const statuses = [
@@ -163,6 +166,16 @@ export function parseUnderstandingConfirmation(value: unknown): UnderstandingCon
 }
 
 export function sourceLabel(source: UnderstandingSource) {
+  const dialogueMatch = /^DIALOGUE\.(OPENING|REFLECTION|REFLECTION_CONFIRMATION|RESPONSE)\.([AB])\.(\d+)$/.exec(source);
+  if (dialogueMatch) {
+    const kindLabels = {
+      OPENING: "表达",
+      REFLECTION: "复述",
+      REFLECTION_CONFIRMATION: "确认",
+      RESPONSE: "回应",
+    } as const;
+    return `第 ${dialogueMatch[3]} 条 · ${dialogueMatch[2] === "A" ? "发起者" : "受邀者"}${kindLabels[dialogueMatch[1] as keyof typeof kindLabels]}`;
+  }
   const [role, field] = source.split(".");
   const fieldLabels: Record<string, string> = {
     observation: "观察", feeling: "感受", need: "需要", request: "请求",

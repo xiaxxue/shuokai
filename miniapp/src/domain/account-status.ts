@@ -19,6 +19,7 @@ const stageLabels: Record<ClientStage, string> = {
   REVIEW: "确认准备分享的内容",
   INVITE: "等待对方加入或确认",
   COMMON: "查看双方共同视图",
+  DIALOGUE: "多轮理解与回应",
   AGREEMENT: "确认 7 天小实验",
   COMPLETE: "本次沟通已完成",
 };
@@ -54,6 +55,7 @@ export function accountStage(stage: ClientStage, room: RoomSession | null): Clie
   if (!room || stage !== "WELCOME") return stage;
   if (room.workflowVersion === 2) {
     if (room.phaseV2 === "PAUSED") return "PAUSED";
+    if (room.phaseV2 === "DIALOGUE") return "DIALOGUE";
     if (room.phaseV2 === "UNDERSTANDING_GENERATING" || room.state === "COMMON_VIEW_READY") return "AI_PENDING";
     if (room.role === "A" && room.state === "WAITING_FOR_B") return "INVITE";
     if (room.state === "GOAL_SETTING") return "GOAL";

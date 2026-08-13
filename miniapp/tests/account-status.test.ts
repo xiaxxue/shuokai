@@ -50,6 +50,12 @@ describe("account space status", () => {
       state: "COMMON_VIEW_READY",
       phaseV2: "UNDERSTANDING_GENERATING",
     })).toBe("双方表达已确认 · 共同理解待接入");
+    expect(roomPhaseLabel("WELCOME", {
+      ...room,
+      workflowVersion: 2,
+      state: "COMMON_VIEW_READY",
+      phaseV2: "DIALOGUE",
+    })).toBe("多轮理解与回应");
   });
 
   it("describes local and synced draft states without exposing storage details", () => {

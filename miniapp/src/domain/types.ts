@@ -14,7 +14,7 @@ export type RoomSession = {
   state: RoomState;
   workflowVersion?: 1 | 2;
   phaseV2?: "SETUP" | "PRIVATE_EXPRESSION" | "UNDERSTANDING_GENERATING" | "UNDERSTANDING_CONFIRMING" |
-    "ACTION_GENERATING" | "ACTION_CONFIRMING" | "PAUSED" | "COMPLETED" | "ENDED";
+    "DIALOGUE" | "ACTION_GENERATING" | "ACTION_CONFIRMING" | "PAUSED" | "COMPLETED" | "ENDED";
 };
 
 export type Perspective = {

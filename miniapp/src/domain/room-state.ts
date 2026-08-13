@@ -45,6 +45,7 @@ export type ClientStage =
   | "REVIEW"
   | "INVITE"
   | "COMMON"
+  | "DIALOGUE"
   | "AGREEMENT"
   | "COMPLETE";
 
@@ -65,6 +66,7 @@ export const clientStageOrder: readonly ClientStage[] = [
   "REVIEW",
   "INVITE",
   "COMMON",
+  "DIALOGUE",
   "AGREEMENT",
   "COMPLETE",
 ];

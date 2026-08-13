@@ -214,7 +214,7 @@
         <view class="ai-orbit"><text class="ai-orbit-core">AI</text></view>
         <text class="eyebrow">{{ aiJobId ? "私人整理中" : "理解层生成中" }}</text>
         <text class="title">{{ aiJobId ? "正在把原话放进你选择的表达路径。" : "正在对齐共同点，也保留真正的不同。" }}</text>
-        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "共识 Agent 只读取双方已经确认分享的表达卡；审查 Agent 会检查虚假共识、争议事实和边界弱化。" }}</text>
+        <text class="description centered">{{ aiJobId ? "这里不会判断谁对谁错，也不会自动分享。通常只需要十几秒，你仍然拥有最后的删改与确认权。" : "共识 Agent 会读取双方确认分享的表达卡与刚才的多轮沟通；审查 Agent 会检查虚假共识、争议事实和边界弱化。" }}</text>
         <view v-if="aiJobId" class="ai-steps">
           <view class="ai-step done"><text>✓</text><text>读取本次原话</text></view>
           <view class="ai-step active"><text class="processing-dot" /><text>整理表达卡</text></view>
@@ -256,7 +256,6 @@
         :question="currentClarificationQuestion"
         :answer="clarificationAnswer"
         :turns="clarificationTurns"
-        :max-turns="MAX_CLARIFICATION_TURNS"
         :busy="busy"
         :source-text="transcript"
         :mode-title="currentExpressionOption.title"
@@ -265,6 +264,17 @@
         @continue="continueClarification"
         @finish="skipClarification"
         @change-mode="changeExpressionMode"
+      />
+
+      <GuidedDialogue
+        v-else-if="stage === 'DIALOGUE' && dialogueState"
+        :state="dialogueState"
+        :busy="busy"
+        @submit="submitDialogueText"
+        @confirm="confirmDialogueReflection"
+        @refresh="refreshDialogue"
+        @pause="pauseFromDialogue"
+        @summarize="finishDialogueRound"
       />
 
       <view v-else-if="stage === 'PAUSED'" class="screen paused-screen">
@@ -471,6 +481,7 @@ import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
 import ExpressionClarification from "../../components/ExpressionClarification.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
+import GuidedDialogue from "../../components/GuidedDialogue.vue";
 import InvitationIntro from "../../components/InvitationIntro.vue";
 import {
   createEditableExpression,
@@ -492,6 +503,7 @@ import {
   shouldPreserveDraftOnAiExit,
   type ClarificationTurn,
 } from "../../domain/clarification";
+import type { DialogueState } from "../../domain/dialogue";
 import {
   expressionReviewIsSummary as isExpressionReviewSummary,
   expressionReviewSummaryStep,
@@ -548,6 +560,7 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   REVIEW: { step: 3, label: "确认" },
   INVITE: { step: 3, label: "确认" },
   COMMON: { step: 4, label: "共视" },
+  DIALOGUE: { step: 4, label: "对话" },
   AGREEMENT: { step: 5, label: "约定" },
   COMPLETE: { step: 5, label: "完成" },
 };
@@ -581,6 +594,7 @@ const clarificationSkipped = ref(false);
 const invitationContext = ref<InvitationContext | null>(null);
 const invitationClarifying = ref(false);
 const expressionReviewStep = ref(0);
+const dialogueState = ref<DialogueState | null>(null);
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -655,6 +669,7 @@ const activeNvcIndex = computed(() => activeNvcCard.value
   : -1);
 const showBottomBar = computed(() => {
   if (stage.value === "COMMON" && isV2Room.value) return false;
+  if (stage.value === "DIALOGUE") return false;
   return ["GOAL", "RECORD", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON"]
     .includes(stage.value) || Boolean(activeNvcCard.value);
 });
@@ -851,6 +866,7 @@ function resetPrivateWorkspace() {
   invitationContext.value = null;
   invitationClarifying.value = false;
   sharedUnderstanding.reset();
+  dialogueState.value = null;
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
@@ -953,7 +969,19 @@ async function loadSnapshot(roomSession: RoomSession) {
     }
   }
   if (roomSession.workflowVersion === 2 && latest.room.state === "COMMON_VIEW_READY") {
-    void ensureSharedUnderstanding();
+    if (["UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING", "ACTION_GENERATING", "ACTION_CONFIRMING"]
+      .includes(roomSession.phaseV2 ?? "")) {
+      stage.value = "AI_PENDING";
+      await pollUnderstanding();
+    } else {
+      try {
+        dialogueState.value = await roomApi.dialogueState(roomSession.roomId);
+      } catch {
+        dialogueState.value = await roomApi.startDialogue(roomSession.roomId);
+      }
+      updateRoom({ ...roomSession, state: latest.room.state, phaseV2: "DIALOGUE" });
+      stage.value = "DIALOGUE";
+    }
   }
   let authoritativeEditorStage: ClientStage | null = null;
   let minimumWorkspaceRevision = 0;
@@ -985,7 +1013,10 @@ function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state
   if (roomSession.phaseV2 === "PAUSED") return "PAUSED";
   if (state === "COMPLETED") return "COMPLETE";
   if (state === "AGREEMENT_PENDING") return "AGREEMENT";
-  if (state === "COMMON_VIEW_READY") return "AI_PENDING";
+  if (roomSession.phaseV2 === "UNDERSTANDING_GENERATING") return "AI_PENDING";
+  if (["UNDERSTANDING_CONFIRMING", "ACTION_GENERATING", "ACTION_CONFIRMING"]
+    .includes(roomSession.phaseV2 ?? "")) return "COMMON";
+  if (roomSession.phaseV2 === "DIALOGUE" || state === "COMMON_VIEW_READY") return "DIALOGUE";
   if (roomSession.role === "A") {
     if (state === "GOAL_SETTING") return "GOAL";
     if (state === "A_DRAFTING" || state === "A_REVIEWING") return "RECORD";
@@ -1430,9 +1461,10 @@ async function next() {
       draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: confirmed.state });
       if (room.value.role === "B") {
-        updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
-        setNotice("success", "双方表达卡已确认，正在生成并审查共同理解。 ");
-        await ensureSharedUnderstanding();
+        dialogueState.value = await roomApi.startDialogue(room.value.roomId);
+        updateRoom({ ...room.value, phaseV2: "DIALOGUE" });
+        stage.value = "DIALOGUE";
+        setNotice("success", "双方表达卡已确认。先互相确认听懂，再进入共同理解。 ");
       } else {
         invitationContext.value = {
           inviterName: "邀请你的人",
@@ -1641,11 +1673,105 @@ function goBack() {
       );
     } else {
       expressionReviewStep.value = 0;
-      setNotice("info", "三轮私人对话已完成。你仍可以直接修改表达卡内容。 ");
+      setNotice("info", "私人对话已达到安全上限。你仍可以直接修改表达卡内容。 ");
     }
     return;
   }
   stage.value = previousStage(stage.value);
+}
+
+async function refreshDialogue() {
+  if (!room.value || busy.value) return;
+  busy.value = true;
+  try {
+    dialogueState.value = await roomApi.dialogueState(room.value.roomId);
+    setNotice("success", dialogueState.value.canAct ? "轮到你继续了。" : "已同步最新沟通进展。");
+  } catch (error) {
+    setNotice("error", message(error, "暂时无法同步沟通进展。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function submitDialogueText(kind: "REFLECTION" | "RESPONSE", text: string) {
+  if (!room.value || !dialogueState.value || busy.value) return;
+  busy.value = true;
+  clearNotice();
+  try {
+    await roomApi.appendDialogueTurn(
+      room.value.roomId,
+      dialogueState.value.revision,
+      kind,
+      dialogueState.value.focusTurnId,
+      { text },
+    );
+    dialogueState.value = await roomApi.dialogueState(room.value.roomId);
+    setNotice("success", kind === "REFLECTION" ? "复述已发送，等待对方确认是否准确。" : "回应已发送，下一轮开始了。");
+  } catch (error) {
+    setNotice("error", message(error, "这次内容没有发送，请刷新后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function confirmDialogueReflection(
+  decision: "ACCURATE" | "NEEDS_CORRECTION",
+  feedback: string,
+) {
+  if (!room.value || !dialogueState.value || busy.value) return;
+  busy.value = true;
+  clearNotice();
+  try {
+    await roomApi.appendDialogueTurn(
+      room.value.roomId,
+      dialogueState.value.revision,
+      "REFLECTION_CONFIRMATION",
+      dialogueState.value.focusTurnId,
+      { decision, feedback },
+    );
+    dialogueState.value = await roomApi.dialogueState(room.value.roomId);
+    setNotice("success", decision === "ACCURATE" ? "已确认对方听懂了你的意思。" : "纠正已发回，对方会再复述一次。");
+  } catch (error) {
+    setNotice("error", message(error, "确认没有提交，请刷新后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function pauseFromDialogue() {
+  if (!room.value || !await confirmPause()) return;
+  busy.value = true;
+  try {
+    await roomApi.pause(room.value.roomId);
+    updateRoom({ ...room.value, phaseV2: "PAUSED" });
+    stage.value = "PAUSED";
+    setNotice("success", "沟通已暂停，完整进度会保留。 ");
+  } catch (error) {
+    setNotice("error", message(error, "暂时无法暂停，请稍后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function finishDialogueRound() {
+  if (!room.value || busy.value) return;
+  busy.value = true;
+  try {
+    updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
+    stage.value = "AI_PENDING";
+    await ensureSharedUnderstanding();
+    if (understandingFailure.value) {
+      setNotice("error", understandingFailure.value);
+    } else {
+      setNotice("success", "正在根据双方确认的表达与多轮沟通整理阶段性共同理解。 ");
+    }
+  } catch (error) {
+    updateRoom({ ...room.value, phaseV2: "DIALOGUE" });
+    stage.value = "DIALOGUE";
+    setNotice("error", message(error, "阶段总结没有开始，沟通记录仍然保留。"));
+  } finally {
+    busy.value = false;
+  }
 }
 
 function returnToWelcome() {

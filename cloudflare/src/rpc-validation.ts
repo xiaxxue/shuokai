@@ -31,6 +31,9 @@ const specs = {
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
   get_understanding_status_v2: { required: { p_room_id: 36 } },
+  start_dialogue_v2: { required: { p_room_id: 36 } },
+  get_dialogue_state_v2: { required: { p_room_id: 36 } },
+  append_dialogue_turn_v2: { required: { p_room_id: 36 } },
   confirm_understanding_v2: { required: { p_room_id: 36 } },
   reopen_expression_v2: { required: { p_room_id: 36 } },
   confirm_expression_version_v2: { required: { p_room_id: 36 } },
@@ -81,6 +84,27 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0 ||
       !isRecord(payload) || JSON.stringify(payload).length > 16000) return null;
     return { p_room_id: roomId, p_expected_revision: revision, p_payload: payload };
+  }
+  if (method === "append_dialogue_turn_v2") {
+    const {
+      p_room_id: roomId,
+      p_expected_revision: revision,
+      p_turn_kind: turnKind,
+      p_reply_to_turn_id: replyToTurnId,
+      p_payload: payload,
+    } = input;
+    if (Object.keys(input).length !== 5 || typeof roomId !== "string" || !uuidPattern.test(roomId) ||
+      typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0 ||
+      !["REFLECTION", "REFLECTION_CONFIRMATION", "RESPONSE"].includes(String(turnKind)) ||
+      typeof replyToTurnId !== "string" || !uuidPattern.test(replyToTurnId) ||
+      !isRecord(payload) || JSON.stringify(payload).length > 16000) return null;
+    return {
+      p_room_id: roomId,
+      p_expected_revision: revision,
+      p_turn_kind: turnKind,
+      p_reply_to_turn_id: replyToTurnId,
+      p_payload: payload,
+    };
   }
   if (method === "save_expression_workspace_v2") {
     const {

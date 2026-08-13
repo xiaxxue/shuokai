@@ -1,4 +1,6 @@
-export const MAX_CLARIFICATION_TURNS = 3;
+// A safety/rate boundary, not a product promise. The conversation ends when the
+// expression is sufficiently complete, not when a visible turn quota is met.
+export const MAX_CLARIFICATION_TURNS = 8;
 export const MAX_CLARIFICATION_ANSWER_LENGTH = 1200;
 
 const PRIVATE_CONTEXT_MARKER = "\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n";
