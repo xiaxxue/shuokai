@@ -59,6 +59,22 @@
         <text>{{ ownDecision === "ACCURATE" ? "✓ 已确认准确" : "已标记一处不准确" }}</text>
         <text>{{ accurateCount }} / 2 人确认准确</text>
       </view>
+      <view v-if="showRoomReminder" class="room-reminder">
+        <view class="room-reminder-copy">
+          <text class="room-reminder-kicker">还差对方确认</text>
+          <text class="room-reminder-note">原来的房间仍然有效。把链接再发给对方，对方打开后可凭房间码进入这次沟通。</text>
+        </view>
+        <view class="room-reminder-code">
+          <text>房间码</text>
+          <text>{{ roomCode }}</text>
+        </view>
+        <!-- #ifdef MP-WEIXIN -->
+        <button class="room-reminder-button" open-type="share" :disabled="busy">转发给对方确认</button>
+        <!-- #endif -->
+        <!-- #ifndef MP-WEIXIN -->
+        <button class="room-reminder-button" :disabled="busy" @tap="$emit('share-room')">再次发送房间链接</button>
+        <!-- #endif -->
+      </view>
       <template v-else>
         <button class="accurate-button" :disabled="busy" @tap="$emit('decide', 'ACCURATE', '')">准确表达了我的意思</button>
         <button class="inaccurate-toggle" :disabled="busy" @tap="showFeedback = !showFeedback">有一处不准确</button>
@@ -80,6 +96,7 @@
 import { computed, ref } from "vue";
 import {
   sharedUnderstandingDisplay,
+  shouldShowRoomReminder,
   sourceLabel,
   type SharedUnderstanding,
 } from "../domain/understanding";
@@ -88,14 +105,17 @@ const props = defineProps<{
   result: SharedUnderstanding;
   ownDecision: "ACCURATE" | "INACCURATE" | null;
   accurateCount: number;
+  roomCode: string;
   busy: boolean;
 }>();
 
 const displayResult = computed(() => sharedUnderstandingDisplay(props.result));
+const showRoomReminder = computed(() => shouldShowRoomReminder(props.ownDecision, props.accurateCount));
 
 defineEmits<{
   decide: [decision: "ACCURATE" | "INACCURATE", feedback: string];
   "edit-own": [];
+  "share-room": [];
   pause: [];
 }>();
 
@@ -142,6 +162,14 @@ const feedback = ref("");
 .feedback-box textarea { width: 100%; height: 118px; color: #183029; font-size: 13px; line-height: 1.65; box-sizing: border-box; }
 .private-note { display: block; margin: 7px 0 10px; color: #315a45; font-size: 9px; }
 .decision-saved { display: flex; justify-content: space-between; gap: 12px; padding: 13px; border-radius: 13px; background: rgba(219, 232, 216, .65); color: #315a45; font-size: 11px; font-weight: 700; }
+.room-reminder { margin-top: 12px; padding: 15px; border: 1px solid rgba(49, 90, 69, .16); border-radius: 16px; background: linear-gradient(145deg, rgba(231, 238, 226, .92), rgba(255, 253, 248, .96)); }
+.room-reminder-copy { min-width: 0; }
+.room-reminder-kicker { display: block; color: #315a45; font-size: 13px; font-weight: 800; }
+.room-reminder-note { display: block; margin-top: 5px; color: #68736f; font-size: 10px; line-height: 1.65; }
+.room-reminder-code { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 13px 0 10px; padding-top: 11px; border-top: 1px solid rgba(49, 90, 69, .12); color: #68736f; font-size: 9px; letter-spacing: .08em; }
+.room-reminder-code text:last-child { color: #183029; font-family: Georgia, serif; font-size: 15px; font-weight: 700; letter-spacing: .14em; }
+.room-reminder-button { min-height: 44px; border: 0; border-radius: 13px; background: #315a45; color: #fffdf8; font-size: 12px; font-weight: 800; }
+.room-reminder-button::after { border: 0; }
 .exit-actions { display: flex; gap: 8px; margin-top: 14px; }
 .exit-actions button { flex: 1; min-height: 39px; border: 0; background: transparent; color: #68736f; font-size: 11px; text-decoration: underline; }
 @media (max-width: 360px) { .headline { font-size: 28px; } }

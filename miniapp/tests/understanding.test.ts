@@ -4,6 +4,7 @@ import {
   parseUnderstandingConfirmation,
   parseUnderstandingStatus,
   sharedUnderstandingDisplay,
+  shouldShowRoomReminder,
   sourceLabel,
   type SharedUnderstanding,
 } from "../src/domain/understanding";
@@ -108,5 +109,12 @@ describe("shared understanding", () => {
     expect(() => parseUnderstandingConfirmation({
       decision: "ACCURATE", accurateCount: 1, bothConfirmed: true, phase: "ACTION_GENERATING",
     })).toThrow("无效确认状态");
+  });
+
+  it("offers the room link only while this person waits for the other confirmation", () => {
+    expect(shouldShowRoomReminder("ACCURATE", 1)).toBe(true);
+    expect(shouldShowRoomReminder(null, 0)).toBe(false);
+    expect(shouldShowRoomReminder("INACCURATE", 0)).toBe(false);
+    expect(shouldShowRoomReminder("ACCURATE", 2)).toBe(false);
   });
 });

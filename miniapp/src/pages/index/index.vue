@@ -348,9 +348,11 @@
           :result="understandingStatus.result.payload"
           :own-decision="understandingStatus.ownDecision"
           :accurate-count="understandingStatus.accurateCount"
+          :room-code="room?.code ?? ''"
           :busy="busy"
           @decide="decideUnderstanding"
           @edit-own="editOwnExpression"
+          @share-room="shareRoomLink"
           @pause="pauseFromUnderstanding"
         />
         <template v-else>
@@ -1639,6 +1641,12 @@ async function shareInvite() {
     setNotice("error", "还没有可供对方理解的主题说明，请先返回修改表达卡。 ");
     return;
   }
+  await shareRoomLink();
+}
+
+async function shareRoomLink() {
+  if (!room.value) return;
+  const topic = resolvedInvitationContext.value.topic;
   const fallback = topic
     ? `我想和你把一件事说开。关于：${topic}。沟通房间码：${room.value.code}`
     : `我想和你把这件事说开。沟通房间码：${room.value.code}`;
@@ -1648,7 +1656,7 @@ async function shareInvite() {
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
       await navigator.share({ title: invitationShareTitle.value, text: fallback, url: shareUrl });
-      setNotice("success", "邀请已分享。 ");
+      setNotice("success", "房间链接已分享。 ");
       return;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -1656,7 +1664,7 @@ async function shareInvite() {
   }
   uni.setClipboardData({
     data: shareUrl,
-    success: () => setNotice("success", "邀请链接已复制。 "),
+    success: () => setNotice("success", "房间链接已复制，可以发给对方继续确认。 "),
     fail: () => setNotice("error", "无法复制，请手动分享房间码。 "),
   });
 }

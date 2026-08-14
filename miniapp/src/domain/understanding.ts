@@ -61,6 +61,13 @@ export type UnderstandingConfirmation = {
   phase: "UNDERSTANDING_CONFIRMING" | "ACTION_GENERATING";
 };
 
+export function shouldShowRoomReminder(
+  ownDecision: UnderstandingStatus["ownDecision"],
+  accurateCount: number,
+) {
+  return ownDecision === "ACCURATE" && accurateCount < 2;
+}
+
 function canonicalDisplayText(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/g, " ");
 }
