@@ -1,12 +1,13 @@
 <template>
   <view class="dialogue-shell">
     <view class="dialogue-intro">
-      <view class="intro-line"><text class="eyebrow">理解循环 · 第 {{ state.round }} 轮</text><text class="live-mark">持续更新</text></view>
-      <text class="title">先确认听懂，<br />再说自己的回应。</text>
-      <text class="lede">这里不是一次性总结。每轮都要经过“表达—复述—确认—回应”，任何一方都可以纠正、继续或暂停。</text>
+      <view class="intro-line"><text class="eyebrow">理解循环 · 第 {{ state.round }} 轮</text><text class="live-mark">{{ readOnly ? "历史记录" : "持续更新" }}</text></view>
+      <text class="title">{{ readOnly ? "这次沟通，留下了这些来回。" : "先确认听懂，再说自己的回应。" }}</text>
+      <text class="lede">{{ readOnly ? "按发生顺序回看双方已经留下的表达、复述、确认与回应。这里是只读记录，不会重新开启房间。" : "这里不是一次性总结。每轮都要经过“表达—复述—确认—回应”，任何一方都可以纠正、继续或暂停。" }}</text>
+      <button v-if="readOnly" class="history-back" @tap="$emit('close-history')">← 返回本次结果</button>
     </view>
 
-    <view class="now-card" :class="{ waiting: !state.canAct }">
+    <view v-if="!readOnly" class="now-card" :class="{ waiting: !state.canAct }">
       <text class="now-label">此刻轮到</text>
       <text class="now-title">{{ state.canAct ? "你" : roleName(state.activeRole) }}</text>
       <text class="now-copy">{{ actionCopy }}</text>
@@ -27,7 +28,7 @@
       </view>
     </view>
 
-    <view v-if="state.canAct" class="composer-panel">
+    <view v-if="!readOnly && state.canAct" class="composer-panel">
       <template v-if="state.step === 'AWAITING_CONFIRMATION'">
         <text class="composer-title">对方准确听懂了吗？</text>
         <text class="composer-help">确认准确不代表同意，只代表“你听到的是我的意思”。</text>
@@ -44,7 +45,7 @@
       <button v-if="hasCompletedRound" class="secondary" :disabled="busy" @tap="$emit('summarize')">先整理我们目前谈到哪</button>
       <button class="pause" :disabled="busy" @tap="$emit('pause')">先暂停这次沟通</button>
     </view>
-    <view v-else-if="hasCompletedRound" class="round-actions">
+    <view v-else-if="!readOnly && hasCompletedRound" class="round-actions">
       <text>这一轮已经留下完整记录。你们可以继续，也可以先整理阶段性共同理解。</text>
       <button class="secondary" :disabled="busy" @tap="$emit('summarize')">整理我们目前谈到哪</button>
     </view>
@@ -60,7 +61,7 @@ import {
   type DialogueTurn,
 } from "../domain/dialogue";
 
-const props = defineProps<{ state: DialogueState; busy: boolean }>();
+const props = defineProps<{ state: DialogueState; busy: boolean; readOnly?: boolean }>();
 const draft = ref("");
 const correction = ref("");
 const actionCopy = computed(() => dialogueActionCopy(props.state));
@@ -75,6 +76,7 @@ const emit = defineEmits<{
   refresh: [];
   pause: [];
   summarize: [];
+  "close-history": [];
 }>();
 
 watch(() => props.state.revision, () => { draft.value = ""; correction.value = ""; });
@@ -100,6 +102,8 @@ function submitCorrection() {
 .intro-line, .turn-meta { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
 .eyebrow { color: #c34833; font-size: 22rpx; font-weight: 800; letter-spacing: .13em; }
 .live-mark { padding: 7rpx 13rpx; border: 1rpx solid #bdcbbf; border-radius: 99rpx; color: #4b6c5d; font-size: 18rpx; }
+.history-back { margin: 20rpx 0 0; padding: 0; background: transparent; color: #ad4431; font-size: 21rpx; text-align: left; }
+.history-back::after { border: 0; }
 .title { display: block; margin-top: 24rpx; font-family: "Songti SC", "STSong", serif; font-size: 54rpx; font-weight: 700; line-height: 1.25; }
 .lede { display: block; margin-top: 16rpx; color: #6a7570; font-size: 25rpx; line-height: 1.75; }
 .now-card { margin-top: 34rpx; padding: 25rpx 27rpx; border-radius: 24rpx; background: #315b49; color: #fffaf2; box-shadow: 0 18rpx 44rpx rgba(35,72,56,.15); }

@@ -283,6 +283,27 @@ test("RPC validation normalizes safe inputs and rejects extra fields", () => {
   );
 });
 
+test("room history RPC requires a bounded limit and complete cursor", () => {
+  const historyRoomId = "11111111-1111-4111-8111-111111111111";
+  const cursor = {
+    p_limit: 12,
+    p_before_updated_at: "2026-08-14T10:00:00.000Z",
+    p_before_room_id: historyRoomId,
+  };
+  assert.deepEqual(validateRpcArgs("list_my_rooms_v2", cursor), cursor);
+  assert.deepEqual(validateRpcArgs("list_my_rooms_v2", {
+    p_limit: 12,
+    p_before_updated_at: null,
+    p_before_room_id: null,
+  }), {
+    p_limit: 12,
+    p_before_updated_at: null,
+    p_before_room_id: null,
+  });
+  assert.equal(validateRpcArgs("list_my_rooms_v2", { ...cursor, p_limit: 31 }), null);
+  assert.equal(validateRpcArgs("list_my_rooms_v2", { ...cursor, p_before_room_id: null }), null);
+});
+
 test("RPC validation permits the agreement loop with bounded inputs", () => {
   const roomId = "11111111-1111-4111-8111-111111111111";
   assert.deepEqual(

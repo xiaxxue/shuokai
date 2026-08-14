@@ -43,6 +43,17 @@
         <text class="privacy-copy">私人草稿不会进入共同视图，只有你确认分享的内容对对方可见。</text>
       </view>
 
+      <RoomHistoryList
+        :items="historyItems"
+        :current-room-id="currentRoomId"
+        :loading="historyLoading"
+        :error="historyError"
+        :has-more="historyHasMore"
+        @refresh="$emit('refresh-history')"
+        @load-more="$emit('load-more-history')"
+        @open-room="$emit('open-history', $event)"
+      />
+
       <view v-if="canSignOut" class="account-actions">
         <button class="signout-button" :disabled="busy" @tap="$emit('signout')">
           <text>退出当前设备</text><text class="action-arrow">→</text>
@@ -59,6 +70,8 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import type { RoomHistoryItem } from "../domain/room-history";
+import RoomHistoryList from "./RoomHistoryList.vue";
 
 const props = defineProps<{
   open: boolean;
@@ -71,12 +84,20 @@ const props = defineProps<{
   draftStatus: string;
   canSignOut: boolean;
   platformNote: string;
+  currentRoomId: string;
+  historyItems: RoomHistoryItem[];
+  historyLoading: boolean;
+  historyError: string;
+  historyHasMore: boolean;
   busy?: boolean;
 }>();
 
 defineEmits<{
   close: [];
   signout: [];
+  "refresh-history": [];
+  "load-more-history": [];
+  "open-history": [item: RoomHistoryItem];
 }>();
 
 const identityMark = computed(() => {

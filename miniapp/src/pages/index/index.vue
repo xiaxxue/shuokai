@@ -42,9 +42,17 @@
       :draft-status="accountDraftStatus"
       :can-sign-out="isLiveH5"
       :platform-note="accountPlatform.platformNote"
+      :current-room-id="room?.roomId ?? ''"
+      :history-items="roomHistory"
+      :history-loading="historyLoading"
+      :history-error="historyError"
+      :history-has-more="Boolean(roomHistoryCursor)"
       :busy="busy"
       @close="accountOpen = false"
       @signout="requestH5Logout"
+      @refresh-history="loadRoomHistory(true)"
+      @load-more-history="loadRoomHistory(false)"
+      @open-history="openHistoricalRoom"
     />
 
     <view
@@ -270,11 +278,13 @@
         v-else-if="stage === 'DIALOGUE' && dialogueState"
         :state="dialogueState"
         :busy="busy"
+        :read-only="historyReadOnly"
         @submit="submitDialogueText"
         @confirm="confirmDialogueReflection"
         @refresh="refreshDialogue"
         @pause="pauseFromDialogue"
         @summarize="finishDialogueRound"
+        @close-history="stage = 'COMPLETE'"
       />
 
       <view v-else-if="stage === 'PAUSED'" class="screen paused-screen">
@@ -434,6 +444,11 @@
             <view><text class="summary-number">1</text><text>个可验证实验</text></view>
           </view>
         </view>
+        <button
+          v-if="dialogueState?.turns.length"
+          class="secondary full"
+          @tap="openArchivedDialogue"
+        >回看完整沟通记录</button>
         <button class="primary full" @tap="startAnotherRoom">发起新的沟通</button>
       </view>
 
@@ -519,6 +534,10 @@ import {
 } from "../../domain/clarification";
 import type { DialogueState } from "../../domain/dialogue";
 import {
+  roomSessionFromHistory,
+  type RoomHistoryItem,
+} from "../../domain/room-history";
+import {
   expressionReviewIsSummary as isExpressionReviewSummary,
   expressionReviewSummaryStep,
   shouldResumeExpressionClarification,
@@ -536,6 +555,7 @@ import {
   transcribeAudio,
 } from "../../services/api";
 import { useSharedUnderstanding } from "../../composables/use-shared-understanding";
+import { useRoomHistory } from "../../composables/use-room-history";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
@@ -596,6 +616,13 @@ const noticeController = createNoticeController((nextNotice) => { notice.value =
 const authEmail = ref("");
 const authUserId = ref("");
 const accountOpen = ref(false);
+const history = useRoomHistory(authUserId, roomApi.history);
+const roomHistory = history.items;
+const roomHistoryCursor = history.cursor;
+const historyLoading = history.loading;
+const historyError = history.error;
+const resetRoomHistory = history.reset;
+const loadRoomHistory = history.load;
 const draftSaveState = ref<DraftSaveState>("empty");
 const perspective = reactive<Perspective>(createNvcPerspective());
 const selectedMode = ref<ExpressionMode | null>("NVC");
@@ -609,6 +636,7 @@ const invitationContext = ref<InvitationContext | null>(null);
 const invitationClarifying = ref(false);
 const expressionReviewStep = ref(0);
 const dialogueState = ref<DialogueState | null>(null);
+const historyReadOnly = ref(false);
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -881,6 +909,7 @@ function resetPrivateWorkspace() {
   invitationClarifying.value = false;
   sharedUnderstanding.reset();
   dialogueState.value = null;
+  historyReadOnly.value = false;
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
@@ -970,8 +999,9 @@ function applySnapshot(latest: RoomSnapshot) {
   if (latest.agreement) agreementProposal.value = latest.agreement.proposal;
 }
 
-async function loadSnapshot(roomSession: RoomSession) {
-  const latest = await roomApi.snapshot(roomSession.roomId);
+async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot) {
+  historyReadOnly.value = false;
+  const latest = prefetched ?? await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
   stage.value = stageForCurrentRoom(roomSession, latest.room.state);
   if ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
@@ -995,6 +1025,14 @@ async function loadSnapshot(roomSession: RoomSession) {
       }
       updateRoom({ ...roomSession, state: latest.room.state, phaseV2: "DIALOGUE" });
       stage.value = "DIALOGUE";
+    }
+  }
+  if (roomSession.workflowVersion === 2 &&
+    (latest.room.state === "COMPLETED" || ["COMPLETED", "ENDED"].includes(roomSession.phaseV2 ?? ""))) {
+    try {
+      dialogueState.value = await roomApi.dialogueState(roomSession.roomId);
+    } catch {
+      dialogueState.value = null;
     }
   }
   let authoritativeEditorStage: ClientStage | null = null;
@@ -1025,6 +1063,7 @@ async function loadSnapshot(roomSession: RoomSession) {
 function stageForCurrentRoom(roomSession: RoomSession, state = roomSession.state): ClientStage {
   if (roomSession.workflowVersion !== 2) return stageForRoom(roomSession.role, state);
   if (roomSession.phaseV2 === "PAUSED") return "PAUSED";
+  if (roomSession.phaseV2 === "ENDED") return "COMPLETE";
   if (state === "COMPLETED") return "COMPLETE";
   if (state === "AGREEMENT_PENDING") return "AGREEMENT";
   if (roomSession.phaseV2 === "UNDERSTANDING_GENERATING") return "AI_PENDING";
@@ -1166,6 +1205,7 @@ async function joinRoom() {
 
 async function handleH5Authenticated(result: H5AuthResult) {
   if (!result.session) return;
+  resetRoomHistory();
   authUserId.value = result.session.userId;
   authEmail.value = result.email;
   setNotice("success", "登录成功。");
@@ -1175,6 +1215,32 @@ async function handleH5Authenticated(result: H5AuthResult) {
 function openAccountSpace() {
   flushEditorDraft();
   accountOpen.value = true;
+  void loadRoomHistory(true);
+}
+
+async function openHistoricalRoom(item: RoomHistoryItem) {
+  if (busy.value) return;
+  clearNotice();
+  busy.value = true;
+  let target: RoomSession | null = null;
+  try {
+    const wasCurrent = item.roomId === room.value?.roomId;
+    target = roomSessionFromHistory(item);
+    const latest = await roomApi.snapshot(target.roomId);
+    flushEditorDraft();
+    resetPrivateWorkspace();
+    updateRoom(target);
+    await loadSnapshot(target, latest);
+    accountOpen.value = false;
+    setNotice("success", wasCurrent
+      ? "已回到这次沟通的最新进度。"
+      : "已打开历史沟通。");
+  } catch (error) {
+    if (target && room.value?.roomId === target.roomId) stage.value = stageForCurrentRoom(target);
+    setNotice("error", message(error, "暂时无法打开这次历史沟通。"));
+  } finally {
+    busy.value = false;
+  }
 }
 
 function confirmLogoutImpact() {
@@ -1206,6 +1272,7 @@ async function logoutH5Account() {
     resetPrivateWorkspace();
     authUserId.value = "";
     authEmail.value = "";
+    resetRoomHistory();
     accountOpen.value = false;
     stage.value = "WELCOME";
     setNotice("success", "已退出，并清除本机保存的房间与私人草稿。");
@@ -1798,6 +1865,12 @@ function returnToWelcome() {
   busy.value = false;
   clearNotice();
   stage.value = "WELCOME";
+}
+
+function openArchivedDialogue() {
+  if (!dialogueState.value?.turns.length) return;
+  historyReadOnly.value = true;
+  stage.value = "DIALOGUE";
 }
 
 async function resumeCurrentRoom() {

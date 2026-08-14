@@ -27,6 +27,7 @@ const specs = {
   get_room_snapshot: { required: { p_room_id: 36 } },
   create_room_v2: { optional: { p_display_name: 60 } },
   join_room_v2: { required: { p_code: 7 }, optional: { p_display_name: 60 } },
+  list_my_rooms_v2: {},
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
@@ -53,6 +54,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcArgs | null {
   if (!isRecord(input)) return null;
+  if (method === "list_my_rooms_v2") {
+    const {
+      p_limit: limit,
+      p_before_updated_at: beforeUpdatedAt,
+      p_before_room_id: beforeRoomId,
+    } = input;
+    if (Object.keys(input).length !== 3 ||
+      typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 30 ||
+      !(
+        beforeUpdatedAt === null && beforeRoomId === null ||
+        typeof beforeUpdatedAt === "string" && !Number.isNaN(Date.parse(beforeUpdatedAt)) &&
+        typeof beforeRoomId === "string" && uuidPattern.test(beforeRoomId)
+      )) return null;
+    return {
+      p_limit: limit,
+      p_before_updated_at: beforeUpdatedAt,
+      p_before_room_id: beforeRoomId,
+    };
+  }
   if (method === "confirm_understanding_v2") {
     const {
       p_room_id: roomId,

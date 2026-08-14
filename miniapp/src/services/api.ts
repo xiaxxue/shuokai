@@ -6,6 +6,7 @@ import type {
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
 import { parseDialogueState, type DialogueTurnKind } from "../domain/dialogue";
 import { parseInvitationContext } from "../domain/invitation";
+import { parseRoomHistoryPage, type RoomHistoryCursor } from "../domain/room-history";
 import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
   parseAcceptanceResult,
@@ -159,6 +160,12 @@ export const roomApi = {
     parseRoomSession(await rpc<unknown>("create_room_v2", { p_display_name: displayName })),
   join: async (code: string, displayName = "我") =>
     parseRoomSession(await rpc<unknown>("join_room_v2", { p_code: code, p_display_name: displayName })),
+  history: async (cursor: RoomHistoryCursor | null = null, limit = 12) =>
+    parseRoomHistoryPage(await rpc<unknown>("list_my_rooms_v2", {
+      p_limit: limit,
+      p_before_updated_at: cursor?.updatedAt ?? null,
+      p_before_room_id: cursor?.roomId ?? null,
+    })),
   setGoal: async (roomId: string, goal: string) =>
     parseStateResult(await rpc<unknown>("set_room_goal_v2", {
       p_room_id: roomId,
