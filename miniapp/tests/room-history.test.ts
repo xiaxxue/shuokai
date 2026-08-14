@@ -6,6 +6,7 @@ const item = {
   code: "HIST2AB",
   state: "COMMON_VIEW_READY",
   goal: "先听懂彼此",
+  topic: "提醒睡觉时产生的压力",
   workflowVersion: 2,
   phaseV2: "DIALOGUE",
   dialogueRound: 2,
@@ -32,6 +33,8 @@ describe("room history boundary", () => {
 
   it("rejects internal ids, invalid counts, and inconsistent cursors", () => {
     expect(() => parseRoomHistoryPage({ items: [{ ...item, participantCount: 3 }], hasMore: false, nextCursor: null }))
+      .toThrow("历史沟通数据格式无效");
+    expect(() => parseRoomHistoryPage({ items: [{ ...item, topic: "话".repeat(181) }], hasMore: false, nextCursor: null }))
       .toThrow("历史沟通数据格式无效");
     expect(() => parseRoomHistoryPage({ items: [item], hasMore: true, nextCursor: null }))
       .toThrow("历史沟通分页状态无效");

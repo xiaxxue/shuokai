@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(9);
+select plan(11);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -18,11 +18,36 @@ insert into public.rooms (
   ('71000000-0000-4000-8000-000000000002', 'HIST2AB', 'COMPLETED', '已经完成的沟通', '70000000-0000-4000-8000-000000000001', now() - interval '5 days', now() - interval '1 day', now() + interval '9 days', 2, 'COMPLETED', 3),
   ('71000000-0000-4000-8000-000000000003', 'HIST2AC', 'GOAL_SETTING', '其他人的沟通', '70000000-0000-4000-8000-000000000002', now() - interval '2 days', now() - interval '30 minutes', now() + interval '12 days', 2, 'SETUP', 0);
 
-insert into public.participants (room_id, user_id, role, display_name) values
-  ('71000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001', 'A', 'A'),
-  ('71000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000002', 'B', 'B'),
-  ('71000000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001', 'A', 'A'),
-  ('71000000-0000-4000-8000-000000000003', '70000000-0000-4000-8000-000000000002', 'A', 'B');
+insert into public.participants (id, room_id, user_id, role, display_name) values
+  ('72000000-0000-4000-8000-000000000001', '71000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001', 'A', 'A'),
+  ('72000000-0000-4000-8000-000000000002', '71000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000002', 'B', 'B'),
+  ('72000000-0000-4000-8000-000000000003', '71000000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000001', 'A', 'A'),
+  ('72000000-0000-4000-8000-000000000004', '71000000-0000-4000-8000-000000000003', '70000000-0000-4000-8000-000000000002', 'A', 'B');
+
+insert into public.expression_versions (
+  id, room_id, participant_id, owner_user_id, version, mode, payload, content_hash
+) values
+  (
+    '73000000-0000-4000-8000-000000000001', '71000000-0000-4000-8000-000000000001',
+    '72000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-000000000001',
+    1, 'NVC',
+    '{"mode":"NVC","schemaVersion":1,"observation":"昨晚提醒睡觉时，\n 对方说我总是在管他。","feeling":"难过","need":"关心被听见","request":"一起商量提醒方式","uncertainties":[]}',
+    repeat('a', 64)
+  ),
+  (
+    '73000000-0000-4000-8000-000000000002', '71000000-0000-4000-8000-000000000001',
+    '72000000-0000-4000-8000-000000000002', '70000000-0000-4000-8000-000000000002',
+    1, 'NVC',
+    '{"mode":"NVC","schemaVersion":1,"observation":"工作很累时听到早点休息的提醒。","feeling":"有压力","need":"自主安排","request":"提醒前先询问","uncertainties":[]}',
+    repeat('b', 64)
+  );
+
+update public.participants
+set current_expression_id = case role
+  when 'A' then '73000000-0000-4000-8000-000000000001'::uuid
+  else '73000000-0000-4000-8000-000000000002'::uuid
+end
+where room_id = '71000000-0000-4000-8000-000000000001';
 
 select ok(
   has_function_privilege('authenticated', 'public.list_my_rooms_v2(integer,timestamp with time zone,uuid)', 'EXECUTE'),
@@ -55,6 +80,15 @@ select is(
   public.list_my_rooms_v2(20, null, null)->'items'->0->>'phaseV2',
   'DIALOGUE',
   'history carries the authoritative workflow phase'
+);
+select is(
+  public.list_my_rooms_v2(20, null, null)->'items'->0->>'topic',
+  '昨晚提醒睡觉时， 对方说我总是在管他。',
+  'history uses the initiator confirmed expression as the concrete topic'
+);
+select ok(
+  public.list_my_rooms_v2(20, null, null)->'items'->1->'topic' = 'null'::jsonb,
+  'history does not invent a topic before an expression is confirmed'
 );
 select ok(
   not (public.list_my_rooms_v2(20, null, null)->'items'->0 ? 'createdBy'),

@@ -11,6 +11,7 @@ export type RoomHistoryItem = {
   code: string;
   state: RoomState;
   goal: string | null;
+  topic: string | null;
   workflowVersion: 1 | 2;
   phaseV2: RoomSession["phaseV2"] | null;
   dialogueRound: number;
@@ -65,6 +66,7 @@ function parseItem(value: unknown): RoomHistoryItem {
     typeof value.code !== "string" || !roomCodePattern.test(value.code) ||
     !roomStates.includes(value.state as RoomState) ||
     (value.goal !== null && typeof value.goal !== "string") ||
+    (value.topic !== null && (typeof value.topic !== "string" || !value.topic.trim() || value.topic.length > 180)) ||
     (value.workflowVersion !== 1 && value.workflowVersion !== 2) ||
     (value.phaseV2 !== null && !phaseValues.includes(value.phaseV2 as NonNullable<RoomSession["phaseV2"]>)) ||
     !Number.isSafeInteger(value.dialogueRound) || Number(value.dialogueRound) < 0 ||

@@ -29,6 +29,7 @@ describe("room history state", () => {
       code: "HIST2AA",
       state: "GOAL_SETTING",
       goal: null,
+      topic: null,
       workflowVersion: 2,
       phaseV2: "SETUP",
       dialogueRound: 0,

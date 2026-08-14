@@ -41,7 +41,9 @@
               <text class="entry-status">{{ statusLabel(item) }}</text>
               <text>{{ formatDate(item.updatedAt) }}</text>
             </view>
-            <text class="entry-title">{{ item.goal || fallbackTitle(item) }}</text>
+            <text class="entry-topic-label">具体话题</text>
+            <text class="entry-title">{{ item.topic || fallbackTopic(item) }}</text>
+            <text class="entry-intent">意图：{{ item.goal || "尚未选择沟通意图" }}</text>
             <text class="entry-meta">{{ roleLabel(item) }} · {{ participantLabel(item) }}{{ roundLabel(item) }}</text>
             <view class="entry-foot">
               <text class="entry-code">{{ item.code }}</text>
@@ -65,7 +67,9 @@
               <text class="entry-status">{{ statusLabel(item) }}</text>
               <text>{{ formatDate(item.updatedAt) }}</text>
             </view>
-            <text class="entry-title">{{ item.goal || fallbackTitle(item) }}</text>
+            <text class="entry-topic-label">具体话题</text>
+            <text class="entry-title">{{ item.topic || fallbackTopic(item) }}</text>
+            <text class="entry-intent">意图：{{ item.goal || "尚未选择沟通意图" }}</text>
             <text class="entry-meta">{{ roleLabel(item) }} · {{ participantLabel(item) }}{{ roundLabel(item) }}</text>
             <view class="entry-foot">
               <text class="entry-code">{{ item.code }}</text>
@@ -131,10 +135,9 @@ function statusLabel(item: RoomHistoryItem) {
   return "整理表达中";
 }
 
-function fallbackTitle(item: RoomHistoryItem) {
-  if (isArchived(item)) return "一段已经告一段落的沟通";
-  if (item.participantCount < 2) return "等待对方加入这次沟通";
-  return "一段还在继续的沟通";
+function fallbackTopic(item: RoomHistoryItem) {
+  if (isArchived(item)) return "这次沟通没有留下可辨认的话题";
+  return "尚未写下具体话题";
 }
 
 function roleLabel(item: RoomHistoryItem) {
@@ -223,7 +226,9 @@ $sage: #dfe9dc;
 .entry-copy { min-width: 0; }
 .entry-topline { color: $muted; font-size: 8px; letter-spacing: .4px; }
 .entry-status { color: $green; font-weight: 800; }
-.entry-title { display: block; margin-top: 7px; font-family: "Songti SC", "STSong", serif; font-size: 16px; font-weight: 800; line-height: 1.45; }
+.entry-topic-label { display: block; margin-top: 8px; color: $coral; font-size: 7px; font-weight: 800; letter-spacing: 1.2px; }
+.entry-title { display: -webkit-box; margin-top: 3px; overflow: hidden; font-family: "Songti SC", "STSong", serif; font-size: 16px; font-weight: 800; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.entry-intent { display: block; margin-top: 6px; color: $green; font-size: 9px; line-height: 1.5; }
 .entry-meta { display: block; margin-top: 5px; color: $muted; font-size: 9px; }
 .entry-foot { margin-top: 10px; }
 .entry-code { color: $muted; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; letter-spacing: 1.2px; }
