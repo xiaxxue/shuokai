@@ -197,6 +197,19 @@ describe("private editor draft recovery", () => {
       discoveryQuestion: "你当时具体说了什么？",
       discoveryReady: false,
       discoveryFollowUpLimitReached: false,
+      discoveryUnderstanding: {
+        coverage: {
+          event: { status: "ENOUGH" as const, evidence: ["当时具体说了什么"], missingInfo: "" },
+          impact: { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
+          intention: { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
+        },
+        latestAnswerUpdate: { absorbed: true, updatedDimensions: ["event" as const] },
+        nextQuestion: {
+          focusDimension: "impact" as const,
+          text: "这件事对你造成了什么影响？",
+          purpose: "补充具体影响",
+        },
+      },
       discoverySafetyDisposition: "ALLOW" as const,
       discoverySafetyMessage: "",
     };
@@ -213,6 +226,7 @@ describe("private editor draft recovery", () => {
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
       discoveryFollowUpLimitReached: false,
+      discoveryUnderstanding: draft.discoveryUnderstanding,
       discoverySafetyDisposition: "ALLOW",
       discoverySafetyMessage: "",
     });

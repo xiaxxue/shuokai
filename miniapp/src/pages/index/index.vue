@@ -642,6 +642,7 @@ const discoveryStarted = expressionDiscovery.started;
 const discoveryQuestion = expressionDiscovery.question;
 const discoveryReady = expressionDiscovery.ready;
 const discoveryFollowUpLimitReached = expressionDiscovery.followUpLimitReached;
+const discoveryUnderstanding = expressionDiscovery.understanding;
 const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
@@ -692,6 +693,7 @@ watch(
     discoveryQuestion,
     discoveryReady,
     discoveryFollowUpLimitReached,
+    () => JSON.stringify(discoveryUnderstanding.value),
     discoverySafetyDisposition,
     discoverySafetyMessage,
   ],
@@ -944,6 +946,7 @@ function flushEditorDraft() {
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
     discoveryFollowUpLimitReached: discoveryFollowUpLimitReached.value,
+    discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
     discoverySafetyDisposition: discoverySafetyDisposition.value,
     discoverySafetyMessage: discoverySafetyMessage.value,
   });
@@ -975,6 +978,9 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
   if (draft.discoveryFollowUpLimitReached !== undefined) {
     discoveryFollowUpLimitReached.value = draft.discoveryFollowUpLimitReached;
+  }
+  if (draft.discoveryUnderstanding !== undefined) {
+    discoveryUnderstanding.value = draft.discoveryUnderstanding;
   }
   if (draft.discoverySafetyDisposition !== undefined) {
     discoverySafetyDisposition.value = draft.discoverySafetyDisposition;

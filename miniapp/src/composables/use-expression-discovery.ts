@@ -1,5 +1,8 @@
 import { ref, type Ref } from "vue";
-import type { ClarificationTurn } from "../domain/clarification";
+import type {
+  ClarificationTurn,
+  DiscoveryUnderstandingState,
+} from "../domain/clarification";
 import type { ExpressionMode, SafetyDisposition } from "../domain/expression";
 import type { ClientStage } from "../domain/room-state";
 import type { RoomSession } from "../domain/types";
@@ -26,6 +29,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   const question = ref("");
   const ready = ref(false);
   const followUpLimitReached = ref(false);
+  const understanding = ref<DiscoveryUnderstandingState | null>(null);
   const safetyDisposition = ref<SafetyDisposition>("ALLOW");
   const safetyMessage = ref("");
   const thinking = ref(false);
@@ -35,6 +39,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     question.value = "";
     ready.value = false;
     followUpLimitReached.value = false;
+    understanding.value = null;
     safetyDisposition.value = "ALLOW";
     safetyMessage.value = "";
     thinking.value = false;
@@ -71,6 +76,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       question.value = result.question;
       ready.value = result.ready;
       followUpLimitReached.value = result.followUpLimitReached;
+      understanding.value = result.understanding;
       safetyDisposition.value = result.safetyDisposition;
       safetyMessage.value = result.safetyMessage;
     } catch (error) {
@@ -101,7 +107,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   }
 
   return {
-    started, question, ready, followUpLimitReached,
+    started, question, ready, followUpLimitReached, understanding,
     safetyDisposition, safetyMessage, thinking, reset, send, finish,
   };
 }

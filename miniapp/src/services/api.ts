@@ -4,7 +4,12 @@ import type {
   RoomSession,
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
-import type { ClarificationTurn } from "../domain/clarification";
+import {
+  discoveryDimensions,
+  isRepeatedDiscoveryQuestion,
+  parseDiscoveryUnderstandingState,
+  type ClarificationTurn,
+} from "../domain/clarification";
 import { parseDialogueState, type DialogueTurnKind } from "../domain/dialogue";
 import { parseInvitationContext } from "../domain/invitation";
 import { parseRoomHistoryPage, type RoomHistoryCursor } from "../domain/room-history";
@@ -378,24 +383,33 @@ export async function requestExpressionClarification(
   }
   const result = response.data as Record<string, unknown>;
   const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
-  const coverage = result.coverage as Record<string, unknown> | undefined;
-  const coverageKeys = ["event", "impact", "intention"] as const;
-  const coverageIsValid = Boolean(coverage && Object.keys(coverage).length === coverageKeys.length &&
-    coverageKeys.every((key) => ["ENOUGH", "MISSING"].includes(String(coverage[key]))));
-  const allCovered = coverageIsValid && coverageKeys.every((key) => coverage?.[key] === "ENOUGH");
-  if (typeof result.question !== "string" || result.question.length > 500 ||
-    typeof result.ready !== "boolean" ||
-    typeof result.followUpLimitReached !== "boolean" || !coverageIsValid ||
+  const understanding = parseDiscoveryUnderstandingState(result);
+  const allCovered = Boolean(understanding && discoveryDimensions.every((dimension) =>
+    understanding.coverage[dimension].status === "ENOUGH"));
+  const hasStopped = Boolean(result.ready || result.followUpLimitReached);
+  const nextQuestion = understanding?.nextQuestion;
+  if (!understanding || typeof result.ready !== "boolean" ||
+    typeof result.followUpLimitReached !== "boolean" ||
     result.ready !== allCovered || (result.ready && result.followUpLimitReached) ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
     typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
-    (result.ready || result.followUpLimitReached) === Boolean(result.question.trim())) {
+    (turns.length === 0
+      ? understanding.latestAnswerUpdate.absorbed || understanding.latestAnswerUpdate.updatedDimensions.length > 0
+      : !understanding.latestAnswerUpdate.absorbed) ||
+    (hasStopped
+      ? nextQuestion?.focusDimension !== "none" || Boolean(nextQuestion.text.trim()) ||
+        Boolean(nextQuestion.purpose.trim())
+      : nextQuestion?.focusDimension === "none" || !nextQuestion?.text.trim() ||
+        !nextQuestion.purpose.trim() ||
+        understanding.coverage[nextQuestion.focusDimension].status !== "MISSING" ||
+        isRepeatedDiscoveryQuestion(nextQuestion.text, turns))) {
     throw new Error("AI 私人对话返回了无效内容，请稍后重试。");
   }
   return {
-    question: result.question,
+    question: understanding.nextQuestion.text,
     ready: result.ready,
     followUpLimitReached: result.followUpLimitReached,
+    understanding,
     safetyDisposition: result.safetyDisposition as typeof dispositions[number],
     safetyMessage: result.safetyMessage,
   };

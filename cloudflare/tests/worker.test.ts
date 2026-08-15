@@ -753,74 +753,124 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
 
 test("private discovery asks about missing context before any expression path is selected", async () => {
   const captured: { input?: Record<string, unknown> } = {};
+  const response = {
+    ready: false,
+    followUpLimitReached: false,
+    coverage: {
+      event: { status: "MISSING", evidence: [], missingInfo: "缺少当时具体发生的言行" },
+      impact: { status: "ENOUGH", evidence: ["觉得很烦"], missingInfo: "" },
+      intention: { status: "MISSING", evidence: [], missingInfo: "缺少希望对方理解的重点" },
+    },
+    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
+    nextQuestion: {
+      focusDimension: "event",
+      text: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
+      purpose: "补充双方当时的具体言行",
+    },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
   const generated = await generateDiscoveryQuestion({
     AI: {
       async run(_model, input) {
         captured.input = input;
-        return { response: JSON.stringify({
-          question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
-          ready: false,
-          followUpLimitReached: false,
-          coverage: { event: "MISSING", impact: "MISSING", intention: "MISSING" },
-          safetyDisposition: "ALLOW",
-          safetyMessage: "",
-        }) };
+        return { response: JSON.stringify(response) };
       },
     },
   }, {
     sourceText: "我男朋友不想提醒我睡觉，并且觉得很烦。",
     turns: [],
   });
-  assert.deepEqual(generated.result, {
-    question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
-    ready: false,
-    followUpLimitReached: false,
-    coverage: { event: "MISSING", impact: "MISSING", intention: "MISSING" },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  });
+  assert.deepEqual(generated.result, response);
   assert.equal(discoveryResultSchema.additionalProperties, false);
   assert.match(JSON.stringify(captured.input), /绝不能生成表达卡/);
   assert.match(JSON.stringify(captured.input), /不能推荐或预设非暴力沟通/);
   assert.match(JSON.stringify(captured.input), /轮数不是理解完成的依据/);
-  assert.match(JSON.stringify(captured.input), /event、impact、intention 全部为 ENOUGH/);
+  assert.match(JSON.stringify(captured.input), /evidence 只能逐字摘录/);
 });
 
 test("private discovery can finish without a ceremonial follow-up when context is already complete", async () => {
+  const sourceText = "昨晚十一点我请男朋友提醒我睡觉，他说不想每天提醒。我很失望，希望他睡前问我一次要不要休息。";
+  const response = {
+    ready: true,
+    followUpLimitReached: false,
+    coverage: {
+      event: { status: "ENOUGH", evidence: ["昨晚十一点我请男朋友提醒我睡觉"], missingInfo: "" },
+      impact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
+      intention: { status: "ENOUGH", evidence: ["希望他睡前问我一次要不要休息"], missingInfo: "" },
+    },
+    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
+    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
   const completed = await generateDiscoveryQuestion({
     AI: {
       async run() {
+        return { response: JSON.stringify(response) };
+      },
+    },
+  }, {
+    sourceText,
+    turns: [],
+  });
+  assert.equal((completed.result as { ready: boolean }).ready, true);
+  assert.equal(isDiscoveryResult(response, { sourceText, turns: [] }), true);
+  assert.equal(isDiscoveryResult({
+    ...response,
+    nextQuestion: { focusDimension: "event", text: "还发生了什么？", purpose: "继续追问" },
+  }, { sourceText, turns: [] }), false);
+});
+
+test("private discovery retries instead of repeating an answered question", async () => {
+  const repeatedQuestion = "你希望他提醒你睡觉的时候，具体是想让他提醒你做什么？";
+  const turns = [{ question: repeatedQuestion, answer: "我希望他关心我。" }];
+  let attempts = 0;
+  let retryInput: Record<string, unknown> | undefined;
+  const generated = await generateDiscoveryQuestion({
+    AI: {
+      async run(_model, input) {
+        attempts += 1;
+        if (attempts === 2) retryInput = input;
         return { response: JSON.stringify({
-          question: "",
-          ready: true,
+          ready: false,
           followUpLimitReached: false,
-          coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
+          coverage: {
+            event: { status: "ENOUGH", evidence: ["昨晚他不愿意提醒我睡觉"], missingInfo: "" },
+            impact: { status: "ENOUGH", evidence: ["我很难过"], missingInfo: "" },
+            intention: {
+              status: "MISSING",
+              evidence: ["我希望他关心我"],
+              missingInfo: "还缺少希望对方采取的具体回应",
+            },
+          },
+          latestAnswerUpdate: { absorbed: true, updatedDimensions: ["intention"] },
+          nextQuestion: {
+            focusDimension: "intention",
+            text: attempts === 1 ? ` ${repeatedQuestion} ` : "对你来说，他怎样回应会让你感到被关心？",
+            purpose: "补充可以被对方理解的具体回应",
+          },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
         }) };
       },
     },
   }, {
-    sourceText: "我男朋友不想提醒我睡觉，并且觉得很烦。",
-    turns: [],
+    sourceText: "昨晚他不愿意提醒我睡觉，我很难过。",
+    turns,
   });
-  assert.equal((completed.result as { ready: boolean }).ready, true);
-  assert.equal(isDiscoveryResult({
-    question: "",
-    ready: true,
-    followUpLimitReached: false,
-    coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  }), true);
-  assert.equal(isDiscoveryResult({
-    question: "还发生了什么？",
-    ready: true,
-    followUpLimitReached: false,
-    coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  }), false);
+
+  assert.equal(attempts, 2);
+  assert.match(JSON.stringify(retryInput), /必须改问仍为 MISSING 的另一项具体信息/);
+  const systemMessages = ((retryInput?.messages ?? []) as { role?: string; content?: string }[])
+    .filter((message) => message.role === "system")
+    .map((message) => message.content ?? "")
+    .join("\n");
+  assert.doesNotMatch(systemMessages, /你希望他提醒你睡觉的时候/);
+  assert.equal(
+    (generated.result as { nextQuestion: { text: string } }).nextQuestion.text,
+    "对你来说，他怎样回应会让你感到被关心？",
+  );
 });
 
 test("private discovery stops honestly at the server-controlled follow-up limit", async () => {
@@ -832,10 +882,19 @@ test("private discovery stops honestly at the server-controlled follow-up limit"
     AI: {
       async run() {
         return { response: JSON.stringify({
-          question: "你还希望对方理解什么？",
           ready: false,
           followUpLimitReached: false,
-          coverage: { event: "ENOUGH", impact: "MISSING", intention: "ENOUGH" },
+          coverage: {
+            event: { status: "ENOUGH", evidence: ["我们发生了争执"], missingInfo: "" },
+            impact: { status: "MISSING", evidence: [], missingInfo: "缺少造成的影响" },
+            intention: { status: "MISSING", evidence: [], missingInfo: "缺少沟通意图" },
+          },
+          latestAnswerUpdate: { absorbed: true, updatedDimensions: [] },
+          nextQuestion: {
+            focusDimension: "impact",
+            text: "这次争执对你造成了什么影响？",
+            purpose: "补充事件带来的影响",
+          },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
         }) };
@@ -846,14 +905,10 @@ test("private discovery stops honestly at the server-controlled follow-up limit"
   const discovery = result.result as { ready: boolean; followUpLimitReached: boolean };
   assert.equal(discovery.ready, false);
   assert.equal(discovery.followUpLimitReached, true);
-  assert.equal(isDiscoveryResult({
-    question: "",
-    ready: true,
-    followUpLimitReached: false,
-    coverage: { event: "ENOUGH", impact: "MISSING", intention: "ENOUGH" },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  }), false);
+  assert.deepEqual(
+    (result.result as { nextQuestion: unknown }).nextQuestion,
+    { focusDimension: "none", text: "", purpose: "" },
+  );
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
