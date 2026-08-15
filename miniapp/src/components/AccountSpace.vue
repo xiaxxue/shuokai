@@ -17,7 +17,16 @@
           <text class="account-kicker">只属于你的这一侧</text>
           <text class="account-title">我的空间</text>
         </view>
-        <button ref="closeButton" class="sheet-close" aria-label="关闭我的空间" @tap="$emit('close')">×</button>
+        <button
+          ref="closeButton"
+          class="sheet-close"
+          role="button"
+          tabindex="0"
+          aria-label="关闭我的空间"
+          @tap="$emit('close')"
+          @keydown.enter.prevent="$emit('close')"
+          @keydown.space.prevent="$emit('close')"
+        >×</button>
       </view>
 
       <view class="identity-card">
@@ -28,6 +37,21 @@
           <view class="status-line"><text class="status-dot" /><text>{{ loginStatus }}</text></view>
         </view>
       </view>
+
+      <button
+        ref="profileEntryButton"
+        class="profile-entry"
+        role="button"
+        :tabindex="busy ? -1 : 0"
+        :aria-disabled="busy ? 'true' : 'false'"
+        :disabled="busy"
+        @tap="$emit('edit-profile')"
+        @keydown.enter.prevent="!busy && $emit('edit-profile')"
+        @keydown.space.prevent="!busy && $emit('edit-profile')"
+      >
+        <view><text class="profile-entry-label">个人资料</text><text class="profile-entry-value">{{ displayName || '设置称呼和表达偏好' }}</text></view>
+        <text class="action-arrow">编辑 →</text>
+      </button>
 
       <view class="space-section">
         <view class="section-heading">
@@ -182,6 +206,7 @@ const props = defineProps<{
   open: boolean;
   platformLabel: string;
   identity: string;
+  displayName: string;
   loginStatus: string;
   roomCode: string;
   roomPhase: string;
@@ -204,6 +229,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
+  "edit-profile": [];
   signout: [];
   "refresh-history": [];
   "load-more-history": [];
@@ -220,11 +246,16 @@ const showAiHistory = ref(false);
 const showMemories = ref(false);
 const dialogRoot = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
 const closeButton = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
+const profileEntryButton = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
 let previousFocus: HTMLElement | null = null;
 
 function domElement(value: HTMLElement | { $el?: HTMLElement } | null) {
   return value instanceof HTMLElement ? value : value?.$el ?? null;
 }
+
+defineExpose({
+  focusProfileEntry: () => domElement(profileEntryButton.value)?.focus(),
+});
 
 watch(() => props.open, async (open) => {
   if (typeof document === "undefined") return;
@@ -386,6 +417,24 @@ $sage: #dfe9dc;
   background: rgba(255, 253, 248, .86);
   box-shadow: 0 10px 30px rgba(36, 45, 40, .05);
 }
+
+.profile-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: 1px solid rgba(49, 91, 71, .2);
+  border-radius: 12px;
+  background: #fffdf8;
+  color: #1c2923;
+  text-align: left;
+}
+.profile-entry view text { display: block; }
+.profile-entry-label { color: #315847; font-size: 11px; font-weight: 800; }
+.profile-entry-value { margin-top: 3px; color: $muted; font-size: 10px; }
 
 .identity-seal {
   width: 52px;

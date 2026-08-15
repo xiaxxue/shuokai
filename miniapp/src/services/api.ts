@@ -18,6 +18,13 @@ import {
   type PersonalMemoryItem,
 } from "../domain/ai-memory";
 import { parseInvitationContext } from "../domain/invitation";
+import {
+  parseRoomRelationshipContext,
+  parseUserProfile,
+  type ParticipantContextDraft,
+  type ProfileDraft,
+  type SharedContextDraft,
+} from "../domain/profile-context";
 import { parseRoomHistoryPage, type RoomHistoryCursor } from "../domain/room-history";
 import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
 import {
@@ -37,6 +44,13 @@ type ApiResponse<T> = {
   statusCode: number;
   data: T;
 };
+
+export class ApiError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 function apiUrl(path: string) {
   return `${__API_BASE_URL__}${path}`;
@@ -70,6 +84,12 @@ function errorMessage(data: unknown, fallback: string) {
     return String((data as { message: unknown }).message);
   }
   return fallback;
+}
+
+function responseErrorCode(data: unknown) {
+  return typeof data === "object" && data && "code" in data && typeof data.code === "string"
+    ? data.code
+    : "REQUEST_FAILED";
 }
 
 function parseAuthSession(data: unknown): AuthSession {
@@ -145,6 +165,25 @@ export function loginForPlatform(): Promise<AuthSession> {
   return pendingSession;
 }
 
+export const profileApi = {
+  get: async () => parseUserProfile(await rpc<unknown>("get_my_profile_v1", {})),
+  save: async (revision: number, draft: ProfileDraft) => parseUserProfile(await rpc<unknown>(
+    "save_my_profile_v1",
+    {
+      p_expected_revision: revision,
+      p_display_name: draft.displayName,
+      p_response_length: draft.responseLength,
+      p_language: draft.language,
+      p_use_response_length_ai: draft.useResponseLengthAi,
+      p_use_language_ai: draft.useLanguageAi,
+    },
+  )),
+  clearPreferences: async (revision: number) => parseUserProfile(await rpc<unknown>(
+    "clear_my_profile_preferences_v1",
+    { p_expected_revision: revision },
+  )),
+};
+
 async function activeSession() {
   return loginForPlatform();
 }
@@ -162,7 +201,10 @@ async function rpc<T>(name: string, args: RpcArgs): Promise<T> {
     timeout: 20000,
   });
   if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw new Error(errorMessage(response.data, "操作没有完成，请稍后重试。"));
+    throw new ApiError(
+      errorMessage(response.data, "操作没有完成，请稍后重试。"),
+      responseErrorCode(response.data),
+    );
   }
   return response.data;
 }
@@ -256,6 +298,44 @@ export const roomApi = {
     }
     return parseInvitationContext(response.data);
   },
+  relationshipContext: async (roomId: string) => parseRoomRelationshipContext(await rpc<unknown>(
+    "get_room_relationship_context_v1",
+    { p_room_id: roomId },
+  )),
+  saveRelationshipContext: async (
+    roomId: string,
+    sharedRevision: number,
+    privateRevision: number,
+    status: "DRAFT" | "CONFIRMED" | "SKIPPED",
+    step: number,
+    shared: SharedContextDraft,
+    mine: ParticipantContextDraft,
+  ) => parseRoomRelationshipContext(await rpc<unknown>("save_room_relationship_context_v1", {
+    p_room_id: roomId,
+    p_expected_shared_revision: sharedRevision,
+    p_expected_private_revision: privateRevision,
+    p_status: status,
+    p_step: step,
+    p_shared: shared,
+    p_private: mine,
+  })),
+  respondRelationshipContext: async (
+    roomId: string,
+    privateRevision: number,
+    sharedRevision: number,
+    status: "DRAFT" | "CONFIRMED" | "DIFFERENT" | "SKIPPED",
+    step: number,
+    decision: "CONFIRMED" | "DIFFERENT" | "SKIPPED" | null,
+    mine: ParticipantContextDraft,
+  ) => parseRoomRelationshipContext(await rpc<unknown>("respond_room_relationship_context_v1", {
+    p_room_id: roomId,
+    p_expected_private_revision: privateRevision,
+    p_seen_shared_revision: sharedRevision,
+    p_status: status,
+    p_step: step,
+    p_decision: decision,
+    p_payload: mine,
+  })),
   expressionWorkspace: async (roomId: string) =>
     rpc<{
       revision: number;

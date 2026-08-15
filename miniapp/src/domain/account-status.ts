@@ -4,6 +4,8 @@ import type { RoomSession } from "./types";
 
 const stageLabels: Record<ClientStage, string> = {
   WELCOME: "准备开始",
+  RELATIONSHIP_SETUP: "补充关系背景",
+  RELATIONSHIP_CONFIRMATION: "确认邀请方的关系背景",
   INVITATION_INTRO: "阅读对方的沟通邀请",
   GOAL: "确认沟通意图",
   RECORD: "与 AI 私下讲述背景",
