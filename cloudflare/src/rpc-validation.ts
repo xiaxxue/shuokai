@@ -28,6 +28,11 @@ const specs = {
   create_room_v2: { optional: { p_display_name: 60 } },
   join_room_v2: { required: { p_code: 7 }, optional: { p_display_name: 60 } },
   list_my_rooms_v2: {},
+  get_ai_private_conversation_v1: { required: { p_room_id: 36 } },
+  list_my_ai_private_conversations_v1: {},
+  list_my_ai_memories_v1: {},
+  decide_ai_personal_memory_v1: {},
+  decide_ai_relationship_memory_v1: {},
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
@@ -54,6 +59,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcArgs | null {
   if (!isRecord(input)) return null;
+  if (method === "list_my_ai_private_conversations_v1") {
+    const limit = input.p_limit;
+    if (Object.keys(input).length !== 1 || typeof limit !== "number" ||
+      !Number.isSafeInteger(limit) || limit < 1 || limit > 50) return null;
+    return { p_limit: limit };
+  }
+  if (method === "decide_ai_personal_memory_v1") {
+    const memoryId = input.p_memory_id;
+    const decision = input.p_decision;
+    const content = input.p_content;
+    if (Object.keys(input).length !== 3 || typeof memoryId !== "string" || !uuidPattern.test(memoryId) ||
+      !["CONFIRM", "REJECT", "FORGET"].includes(String(decision)) ||
+      !(content === null || typeof content === "string" && content.trim().length > 0 && content.length <= 600) ||
+      (decision !== "CONFIRM" && content !== null)) return null;
+    return { p_memory_id: memoryId, p_decision: decision, p_content: content };
+  }
+  if (method === "decide_ai_relationship_memory_v1") {
+    const memoryId = input.p_memory_id;
+    const decision = input.p_decision;
+    if (Object.keys(input).length !== 2 || typeof memoryId !== "string" || !uuidPattern.test(memoryId) ||
+      !["REMEMBER", "DECLINE", "STOP"].includes(String(decision))) return null;
+    return { p_memory_id: memoryId, p_decision: decision };
+  }
   if (method === "list_my_rooms_v2") {
     const {
       p_limit: limit,

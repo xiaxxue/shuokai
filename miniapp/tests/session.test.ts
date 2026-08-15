@@ -160,6 +160,67 @@ describe("private editor draft recovery", () => {
     expect(getEditorDraft(draft.roomId, "A")).toBeNull();
   });
 
+  it("keeps drafts from different rooms and clears only the requested one", () => {
+    const first = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "第一间房的私人对话",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+    };
+    const second = {
+      ...first,
+      roomId: "22222222-2222-4222-8222-222222222222",
+      role: "B" as const,
+      transcript: "第二间房的私人对话",
+    };
+
+    saveEditorDraft(first);
+    saveEditorDraft(second);
+    clearEditorDraft(first.roomId, first.role);
+
+    expect(getEditorDraft(first.roomId, first.role)).toBeNull();
+    expect(getEditorDraft(second.roomId, second.role)).toEqual(second);
+  });
+
+  it("persists a confirmed discard of a detached cross-device draft", () => {
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "当前对话",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      detachedDiscoveryDrafts: [{ answer: "需要丢弃的旧草稿", question: "旧问题", revision: 2 }],
+    };
+    saveEditorDraft(draft);
+    saveEditorDraft({
+      ...draft,
+      detachedDiscoveryDrafts: [],
+    });
+
+    expect(getEditorDraft(draft.roomId, draft.role)).toMatchObject({
+      detachedDiscoveryDrafts: [],
+    });
+  });
+
+  it("round-trips two near-limit detached drafts without combining or truncating them", () => {
+    const detachedDiscoveryDrafts = [
+      { answer: "甲".repeat(1199), question: "第一个旧问题", revision: 2 },
+      { answer: "乙".repeat(1200), question: "第二个旧问题", revision: 3 },
+    ];
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "当前对话",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      detachedDiscoveryDrafts,
+    };
+    saveEditorDraft(draft);
+    expect(getEditorDraft(draft.roomId, draft.role)?.detachedDiscoveryDrafts)
+      .toEqual(detachedDiscoveryDrafts);
+  });
+
   it("rejects oversized cached private text", () => {
     storage.set("shuokai.editor-draft.v1", {
       roomId: "11111111-1111-4111-8111-111111111111",
@@ -194,6 +255,8 @@ describe("private editor draft recovery", () => {
       clarificationAnswer: "还没提交的回答",
       clarificationSkipped: false,
       discoveryStarted: true,
+      discoveryConversationRevision: 4,
+      detachedDiscoveryDrafts: [{ answer: "尚未发送的旧问题回答", question: "旧问题是什么？", revision: 3 }],
       discoveryQuestion: "你当时具体说了什么？",
       discoveryReady: false,
       discoveryFollowUpLimitReached: false,
@@ -223,6 +286,8 @@ describe("private editor draft recovery", () => {
       clarificationAnswer: draft.clarificationAnswer,
       clarificationSkipped: false,
       discoveryStarted: true,
+      discoveryConversationRevision: 4,
+      detachedDiscoveryDrafts: draft.detachedDiscoveryDrafts,
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
       discoveryUnderstanding: draft.discoveryUnderstanding,

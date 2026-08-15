@@ -12,11 +12,13 @@ import {
   type ClarificationTurn,
   type DiscoveryUnderstandingState,
 } from "../domain/clarification";
+import type { DetachedDiscoveryDraft } from "../domain/ai-memory";
 
 const SESSION_KEY = "shuokai.session.v2";
 const ACTIVE_ROOM_KEY = "shuokai.active-room.v1";
 const ACTIVE_ROOM_OWNER_KEY = "shuokai.active-room-owner.v1";
-const EDITOR_DRAFT_KEY = "shuokai.editor-draft.v1";
+const LEGACY_EDITOR_DRAFT_KEY = "shuokai.editor-draft.v1";
+const EDITOR_DRAFTS_KEY = "shuokai.editor-drafts.v2";
 const INVITATION_ACKNOWLEDGEMENTS_KEY = "shuokai.invitation-acknowledgements.v1";
 const roomIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const roomCodePattern = /^[A-Z0-9]{7}$/;
@@ -36,12 +38,26 @@ export type EditorDraft = {
   clarificationAnswer?: string;
   clarificationSkipped?: boolean;
   discoveryStarted?: boolean;
+  discoveryConversationRevision?: number;
+  detachedDiscoveryDrafts?: DetachedDiscoveryDraft[];
   discoveryQuestion?: string;
   discoveryReady?: boolean;
   discoveryUnderstanding?: DiscoveryUnderstandingState;
   discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
   discoverySafetyMessage?: string;
 };
+
+type EditorDraftStore = Record<string, EditorDraft>;
+
+function editorDraftKey(roomId: string, role: RoomSession["role"]) {
+  return `${roomId}:${role}`;
+}
+
+function editorDraftStore(): EditorDraftStore {
+  const value: unknown = uni.getStorageSync(EDITOR_DRAFTS_KEY);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as EditorDraftStore;
+}
 
 export function getSession(): AuthSession | null {
   return (uni.getStorageSync(SESSION_KEY) as AuthSession | null) || null;
@@ -90,7 +106,9 @@ function isBoundedText(value: unknown, maxLength: number): value is string {
 }
 
 export function getEditorDraft(roomId: string, role: RoomSession["role"]): EditorDraft | null {
-  const value: unknown = uni.getStorageSync(EDITOR_DRAFT_KEY);
+  const stored = editorDraftStore()[editorDraftKey(roomId, role)];
+  const legacy: unknown = uni.getStorageSync(LEGACY_EDITOR_DRAFT_KEY);
+  const value: unknown = stored ?? legacy;
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<EditorDraft>;
   const cards = candidate.perspective as Partial<Perspective> | undefined;
@@ -141,6 +159,23 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoveryStarted = typeof candidate.discoveryStarted === "boolean"
     ? candidate.discoveryStarted
     : undefined;
+  const discoveryConversationRevision = typeof candidate.discoveryConversationRevision === "number" &&
+    Number.isSafeInteger(candidate.discoveryConversationRevision) &&
+    candidate.discoveryConversationRevision >= 0
+    ? candidate.discoveryConversationRevision
+    : undefined;
+  const detachedDiscoveryDrafts = Array.isArray(candidate.detachedDiscoveryDrafts) &&
+    candidate.detachedDiscoveryDrafts.length <= 100 &&
+    candidate.detachedDiscoveryDrafts.every((item) =>
+      item && typeof item === "object" &&
+      isBoundedText((item as DetachedDiscoveryDraft).answer, 1200) &&
+      Boolean((item as DetachedDiscoveryDraft).answer.trim()) &&
+      isBoundedText((item as DetachedDiscoveryDraft).question, 500) &&
+      Number.isSafeInteger((item as DetachedDiscoveryDraft).revision) &&
+      (item as DetachedDiscoveryDraft).revision >= 0
+    )
+    ? candidate.detachedDiscoveryDrafts.map((item) => ({ ...item }))
+    : undefined;
   const discoveryQuestion = isBoundedText(candidate.discoveryQuestion, 500)
     ? candidate.discoveryQuestion
     : undefined;
@@ -182,6 +217,8 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(discoveryStarted !== undefined
       ? { discoveryStarted: restartIncompleteDiscovery ? false : discoveryStarted }
       : {}),
+    ...(discoveryConversationRevision !== undefined ? { discoveryConversationRevision } : {}),
+    ...(detachedDiscoveryDrafts !== undefined ? { detachedDiscoveryDrafts } : {}),
     ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
     ...(discoveryReady !== undefined ? { discoveryReady } : {}),
     ...(discoveryUnderstanding !== undefined ? { discoveryUnderstanding } : {}),
@@ -191,11 +228,30 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
 }
 
 export function saveEditorDraft(draft: EditorDraft) {
-  uni.setStorageSync(EDITOR_DRAFT_KEY, draft);
+  const store = editorDraftStore();
+  delete store[editorDraftKey(draft.roomId, draft.role)];
+  store[editorDraftKey(draft.roomId, draft.role)] = draft;
+  const entries = Object.entries(store).slice(-20);
+  uni.setStorageSync(EDITOR_DRAFTS_KEY, Object.fromEntries(entries));
+  uni.removeStorageSync(LEGACY_EDITOR_DRAFT_KEY);
 }
 
-export function clearEditorDraft() {
-  uni.removeStorageSync(EDITOR_DRAFT_KEY);
+export function clearEditorDraft(roomId?: string, role?: RoomSession["role"]) {
+  if (!roomId || !role) {
+    uni.removeStorageSync(EDITOR_DRAFTS_KEY);
+    uni.removeStorageSync(LEGACY_EDITOR_DRAFT_KEY);
+    return;
+  }
+  const store = editorDraftStore();
+  delete store[editorDraftKey(roomId, role)];
+  uni.setStorageSync(EDITOR_DRAFTS_KEY, store);
+  const legacy: unknown = uni.getStorageSync(LEGACY_EDITOR_DRAFT_KEY);
+  if (legacy && typeof legacy === "object") {
+    const candidate = legacy as Partial<EditorDraft>;
+    if (candidate.roomId === roomId && candidate.role === role) {
+      uni.removeStorageSync(LEGACY_EDITOR_DRAFT_KEY);
+    }
+  }
 }
 
 function invitationAcknowledgements() {

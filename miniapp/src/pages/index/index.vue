@@ -47,12 +47,23 @@
       :history-loading="historyLoading"
       :history-error="historyError"
       :history-has-more="Boolean(roomHistoryCursor)"
+      :ai-conversation-items="aiConversationHistory"
+      :personal-memories="aiMemories.personal"
+      :relationship-memories="aiMemories.relationship"
+      :ai-archive-loading="aiArchiveLoading"
+      :ai-archive-error="aiArchiveError"
       :busy="busy"
       @close="accountOpen = false"
       @signout="requestH5Logout"
       @refresh-history="loadRoomHistory(true)"
       @load-more-history="loadRoomHistory(false)"
       @open-history="openHistoricalRoom"
+      @refresh-ai-data="loadAiArchive"
+      @open-ai-history="openAiConversationHistory"
+      @decide-memory="decidePersonalMemory"
+      @edit-memory="editPersonalMemory"
+      @forget-memory="confirmForgetPersonalMemory"
+      @decide-relationship-memory="decideRelationshipMemory"
     />
 
     <view
@@ -190,12 +201,22 @@
         :invitation-topic="resolvedInvitationContext.topic"
         :safety-disposition="discoverySafetyDisposition"
         :safety-message="discoverySafetyMessage"
+        :restored="discoveryRestored"
+        :save-state="discoverySaveState"
+        :memory-proposals="discoveryMemoryProposals"
+        :detached-drafts="discoveryDetachedDrafts"
+        :read-only="aiConversationArchiveReadOnly"
         @update:source-text="transcript = $event"
         @update:answer="clarificationAnswer = $event"
         @send="sendDiscoveryMessage"
         @finish="finishDiscovery"
         @record="toggleRecording"
         @view-invitation="showInvitationIntro"
+        @decide-memory="decidePersonalMemory"
+        @edit-memory="editPersonalMemory"
+        @local-change="expressionDiscovery.markLocalDraft"
+        @restore-detached-draft="expressionDiscovery.reapplyDetachedDraft"
+        @discard-detached-draft="confirmDiscardDetachedDraft"
       />
 
       <ExpressionModeChooser
@@ -521,6 +542,12 @@ import {
   type ClarificationTurn,
 } from "../../domain/clarification";
 import type { DialogueState } from "../../domain/dialogue";
+import type {
+  AiConversationHistoryItem,
+  AiMemoryCollection,
+  PersonalMemoryItem,
+  RelationshipMemoryItem,
+} from "../../domain/ai-memory";
 import {
   roomSessionFromHistory,
   type RoomHistoryItem,
@@ -549,6 +576,7 @@ import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearEditorDraft,
+  clearActiveRoom,
   clearPrivateDeviceData,
   acknowledgeInvitation,
   getActiveRoom,
@@ -625,6 +653,11 @@ const invitationClarifying = ref(false);
 const expressionReviewStep = ref(0);
 const dialogueState = ref<DialogueState | null>(null);
 const historyReadOnly = ref(false);
+const aiConversationArchiveReadOnly = ref(false);
+const aiConversationHistory = ref<AiConversationHistoryItem[]>([]);
+const aiMemories = ref<AiMemoryCollection>({ personal: [], relationship: [] });
+const aiArchiveLoading = ref(false);
+const aiArchiveError = ref("");
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -642,6 +675,10 @@ const discoveryUnderstanding = expressionDiscovery.understanding;
 const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
+const discoveryRestored = expressionDiscovery.restored;
+const discoverySaveState = expressionDiscovery.saveState;
+const discoveryMemoryProposals = expressionDiscovery.memoryProposals;
+const discoveryDetachedDrafts = expressionDiscovery.detachedDrafts;
 const sendDiscoveryMessage = expressionDiscovery.send;
 const finishDiscovery = expressionDiscovery.finish;
 const sharedUnderstanding = useSharedUnderstanding({
@@ -691,6 +728,7 @@ watch(
     () => JSON.stringify(discoveryUnderstanding.value),
     discoverySafetyDisposition,
     discoverySafetyMessage,
+    () => JSON.stringify(expressionDiscovery.detachedDrafts.value),
   ],
   scheduleEditorDraftSave,
   { flush: "post" },
@@ -905,6 +943,7 @@ function resetPrivateWorkspace() {
   sharedUnderstanding.reset();
   dialogueState.value = null;
   historyReadOnly.value = false;
+  aiConversationArchiveReadOnly.value = false;
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
@@ -938,6 +977,8 @@ function flushEditorDraft() {
     clarificationAnswer: clarificationAnswer.value,
     clarificationSkipped: clarificationSkipped.value,
     discoveryStarted: discoveryStarted.value,
+    discoveryConversationRevision: expressionDiscovery.conversationRevision.value,
+    detachedDiscoveryDrafts: expressionDiscovery.detachedDrafts.value,
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
     discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
@@ -968,6 +1009,12 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.clarificationAnswer !== undefined) clarificationAnswer.value = draft.clarificationAnswer;
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
   if (draft.discoveryStarted !== undefined) discoveryStarted.value = draft.discoveryStarted;
+  if (draft.discoveryConversationRevision !== undefined) {
+    expressionDiscovery.conversationRevision.value = draft.discoveryConversationRevision;
+  }
+  if (draft.detachedDiscoveryDrafts !== undefined) {
+    expressionDiscovery.detachedDrafts.value = draft.detachedDiscoveryDrafts;
+  }
   if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
   if (draft.discoveryUnderstanding !== undefined) {
@@ -1065,6 +1112,16 @@ async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot)
     }
   }
   if (stage.value !== "INVITATION_INTRO") restoreEditorDraft(roomSession, minimumWorkspaceRevision);
+  if (stage.value === "RECORD" && roomIsDrafting(roomSession)) {
+    try {
+      const restoredConversation = await roomApi.aiConversation(roomSession.roomId);
+      if (restoredConversation.revision > expressionDiscovery.conversationRevision.value) {
+        expressionDiscovery.restore(restoredConversation);
+      }
+    } catch {
+      setNotice("error", "暂时无法读取上次的私人对话。本机内容仍在，请检查网络后重新读取。 ");
+    }
+  }
   if (stage.value !== "INVITATION_INTRO") {
     if (authoritativeEditorStage === "PAUSED") stage.value = authoritativeEditorStage;
     else if (authoritativeEditorStage) openExpressionCandidate();
@@ -1165,7 +1222,6 @@ async function createRoom() {
     const session = await loginForPlatform();
     authUserId.value = session.userId;
     const created = await roomApi.create();
-    clearPrivateDeviceData();
     resetPrivateWorkspace();
     updateRoom(created);
     stage.value = stageForCurrentRoom(created);
@@ -1188,7 +1244,6 @@ async function joinRoom() {
     const session = await loginForPlatform();
     authUserId.value = session.userId;
     const joined = await roomApi.join(joinCode.value);
-    clearPrivateDeviceData();
     resetPrivateWorkspace();
     updateRoom(joined);
     const joinedStage = stageForCurrentRoom(joined);
@@ -1227,6 +1282,151 @@ function openAccountSpace() {
   flushEditorDraft();
   accountOpen.value = true;
   void loadRoomHistory(true);
+  void loadAiArchive();
+}
+
+async function loadAiArchive() {
+  if (!authUserId.value || aiArchiveLoading.value) return;
+  aiArchiveLoading.value = true;
+  aiArchiveError.value = "";
+  try {
+    const [conversations, memories] = await Promise.all([
+      roomApi.aiConversationHistory(),
+      roomApi.aiMemories(),
+    ]);
+    aiConversationHistory.value = conversations;
+    aiMemories.value = memories;
+  } catch (error) {
+    aiArchiveError.value = message(error, "暂时无法读取 AI 私人档案，请检查网络后重试。");
+  } finally {
+    aiArchiveLoading.value = false;
+  }
+}
+
+async function openAiConversationHistory(item: AiConversationHistoryItem) {
+  const target: RoomSession = {
+    roomId: item.roomId,
+    code: item.roomCode,
+    role: item.role,
+    state: item.state,
+    workflowVersion: 2,
+    ...(item.phaseV2 ? { phaseV2: item.phaseV2 } : {}),
+  };
+  accountOpen.value = false;
+  flushEditorDraft();
+  resetPrivateWorkspace();
+  updateRoom(target);
+  busy.value = true;
+  try {
+    await loadSnapshot(target);
+    if (!room.value || !roomIsDrafting(room.value)) {
+      const conversation = await roomApi.aiConversation(target.roomId);
+      if (!expressionDiscovery.restore(conversation)) {
+        throw new Error("这次私人对话暂时没有可恢复的内容。");
+      }
+      aiConversationArchiveReadOnly.value = true;
+      stage.value = "RECORD";
+    }
+    setNotice("success", "已恢复上次与 AI 的私人对话。只有你能看到。 ");
+  } catch (error) {
+    stage.value = stageForCurrentRoom(target);
+    restoreEditorDraft(target);
+    setNotice("error", message(error, "暂时无法打开这次私人对话，本机内容仍会保留。"));
+  } finally {
+    busy.value = Boolean(aiJobId.value);
+  }
+}
+
+async function decidePersonalMemory(
+  item: PersonalMemoryItem,
+  decision: "CONFIRM" | "REJECT" | "FORGET",
+  content?: string,
+) {
+  if (busy.value) return;
+  busy.value = true;
+  clearNotice();
+  try {
+    await roomApi.decideAiMemory(item.id, decision, content);
+    discoveryMemoryProposals.value = discoveryMemoryProposals.value.filter((candidate) => candidate.id !== item.id);
+    await loadAiArchive();
+    setNotice("success", decision === "CONFIRM"
+      ? "已记住。以后只会在与你相关的私人对话中参考。 "
+      : decision === "FORGET"
+        ? "已停止记住，来源房间的历史对话仍会保留。 "
+        : "这条内容只用于本次沟通，不会成为长期记忆。 ");
+  } catch (error) {
+    setNotice("error", message(error, "记忆状态没有更新，请稍后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function decideRelationshipMemory(
+  item: RelationshipMemoryItem,
+  decision: "REMEMBER" | "DECLINE" | "STOP",
+) {
+  if (busy.value) return;
+  busy.value = true;
+  clearNotice();
+  try {
+    await roomApi.decideRelationshipMemory(item.id, decision);
+    await loadAiArchive();
+    setNotice("success", decision === "REMEMBER"
+      ? "已记录你的选择。只有对方也同意后，AI 才会共同记住。 "
+      : decision === "STOP"
+        ? "已停止共同记住，AI 不会再使用这条内容。 "
+        : "这条共同理解不会成为长期记忆。 ");
+  } catch (error) {
+    setNotice("error", message(error, "共同记忆状态没有更新，请稍后重试。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
+function confirmForgetPersonalMemory(item: PersonalMemoryItem) {
+  uni.showModal({
+    title: "停止记住这条内容？",
+    content: "停止记住后，AI 不会再在以后对话中使用这条内容；来源房间的历史对话仍会保留。",
+    confirmText: "停止记住",
+    confirmColor: "#a23d2b",
+    cancelText: "继续保留",
+    success: ({ confirm }) => {
+      if (confirm) void decidePersonalMemory(item, "FORGET");
+    },
+  });
+}
+
+function editPersonalMemory(item: PersonalMemoryItem) {
+  uni.showModal({
+    title: "修改后记住",
+    content: item.content,
+    editable: true,
+    placeholderText: "写成你希望 AI 以后参考的说法",
+    confirmText: "保存这条记忆",
+    cancelText: "暂不修改",
+    success: ({ confirm, content }) => {
+      const edited = content?.trim();
+      if (!confirm) return;
+      if (!edited) {
+        setNotice("error", "记忆内容不能为空，请重新填写。 ");
+        return;
+      }
+      void decidePersonalMemory(item, "CONFIRM", edited);
+    },
+  });
+}
+
+function confirmDiscardDetachedDraft(index: number) {
+  uni.showModal({
+    title: "丢弃这段未发送草稿？",
+    content: "这段文字还没有发给 AI。丢弃后无法恢复；你也可以先放回输入框再修改。",
+    confirmText: "确认丢弃",
+    confirmColor: "#a23d2b",
+    cancelText: "继续保留",
+    success: ({ confirm }) => {
+      if (confirm) expressionDiscovery.discardDetachedDraft(index);
+    },
+  });
 }
 
 async function openHistoricalRoom(item: RoomHistoryItem) {
@@ -1284,6 +1484,9 @@ async function logoutH5Account() {
     authUserId.value = "";
     authEmail.value = "";
     resetRoomHistory();
+    aiConversationHistory.value = [];
+    aiMemories.value = { personal: [], relationship: [] };
+    aiArchiveError.value = "";
     accountOpen.value = false;
     stage.value = "WELCOME";
     setNotice("success", "已退出，并清除本机保存的房间与私人草稿。");
@@ -1309,8 +1512,7 @@ async function toggleRecording() {
           busy.value = true;
           const text = await transcribeAudio(audio);
           if (generation !== workspaceGeneration) return;
-          const target = recordingTarget === "answer" ? clarificationAnswer : transcript;
-          target.value = target.value.trim() ? `${target.value.trim()}\n${text}` : text;
+          expressionDiscovery.appendTranscription(recordingTarget, text);
           setNotice("success", "转写完成，你可以继续修改文字。 ");
         })
         .catch((error) => {
@@ -1527,7 +1729,7 @@ async function next() {
         await roomApi.pause(room.value.roomId);
         updateRoom({ ...room.value, phaseV2: "PAUSED" });
         stage.value = "PAUSED";
-        clearEditorDraft();
+        clearEditorDraft(room.value.roomId, room.value.role);
         draftSaveState.value = "empty";
         setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
       } else if (selectedMode.value) {
@@ -1554,7 +1756,7 @@ async function next() {
         workspaceRevision.value,
         expressionSharePayload(editableExpression.value),
       );
-      clearEditorDraft();
+      clearEditorDraft(room.value.roomId, room.value.role);
       aiJobId.value = "";
       draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: confirmed.state });
@@ -1599,7 +1801,7 @@ async function next() {
       });
       if (editorSaveTimer) clearTimeout(editorSaveTimer);
       editorSaveTimer = null;
-      clearEditorDraft();
+      clearEditorDraft(room.value.roomId, room.value.role);
       draftSaveState.value = "empty";
       updateRoom({ ...room.value, state: approved.state });
       if (stageForCurrentRoom(room.value, approved.state) === "COMMON") {
@@ -1754,6 +1956,11 @@ async function acceptAgreement() {
 
 function goBack() {
   clearNotice();
+  if (aiConversationArchiveReadOnly.value) {
+    aiConversationArchiveReadOnly.value = false;
+    void resumeCurrentRoom();
+    return;
+  }
   if (stage.value === "EXPRESSION_REVIEW") {
     if (!expressionReviewIsSummary.value) {
       expressionReviewStep.value = expressionReviewSummaryStep(currentExpressionOption.value.fields.length);
@@ -1907,7 +2114,7 @@ async function resumeCurrentRoom() {
 }
 
 function startAnotherRoom() {
-  clearPrivateDeviceData();
+  clearActiveRoom();
   resetPrivateWorkspace();
   clearNotice();
   stage.value = "WELCOME";

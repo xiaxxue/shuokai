@@ -1,5 +1,14 @@
 <template>
-  <view v-if="open" class="account-layer" role="dialog" aria-label="我的空间">
+  <view
+    v-if="open"
+    ref="dialogRoot"
+    class="account-layer"
+    role="dialog"
+    aria-modal="true"
+    aria-label="我的空间"
+    tabindex="-1"
+    @keydown="handleDialogKeydown"
+  >
     <view class="account-backdrop" @tap="$emit('close')" />
     <view class="account-sheet" @tap.stop>
       <view class="sheet-handle" />
@@ -8,7 +17,7 @@
           <text class="account-kicker">只属于你的这一侧</text>
           <text class="account-title">我的空间</text>
         </view>
-        <button class="sheet-close" aria-label="关闭我的空间" @tap="$emit('close')">×</button>
+        <button ref="closeButton" class="sheet-close" aria-label="关闭我的空间" @tap="$emit('close')">×</button>
       </view>
 
       <view class="identity-card">
@@ -43,6 +52,95 @@
         <text class="privacy-copy">私人草稿不会进入共同视图，只有你确认分享的内容对对方可见。</text>
       </view>
 
+      <view class="archive-section">
+        <button class="archive-heading" aria-label="查看历史 AI 私人对话" @tap="showAiHistory = !showAiHistory">
+          <view><text class="archive-kicker">私人档案</text><text class="archive-title">历史 AI 对话</text></view>
+          <text class="archive-count">最近 {{ aiConversationItems.length }} 次 {{ showAiHistory ? '收起' : '查看' }} →</text>
+        </button>
+        <view v-if="showAiHistory" class="archive-body">
+          <text v-if="aiArchiveLoading" class="archive-state">正在读取你保存过的私人对话…</text>
+          <view v-else-if="aiArchiveError" class="archive-state archive-error">
+            <text>{{ aiArchiveError }}</text><button @tap="$emit('refresh-ai-data')">重新读取</button>
+          </view>
+          <view v-else-if="!aiConversationItems.length" class="archive-state">
+            <text>还没有保存过 AI 私人对话。进入一间沟通房间并开始讲述后，会自动出现在这里。</text>
+          </view>
+          <template v-else>
+            <button
+              v-for="item in aiConversationItems"
+              :key="item.roomId"
+              class="archive-row"
+              @tap="$emit('open-ai-history', item)"
+            >
+              <text class="archive-topic">{{ item.topic }}</text>
+              <text class="archive-summary">{{ item.summary }}</text>
+              <text class="archive-meta">{{ item.role === 'A' ? '我发起的沟通' : '我回应的沟通' }} · {{ item.ready ? '已听清' : '还在继续' }} · {{ archiveTime(item.updatedAt) }} · {{ item.roomCode }}</text>
+            </button>
+          </template>
+        </view>
+      </view>
+
+      <view class="archive-section memory-section">
+        <button class="archive-heading" aria-label="查看 AI 记住了什么" @tap="showMemories = !showMemories">
+          <view><text class="archive-kicker">由你控制</text><text class="archive-title">AI 记住了什么</text></view>
+          <text class="archive-count">{{ personalMemories.length + relationshipMemories.length }} 条 {{ showMemories ? '收起' : '查看' }} →</text>
+        </button>
+        <view v-if="showMemories" class="archive-body memory-body">
+          <text v-if="aiArchiveLoading" class="archive-state">正在读取你确认过的记忆…</text>
+          <view v-else-if="aiArchiveError" class="archive-state archive-error">
+            <text>{{ aiArchiveError }}</text><button @tap="$emit('refresh-ai-data')">重新读取</button>
+          </view>
+          <view v-else-if="!personalMemories.length && !relationshipMemories.length" class="archive-state">
+            <text>AI 还没有记住长期内容。只有你亲自确认的内容才会出现在这里。</text>
+          </view>
+          <template v-else>
+            <view v-if="personalMemories.length" class="memory-group">
+              <text class="memory-group-title">只属于我的记忆</text>
+              <view v-for="item in personalMemories" :key="item.id" class="memory-card" :class="`memory-${item.kind.toLowerCase()}`">
+                <text class="memory-label">{{ personalMemoryKindLabel[item.kind] }} · {{ item.status === 'PROPOSED' ? '等待你决定' : '已确认' }}</text>
+                <text class="memory-content">{{ item.content }}</text>
+                <text v-if="item.reason" class="memory-reason">为什么可能有用：{{ item.reason }}</text>
+                <text v-if="item.topic" class="memory-source">来自：{{ item.topic }}{{ item.roomCode ? ` · ${item.roomCode}` : '' }}</text>
+                <view class="memory-actions">
+                  <template v-if="item.status === 'PROPOSED'">
+                    <button @tap="$emit('decide-memory', item, 'CONFIRM')">记住这条</button>
+                    <button @tap="$emit('edit-memory', item)">修改后记住</button>
+                    <button @tap="$emit('decide-memory', item, 'REJECT')">只用于这次</button>
+                  </template>
+                  <template v-else>
+                    <button @tap="$emit('edit-memory', item)">修改</button>
+                    <button class="forget-action" @tap="$emit('forget-memory', item)">停止记住</button>
+                  </template>
+                </view>
+              </view>
+            </view>
+            <view v-if="relationshipMemories.length" class="memory-group relationship-group">
+              <text class="memory-group-title">双方可共同记住的事</text>
+              <text class="memory-group-note">“内容准确”不等于同意长期记住。只有双方分别同意后，AI 才会在以后与你们两人的沟通中参考。</text>
+              <view v-for="item in relationshipMemories" :key="item.id" class="relationship-row">
+                <text class="memory-label">{{ relationshipMemoryKindLabel[item.kind] }} · {{ relationshipStatus(item) }}</text>
+                <text class="memory-content">{{ item.content }}</text>
+                <text class="memory-source">来自双方确认准确的共同理解 · {{ item.topic }}</text>
+                <view class="memory-actions">
+                  <text v-if="!item.sourceValid" class="memory-waiting">来源共同理解已失效，AI 不会再使用，也不能重新启用。</text>
+                  <template v-else-if="item.status === 'ACTIVE'">
+                    <button class="forget-action" @tap="$emit('decide-relationship-memory', item, 'STOP')">停止共同记住</button>
+                  </template>
+                  <template v-else-if="item.myDecision === 'REMEMBER'">
+                    <text class="memory-waiting">{{ item.partnerDecision === 'DECLINE' ? '对方目前不同意长期记住' : '已同意，等待对方决定' }}</text>
+                    <button class="forget-action" @tap="$emit('decide-relationship-memory', item, 'STOP')">撤回我的同意</button>
+                  </template>
+                  <template v-else>
+                    <button @tap="$emit('decide-relationship-memory', item, 'REMEMBER')">同意共同记住</button>
+                    <button v-if="item.myDecision !== 'DECLINE'" @tap="$emit('decide-relationship-memory', item, 'DECLINE')">这次不要记住</button>
+                  </template>
+                </view>
+              </view>
+            </view>
+          </template>
+        </view>
+      </view>
+
       <RoomHistoryList
         :items="historyItems"
         :current-room-id="currentRoomId"
@@ -69,8 +167,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import type { RoomHistoryItem } from "../domain/room-history";
+import {
+  personalMemoryKindLabel,
+  relationshipMemoryKindLabel,
+  type AiConversationHistoryItem,
+  type PersonalMemoryItem,
+  type RelationshipMemoryItem,
+} from "../domain/ai-memory";
 import RoomHistoryList from "./RoomHistoryList.vue";
 
 const props = defineProps<{
@@ -89,16 +194,77 @@ const props = defineProps<{
   historyLoading: boolean;
   historyError: string;
   historyHasMore: boolean;
+  aiConversationItems: AiConversationHistoryItem[];
+  personalMemories: PersonalMemoryItem[];
+  relationshipMemories: RelationshipMemoryItem[];
+  aiArchiveLoading: boolean;
+  aiArchiveError: string;
   busy?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   close: [];
   signout: [];
   "refresh-history": [];
   "load-more-history": [];
   "open-history": [item: RoomHistoryItem];
+  "refresh-ai-data": [];
+  "open-ai-history": [item: AiConversationHistoryItem];
+  "decide-memory": [item: PersonalMemoryItem, decision: "CONFIRM" | "REJECT"];
+  "edit-memory": [item: PersonalMemoryItem];
+  "forget-memory": [item: PersonalMemoryItem];
+  "decide-relationship-memory": [item: RelationshipMemoryItem, decision: "REMEMBER" | "DECLINE" | "STOP"];
 }>();
+
+const showAiHistory = ref(false);
+const showMemories = ref(false);
+const dialogRoot = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
+const closeButton = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
+let previousFocus: HTMLElement | null = null;
+
+function domElement(value: HTMLElement | { $el?: HTMLElement } | null) {
+  return value instanceof HTMLElement ? value : value?.$el ?? null;
+}
+
+watch(() => props.open, async (open) => {
+  if (typeof document === "undefined") return;
+  if (open) {
+    previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    await nextTick();
+    domElement(closeButton.value)?.focus();
+  } else {
+    previousFocus?.focus();
+    previousFocus = null;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof document !== "undefined") previousFocus?.focus();
+});
+
+function handleDialogKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    emit("close");
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const root = domElement(dialogRoot.value);
+  if (!root) return;
+  const focusable = Array.from(root.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 
 const identityMark = computed(() => {
   const value = props.identity.trim();
@@ -106,6 +272,21 @@ const identityMark = computed(() => {
   if (value.includes("@")) return value.slice(0, 1).toUpperCase();
   return value.slice(0, 1);
 });
+
+function archiveTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function relationshipStatus(item: RelationshipMemoryItem) {
+  if (!item.sourceValid) return "来源已失效";
+  if (item.status === "ACTIVE") return "双方已同意";
+  if (item.myDecision === "REMEMBER") return "等待对方同意";
+  if (item.myDecision === "DECLINE") return "你选择了不长期记住";
+  if (item.partnerDecision === "DECLINE") return "对方选择了不长期记住";
+  return "等待双方决定";
+}
 </script>
 
 <style scoped lang="scss">
@@ -182,8 +363,8 @@ $sage: #dfe9dc;
 .account-title { margin-top: 8px; font-family: "Songti SC", "STSong", serif; font-size: 31px; font-weight: 800; }
 
 .sheet-close {
-  width: 38px;
-  height: 38px;
+  width: 48px;
+  height: 48px;
   margin: 0;
   padding: 0;
   border: 1px solid rgba(104, 114, 108, .22);
@@ -191,7 +372,7 @@ $sage: #dfe9dc;
   background: rgba(255, 253, 248, .62);
   color: $muted;
   font-size: 24px;
-  line-height: 36px;
+  line-height: 46px;
 }
 .sheet-close::after,
 .signout-button::after { border: 0; }
@@ -237,6 +418,41 @@ $sage: #dfe9dc;
   border-radius: 16px;
   background: $surface;
 }
+
+.archive-section { margin-top: 16px; border: 1px solid $line; border-radius: 16px; overflow: hidden; background: $surface; }
+.archive-heading { width: 100%; min-height: 72px; margin: 0; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-radius: 0; background: transparent; color: $ink; text-align: left; }
+.archive-heading::after, .archive-row::after, .archive-state button::after, .memory-actions button::after { border: 0; }
+.archive-kicker, .archive-title, .archive-count, .archive-topic, .archive-summary, .archive-meta, .memory-group-title, .memory-group-note, .memory-label, .memory-content, .memory-reason, .memory-source, .memory-waiting { display: block; }
+.archive-kicker { color: #be442e; font-size: 9px; font-weight: 800; letter-spacing: 2px; }
+.archive-title { margin-top: 5px; font-family: "Songti SC", "STSong", serif; font-size: 20px; font-weight: 800; }
+.archive-count { flex: none; color: $green; font-size: 10px; font-weight: 700; }
+.archive-body { border-top: 1px solid #ebe7de; }
+.archive-state { display: block; padding: 18px 16px; color: $muted; font-size: 11px; line-height: 1.7; }
+.archive-error { color: #9f4433; }
+.archive-state button { min-height: 48px; margin: 8px 0 0; padding: 0 12px; background: #efeae0; color: $green; font-size: 11px; }
+.archive-row { width: 100%; min-height: 88px; margin: 0; padding: 15px 16px; border-radius: 0; border-bottom: 1px solid #ebe7de; background: transparent; color: $ink; text-align: left; }
+.archive-row:last-child { border-bottom: 0; }
+.archive-topic { font-family: "Songti SC", "STSong", serif; font-size: 15px; font-weight: 800; }
+.archive-summary { margin-top: 5px; display: -webkit-box; overflow: hidden; color: #58645e; font-size: 11px; line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.archive-meta { margin-top: 7px; color: #89918c; font-size: 9px; letter-spacing: .4px; }
+.memory-section { background: #f7f2e9; }
+.memory-body { padding: 0 16px 16px; }
+.memory-group { padding-top: 16px; }
+.memory-group-title { margin-bottom: 9px; color: $green; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+.memory-group-note { margin-bottom: 10px; color: $muted; font-size: 9px; line-height: 1.65; }
+.memory-card { margin-top: 10px; padding: 14px 14px 14px 16px; border-left: 3px solid #7a9988; border-radius: 0 12px 12px 0; background: #fffdf8; }
+.memory-boundary { border-left-color: #c6543e; }
+.memory-trigger { border-left-color: #b88750; }
+.memory-label { color: $green; font-size: 9px; font-weight: 800; }
+.memory-content { margin-top: 6px; font-size: 12px; font-weight: 700; line-height: 1.6; }
+.memory-reason, .memory-source { margin-top: 6px; color: $muted; font-size: 9px; line-height: 1.55; }
+.memory-actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.memory-actions button { min-height: 48px; margin: 0; padding: 0 12px; border-radius: 999px; background: #e7eee8; color: $green; font-size: 10px; font-weight: 700; }
+.memory-actions .forget-action { background: #f7e6e0; color: #a23d2b; }
+.memory-waiting { align-self: center; color: $muted; font-size: 9px; line-height: 1.5; }
+.relationship-group { margin-top: 16px; border-top: 1px solid #ddd6ca; }
+.relationship-row { padding: 13px 0; border-bottom: 1px solid #e6dfd4; }
+.relationship-row:last-child { border-bottom: 0; }
 
 .section-heading { margin-bottom: 7px; justify-content: space-between; font-size: 12px; font-weight: 800; letter-spacing: 1px; }
 .room-code { color: $coral; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; letter-spacing: 1.5px; }
