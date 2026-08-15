@@ -11,6 +11,12 @@ import {
   type ClarificationTurn,
 } from "../domain/clarification";
 import { parseDialogueState, type DialogueTurnKind } from "../domain/dialogue";
+import {
+  parseAiConversationHistory,
+  parseAiMemories,
+  parseAiPrivateConversation,
+  type PersonalMemoryItem,
+} from "../domain/ai-memory";
 import { parseInvitationContext } from "../domain/invitation";
 import { parseRoomHistoryPage, type RoomHistoryCursor } from "../domain/room-history";
 import { parseUnderstandingConfirmation, parseUnderstandingStatus } from "../domain/understanding";
@@ -172,6 +178,35 @@ export const roomApi = {
       p_before_updated_at: cursor?.updatedAt ?? null,
       p_before_room_id: cursor?.roomId ?? null,
     })),
+  aiConversation: async (roomId: string) =>
+    parseAiPrivateConversation(await rpc<unknown>("get_ai_private_conversation_v1", {
+      p_room_id: roomId,
+    })),
+  aiConversationHistory: async (limit = 50) =>
+    parseAiConversationHistory(await rpc<unknown>("list_my_ai_private_conversations_v1", {
+      p_limit: limit,
+    })),
+  aiMemories: async () =>
+    parseAiMemories(await rpc<unknown>("list_my_ai_memories_v1", {})),
+  decideAiMemory: async (
+    memoryId: string,
+    decision: "CONFIRM" | "REJECT" | "FORGET",
+    content?: string,
+  ) => parseAiMemories({
+    personal: [await rpc<PersonalMemoryItem>("decide_ai_personal_memory_v1", {
+      p_memory_id: memoryId,
+      p_decision: decision,
+      p_content: content ?? null,
+    })],
+    relationship: [],
+  }).personal[0],
+  decideRelationshipMemory: async (
+    memoryId: string,
+    decision: "REMEMBER" | "DECLINE" | "STOP",
+  ) => rpc<unknown>("decide_ai_relationship_memory_v1", {
+    p_memory_id: memoryId,
+    p_decision: decision,
+  }),
   setGoal: async (roomId: string, goal: string) =>
     parseStateResult(await rpc<unknown>("set_room_goal_v2", {
       p_room_id: roomId,
@@ -364,6 +399,7 @@ export async function requestExpressionOrganization(
 
 export async function requestExpressionClarification(
   roomId: string,
+  expectedRevision: number,
   sourceText: string,
   turns: ClarificationTurn[],
 ) {
@@ -375,7 +411,7 @@ export async function requestExpressionClarification(
       Authorization: `Bearer ${session.accessToken}`,
       "content-type": "application/json",
     },
-    data: { roomId, sourceText, turns },
+    data: { roomId, expectedRevision, sourceText, turns },
     timeout: 25000,
   });
   if (response.statusCode !== 200 || !response.data || typeof response.data !== "object") {
@@ -411,6 +447,22 @@ export async function requestExpressionClarification(
     understanding,
     safetyDisposition: result.safetyDisposition as typeof dispositions[number],
     safetyMessage: result.safetyMessage,
+    revision: typeof result.revision === "number" && Number.isSafeInteger(result.revision) && result.revision >= 0
+      ? result.revision
+      : expectedRevision,
+    memoryProposals: parseAiPrivateConversation({
+      revision: typeof result.revision === "number" ? result.revision : expectedRevision,
+      sourceText,
+      turns,
+      question: understanding.nextQuestion.text,
+      ready: result.ready,
+      understanding,
+      safetyDisposition: result.safetyDisposition,
+      safetyMessage: result.safetyMessage,
+      summary: typeof result.conversationSummary === "string" ? result.conversationSummary : "",
+      updatedAt: "",
+      memoryProposals: Array.isArray(result.memoryProposals) ? result.memoryProposals : [],
+    }).memoryProposals,
   };
 }
 

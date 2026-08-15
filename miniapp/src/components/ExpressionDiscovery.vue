@@ -1,6 +1,6 @@
 <template>
   <view class="discovery-screen">
-    <view v-if="role === 'B'" class="invitation-context">
+    <view v-if="role === 'B' && !readOnly" class="invitation-context">
       <view class="invitation-copy">
         <text class="invitation-label">正在回应这次沟通</text>
         <text class="invitation-topic">{{ invitationTopic || "邀请方还需要补充具体背景" }}</text>
@@ -9,8 +9,8 @@
     </view>
     <view class="discovery-heading">
       <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
-      <text class="title">先说给我听。</text>
-      <text class="description">不用一次讲完整。我会一次只追问一个关键背景；等我确认已经听清关键内容，再由你选择用哪条路径整理表达卡。</text>
+      <text class="title">{{ readOnly ? '这段话，我还记得。' : '先说给我听。' }}</text>
+      <text class="description">{{ readOnly ? '这是当时只有你和 AI 能看到的对话记录。返回后会回到房间现在的进度。' : '不用一次讲完整。我会一次只追问一个关键背景；等我确认已经听清关键内容，再由你选择用哪条路径整理表达卡。' }}</text>
     </view>
 
     <view v-if="safetyDisposition !== 'ALLOW'" class="safety-note">
@@ -19,6 +19,10 @@
     </view>
 
     <view class="conversation" aria-live="polite">
+      <view v-if="restored" class="restore-note" role="status">
+        <text class="restore-mark">续</text>
+        <view><text class="restore-title">已恢复上次与 AI 的私人对话</text><text class="restore-copy">只有你能看到，可以从上次停下的地方继续。</text></view>
+      </view>
       <view class="message-row assistant">
         <view class="ai-avatar">AI</view>
         <view class="message-bubble assistant-bubble">
@@ -56,7 +60,36 @@
       </template>
     </view>
 
-    <view class="composer-dock">
+    <view v-if="memoryProposals.length" class="memory-proposals">
+      <text class="memory-kicker">由你决定是否留下</text>
+      <text class="memory-title">这次有内容值得下次记住</text>
+      <text class="memory-description">只有你确认后，AI 才会在以后相似的私人对话中参考。</text>
+      <view v-for="item in memoryProposals" :key="item.id" class="memory-proposal">
+        <text class="memory-kind">{{ personalMemoryKindLabel[item.kind] }}</text>
+        <text class="memory-content">{{ item.content }}</text>
+        <text v-if="item.reason" class="memory-reason">{{ item.reason }}</text>
+        <view class="memory-actions">
+          <button @tap="$emit('decideMemory', item, 'CONFIRM')">记住这条</button>
+          <button @tap="$emit('editMemory', item)">修改后记住</button>
+          <button @tap="$emit('decideMemory', item, 'REJECT')">只用于这次</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="detachedDrafts.length" class="detached-drafts" role="status">
+      <text class="detached-title">另一台设备已经继续了这段对话</text>
+      <text class="detached-copy">下面是没有发送出去的旧问题草稿。它们不会自动回答现在的问题，请逐条决定：</text>
+      <view v-for="(draft, index) in detachedDrafts" :key="`${draft.revision}-${index}`" class="detached-draft">
+        <text v-if="draft.question" class="detached-question">当时 AI 问：{{ draft.question }}</text>
+        <text class="detached-content">{{ draft.answer }}</text>
+        <view class="detached-actions">
+          <button @tap="$emit('restoreDetachedDraft', index)">放回输入框，由我确认</button>
+          <button class="discard-draft" @tap="$emit('discardDetachedDraft', index)">丢弃这段草稿</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="!readOnly" class="composer-dock">
       <view v-if="ready && !busy && !safetyStopped" class="finish-row">
         <button class="finish-action" @tap="$emit('finish')">
           <text>可以开始整理了</text>
@@ -93,7 +126,7 @@
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
       </view>
       <view class="composer-meta">
-        <text class="private-hint">🔒 仅供 AI 私下整理，不会直接分享给对方</text>
+        <view><text class="private-hint">🔒 仅供 AI 私下整理，不会直接分享给对方</text><text class="save-state" :class="`save-${saveState}`" role="status" aria-live="polite">{{ saveStateCopy }}</text></view>
         <text v-if="recording" class="recording-hint">录音中 {{ durationLabel }}</text>
         <text v-else-if="thinking" class="busy-hint">AI 正在理解…</text>
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
@@ -111,6 +144,11 @@
 import { computed } from "vue";
 import type { ClarificationTurn } from "../domain/clarification";
 import type { SafetyDisposition } from "../domain/expression";
+import {
+  personalMemoryKindLabel,
+  type DetachedDiscoveryDraft,
+  type PersonalMemoryItem,
+} from "../domain/ai-memory";
 
 const props = defineProps<{
   sourceText: string;
@@ -127,6 +165,11 @@ const props = defineProps<{
   invitationTopic: string;
   safetyDisposition: SafetyDisposition;
   safetyMessage: string;
+  restored: boolean;
+  saveState: "idle" | "local" | "saving" | "saved" | "error";
+  memoryProposals: PersonalMemoryItem[];
+  detachedDrafts: DetachedDiscoveryDraft[];
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -136,6 +179,11 @@ const emit = defineEmits<{
   finish: [];
   record: [];
   viewInvitation: [];
+  decideMemory: [item: PersonalMemoryItem, decision: "CONFIRM" | "REJECT"];
+  editMemory: [item: PersonalMemoryItem];
+  localChange: [];
+  restoreDetachedDraft: [index: number];
+  discardDetachedDraft: [index: number];
 }>();
 
 const currentValue = computed(() => props.started ? props.answer : props.sourceText);
@@ -144,6 +192,13 @@ const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
   : "我在这里。先用你自己的话告诉我发生了什么，不需要组织得很完整。");
 const readyMessage = "我已经理解到足够开始整理的程度了。现在由你选择表达路径，我再把这段对话整理成卡片。";
+const saveStateCopy = computed(() => ({
+  idle: "",
+  local: "未发送内容仅保存在本机草稿",
+  saving: "正在保存这段私人对话…",
+  saved: "已同步这段私人对话",
+  error: "保存失败，请重新发送这句话",
+})[props.saveState]);
 const durationLabel = computed(() => {
   const minutes = Math.floor(props.recordingSeconds / 60).toString().padStart(2, "0");
   const seconds = (props.recordingSeconds % 60).toString().padStart(2, "0");
@@ -154,6 +209,7 @@ function updateCurrentValue(event: Event) {
   const value = (event as unknown as { detail: { value: string } }).detail.value;
   if (props.started) emit("update:answer", value);
   else emit("update:sourceText", value);
+  emit("localChange");
 }
 </script>
 
@@ -173,6 +229,11 @@ function updateCurrentValue(event: Event) {
 .safety-note { display: flex; flex-direction: column; gap: 8rpx; margin-top: 22rpx; padding: 20rpx 22rpx; border-left: 5rpx solid #c6533d; border-radius: 0 18rpx 18rpx 0; background: #fae8e2; color: #785148; font-size: 22rpx; line-height: 1.55; }
 .safety-title { color: #9e3f2e; font-weight: 800; }
 .conversation { min-height: 280rpx; padding: 32rpx 0 24rpx; display: flex; flex: 1; flex-direction: column; gap: 22rpx; }
+.restore-note { display: flex; align-items: flex-start; gap: 14rpx; padding: 18rpx 20rpx; border: 1rpx solid #cad8cf; border-radius: 20rpx; background: #e7eee8; color: #315847; }
+.restore-mark { width: 42rpx; height: 42rpx; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: #315847; color: #fffaf2; font-family: "Songti SC", serif; font-size: 18rpx; font-weight: 800; }
+.restore-title, .restore-copy { display: block; }
+.restore-title { font-size: 22rpx; font-weight: 800; }
+.restore-copy { margin-top: 5rpx; color: #687a70; font-size: 19rpx; line-height: 1.55; }
 .message-row { display: flex; align-items: flex-end; gap: 12rpx; }
 .message-row.assistant { padding-right: 52rpx; }
 .message-row.user { justify-content: flex-end; padding-left: 68rpx; }
@@ -185,6 +246,28 @@ function updateCurrentValue(event: Event) {
 .typing text:nth-child(2) { animation-delay: .15s; }
 .typing text:nth-child(3) { animation-delay: .3s; }
 @keyframes typing-pulse { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-5rpx); } }
+.memory-proposals { margin: 8rpx 0 26rpx; padding: 26rpx 24rpx; border-left: 6rpx solid #d9543b; border-radius: 0 24rpx 24rpx 0; background: #fffaf3; box-shadow: 0 10rpx 30rpx rgba(37,62,51,.06); }
+.detached-drafts { display: flex; flex-direction: column; gap: 14rpx; margin: 8rpx 0 26rpx; padding: 24rpx; border: 2rpx solid #d5b36c; border-radius: 24rpx; background: #fff7e4; }
+.detached-draft { display: flex; flex-direction: column; gap: 10rpx; padding-top: 14rpx; border-top: 2rpx solid rgba(120,77,18,.14); }
+.detached-title { color: #784d12; font-size: 24rpx; font-weight: 700; }
+.detached-copy { color: #6e685e; font-size: 21rpx; line-height: 1.6; }
+.detached-question { color: #5d574e; font-size: 21rpx; font-weight: 700; line-height: 1.6; }
+.detached-content { padding: 16rpx; border-radius: 16rpx; background: rgba(255,255,255,.72); color: #25362e; font-size: 23rpx; line-height: 1.65; }
+.detached-actions { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.detached-actions button { min-height: 48px; margin: 0; padding: 0 20rpx; border: 0; border-radius: 999rpx; background: #315b47; color: #fffdf8; font-size: 21rpx; }
+.detached-actions .discard-draft { border: 2rpx solid #b65340; background: transparent; color: #9f3f2f; }
+.memory-kicker, .memory-title, .memory-description, .memory-kind, .memory-content, .memory-reason { display: block; }
+.memory-kicker { color: #bd4933; font-size: 18rpx; font-weight: 800; letter-spacing: .12em; }
+.memory-title { margin-top: 9rpx; color: #19352c; font-family: "Songti SC", serif; font-size: 31rpx; font-weight: 800; }
+.memory-description { margin-top: 8rpx; color: #6b7771; font-size: 20rpx; line-height: 1.55; }
+.memory-proposal { margin-top: 20rpx; padding-top: 20rpx; border-top: 1rpx solid #e7ddd2; }
+.memory-kind { color: #315847; font-size: 19rpx; font-weight: 800; }
+.memory-content { margin-top: 8rpx; color: #203a31; font-size: 24rpx; line-height: 1.55; }
+.memory-reason { margin-top: 7rpx; color: #78827d; font-size: 19rpx; line-height: 1.5; }
+.memory-actions { margin-top: 14rpx; display: flex; flex-wrap: wrap; gap: 8rpx; }
+.memory-actions button { min-height: 48px; margin: 0; padding: 0 18rpx; border-radius: 999rpx; background: #f2eee6; color: #456557; font-size: 20rpx; font-weight: 700; }
+.memory-actions button:first-child { background: #315847; color: #fffaf2; }
+.memory-actions button::after { border: 0; }
 .composer-dock { position: sticky; bottom: 0; margin: auto -10rpx 0; padding: 16rpx 10rpx calc(8rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 18%, #f3efe6); }
 .finish-row { margin-bottom: 16rpx; }
 .finish-action { width: 100%; min-height: 84rpx; margin: 0; padding: 16rpx 22rpx; display: flex; align-items: center; justify-content: space-between; border: 1rpx solid #c8d5cc; border-radius: 22rpx; background: #e4ece5; color: #315847; font-size: 23rpx; font-weight: 800; }
@@ -203,6 +286,8 @@ function updateCurrentValue(event: Event) {
 .send[disabled] { background: #e2e2dc; box-shadow: none; color: #929893; }
 .composer-meta { min-height: 40rpx; margin: 9rpx 4rpx 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14rpx; }
 .private-hint { color: #7b8580; font-size: 19rpx; line-height: 1.5; }
+.save-state { display: block; margin-top: 3rpx; color: #718078; font-size: 18rpx; line-height: 1.5; }
+.save-error { color: #a84231; }
 .recording-hint, .busy-hint { flex: none; color: #4f6e5f; font-size: 19rpx; font-weight: 700; }
 .skip-action { min-height: 58rpx; margin: 8rpx auto 0; padding: 4rpx 12rpx; background: transparent; color: #7a817d; font-size: 20rpx; text-decoration: underline; text-underline-offset: 6rpx; }
 .skip-action::after { border: 0; }

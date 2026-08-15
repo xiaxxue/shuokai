@@ -88,6 +88,7 @@ describe("expression discovery orchestration", () => {
 
     expect(mocks.clarify).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
+      0,
       state.transcript.value,
       [],
     );
@@ -110,6 +111,7 @@ describe("expression discovery orchestration", () => {
 
     expect(mocks.clarify).toHaveBeenLastCalledWith(
       "11111111-1111-4111-8111-111111111111",
+      0,
       state.transcript.value,
       [{
         question: "当他拒绝提醒时，你最希望他理解什么？",
@@ -137,6 +139,7 @@ describe("expression discovery orchestration", () => {
 
     expect(mocks.clarify).toHaveBeenLastCalledWith(
       "11111111-1111-4111-8111-111111111111",
+      0,
       state.transcript.value,
       [...existingTurns, {
         question: "这件事现在对你还有什么影响？",
@@ -195,5 +198,121 @@ describe("expression discovery orchestration", () => {
     state.flow.finish();
 
     expect(state.stage.value).toBe("RECORD");
+  });
+
+  it("restores a durable room-scoped conversation with its optimistic revision", () => {
+    const state = useTestFlow();
+    const restored = state.flow.restore({
+      revision: 4,
+      sourceText: "上次已经讲到这里",
+      turns: [{ question: "当时发生了什么？", answer: "我们约好晚上沟通。" }],
+      question: "这件事对你造成了什么影响？",
+      ready: false,
+      understanding: discoveryResponse("这件事对你造成了什么影响？").understanding,
+      safetyDisposition: "ALLOW",
+      safetyMessage: "",
+      summary: "用户正在说明一次未按约沟通的经历。",
+      updatedAt: "2026-08-15T12:00:00Z",
+      memoryProposals: [],
+    });
+
+    expect(restored).toBe(true);
+    expect(state.transcript.value).toBe("上次已经讲到这里");
+    expect(state.turns.value).toHaveLength(1);
+    expect(state.flow.conversationRevision.value).toBe(4);
+    expect(state.flow.restored.value).toBe(true);
+    expect(state.flow.saveState.value).toBe("saved");
+  });
+
+  it("detaches an old unsent answer when a newer device has advanced the question", () => {
+    const state = useTestFlow();
+    state.flow.conversationRevision.value = 2;
+    state.flow.question.value = "之前的问题";
+    state.answer.value = "这是还没发送的旧问题答案";
+
+    state.flow.restore({
+      revision: 3,
+      sourceText: "同一段沟通",
+      turns: [{ question: "之前的问题", answer: "另一台设备已经回答" }],
+      question: "新的问题",
+      ready: false,
+      understanding: discoveryResponse("新的问题").understanding,
+      safetyDisposition: "ALLOW",
+      safetyMessage: "",
+      summary: "另一台设备继续了对话。",
+      updatedAt: "2026-08-15T12:05:00Z",
+      memoryProposals: [],
+    });
+
+    expect(state.answer.value).toBe("");
+    expect(state.flow.question.value).toBe("新的问题");
+    expect(state.flow.detachedDrafts.value).toEqual([{
+      answer: "这是还没发送的旧问题答案",
+      question: "之前的问题",
+      revision: 2,
+    }]);
+
+    state.flow.reapplyDetachedDraft(0);
+    expect(state.answer.value).toBe("这是还没发送的旧问题答案");
+    expect(state.flow.detachedDrafts.value).toEqual([]);
+    expect(state.flow.saveState.value).toBe("local");
+  });
+
+  it("marks typed but unsent content as local-only instead of synced", () => {
+    const state = useTestFlow();
+    state.flow.saveState.value = "saved";
+    state.flow.markLocalDraft();
+    expect(state.flow.saveState.value).toBe("local");
+  });
+
+  it("preserves two detached drafts and refuses to overwrite non-empty current input", () => {
+    const state = useTestFlow();
+    const conversation = (revision: number, question: string) => ({
+      revision,
+      sourceText: "同一段沟通",
+      turns: [],
+      question,
+      ready: false,
+      understanding: discoveryResponse(question).understanding,
+      safetyDisposition: "ALLOW" as const,
+      safetyMessage: "",
+      summary: "跨设备继续中的对话。",
+      updatedAt: "2026-08-15T12:05:00Z",
+      memoryProposals: [],
+    });
+    state.flow.conversationRevision.value = 1;
+    state.flow.question.value = "第一个旧问题";
+    state.answer.value = "第一段未发送草稿";
+    state.flow.restore(conversation(2, "第二个问题"));
+
+    state.answer.value = "第二段未发送草稿";
+    state.flow.restore(conversation(3, "最新问题"));
+
+    expect(state.flow.detachedDrafts.value).toEqual([
+      { answer: "第一段未发送草稿", question: "第一个旧问题", revision: 1 },
+      { answer: "第二段未发送草稿", question: "第二个问题", revision: 2 },
+    ]);
+    state.answer.value = "我刚为最新问题输入的内容";
+    state.flow.reapplyDetachedDraft(0);
+    expect(state.answer.value).toBe("我刚为最新问题输入的内容");
+    expect(state.flow.detachedDrafts.value).toHaveLength(2);
+    expect(state.setNotice).toHaveBeenLastCalledWith(
+      "info", "输入框里已有内容。请先发送或清空，再放回这段旧草稿。 ",
+    );
+    state.answer.value = "";
+    state.flow.reapplyDetachedDraft(0);
+    expect(state.answer.value).toBe("第一段未发送草稿");
+    expect(state.flow.detachedDrafts.value).toEqual([
+      { answer: "第二段未发送草稿", question: "第二个问题", revision: 2 },
+    ]);
+  });
+
+  it("marks an unsent voice transcription as local-only", () => {
+    const state = useTestFlow();
+    state.flow.saveState.value = "saved";
+    state.busy.value = true;
+    state.flow.appendTranscription("answer", "语音补充的回答");
+    expect(state.answer.value).toBe("语音补充的回答");
+    expect(state.flow.saveState.value).toBe("local");
   });
 });

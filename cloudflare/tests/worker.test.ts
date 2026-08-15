@@ -3,7 +3,12 @@ import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "../src/cloudflare-ai.ts";
-import { isSupportedAudio, isValidDiscoveryTurns } from "../src/handlers.ts";
+import {
+  handleExpressionClarification,
+  isSupportedAudio,
+  isValidDiscoveryTurns,
+  type ClarificationDependencies,
+} from "../src/handlers.ts";
 import { appErrorCodes, bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
 import {
@@ -120,6 +125,123 @@ function validMutualDialogueTimeline() {
     { sequence: 6, round: 1, kind: "REFLECTION_CONFIRMATION", authorRole: "B", replyToSequence: 5,
       payload: { decision: "ACCURATE", feedback: "" } },
   ];
+}
+
+function validDiscoveryReadyResult() {
+  return {
+    ready: true,
+    coverage: {
+      event: { status: "ENOUGH", evidence: ["昨晚他说不想每天提醒"], missingInfo: "" },
+      impact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
+      intention: { status: "ENOUGH", evidence: ["希望他睡前问我一次"], missingInfo: "" },
+    },
+    latestAnswerUpdate: { absorbed: true, updatedDimensions: ["intention"] },
+    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+    conversationSummary: "用户希望对方睡前提醒休息。",
+    memoryCandidates: [],
+  } as const;
+}
+
+function clarificationRequest() {
+  return new Request("https://shuokai.example/ai/clarify", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer signed.jwt.value",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      roomId: "11111111-1111-4111-8111-111111111111",
+      expectedRevision: 2,
+      sourceText: "昨晚他说不想每天提醒，我很失望。",
+      turns: [],
+    }),
+  });
+}
+
+function clarificationEnv() {
+  return {
+    SUPABASE_URL: "https://project.example.test",
+    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+    SUPABASE_SECRET_KEY: "sb_secret_test",
+    AI: { run: async () => ({}) },
+  };
+}
+
+function clarificationHarness(options: {
+  membershipError?: { code: string };
+  memoryError?: { code: string };
+  saveError?: { code: string };
+  restoreError?: { code: string };
+} = {}) {
+  const userRpcCalls: Array<{ name: string; args: unknown }> = [];
+  const adminRpcCalls: Array<{ name: string; args: unknown }> = [];
+  let generatedInput: unknown = null;
+  const restoredProposal = {
+    id: "22222222-2222-4222-8222-222222222222",
+    kind: "NEED",
+    content: "被关心",
+    reason: "以后讨论照顾方式时可能有用。",
+    status: "PROPOSED",
+  };
+  const dependencies = {
+    userClient: () => ({
+      auth: {
+        getClaims: async () => ({
+          data: { claims: { sub: "80000000-0000-4000-8000-000000000001" } },
+          error: null,
+        }),
+      },
+      rpc: async (name: string, args: unknown) => {
+        userRpcCalls.push({ name, args });
+        if (name === "get_expression_workspace_v2") {
+          return { data: options.membershipError ? null : {}, error: options.membershipError ?? null };
+        }
+        if (name === "get_ai_memory_context_v1") {
+          return {
+            data: options.memoryError ? null : {
+              personal: [{ kind: "NEED", content: "被关心" }],
+              relationship: [],
+            },
+            error: options.memoryError ?? null,
+          };
+        }
+        if (name === "get_ai_private_conversation_v1") {
+          return {
+            data: options.restoreError ? null : { memoryProposals: [restoredProposal] },
+            error: options.restoreError ?? null,
+          };
+        }
+        throw new Error(`unexpected user RPC ${name}`);
+      },
+    }),
+    adminClient: () => ({
+      rpc: async (name: string, args: unknown) => {
+        adminRpcCalls.push({ name, args });
+        return {
+          data: options.saveError ? null : { revision: 3, memoryProposalIds: [restoredProposal.id] },
+          error: options.saveError ?? null,
+        };
+      },
+    }),
+    generateDiscoveryQuestion: async (_env: unknown, input: unknown) => {
+      generatedInput = input;
+      return {
+        result: validDiscoveryReadyResult(),
+        providerRequestRef: "cf_req_test",
+        tokenInput: 10,
+        tokenOutput: 20,
+      };
+    },
+  } as unknown as ClarificationDependencies;
+  return {
+    dependencies,
+    userRpcCalls,
+    adminRpcCalls,
+    restoredProposal,
+    generatedInput: () => generatedInput,
+  };
 }
 
 test("health endpoint identifies the Worker", async () => {
@@ -393,6 +515,39 @@ test("room history RPC requires a bounded limit and complete cursor", () => {
   assert.equal(validateRpcArgs("list_my_rooms_v2", { ...cursor, p_before_room_id: null }), null);
 });
 
+test("AI archive RPC validation keeps memory decisions explicit and bounded", () => {
+  const memoryId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(validateRpcArgs("list_my_ai_private_conversations_v1", { p_limit: 20 }), {
+    p_limit: 20,
+  });
+  assert.deepEqual(validateRpcArgs("decide_ai_personal_memory_v1", {
+    p_memory_id: memoryId,
+    p_decision: "CONFIRM",
+    p_content: "计划变化时，希望提前知道。",
+  }), {
+    p_memory_id: memoryId,
+    p_decision: "CONFIRM",
+    p_content: "计划变化时，希望提前知道。",
+  });
+  assert.equal(validateRpcArgs("decide_ai_personal_memory_v1", {
+    p_memory_id: memoryId,
+    p_decision: "FORGET",
+    p_content: "不能在停止记住时偷改内容",
+  }), null);
+  assert.equal(validateRpcArgs("list_my_ai_private_conversations_v1", { p_limit: 51 }), null);
+  assert.deepEqual(validateRpcArgs("decide_ai_relationship_memory_v1", {
+    p_memory_id: memoryId,
+    p_decision: "STOP",
+  }), {
+    p_memory_id: memoryId,
+    p_decision: "STOP",
+  });
+  assert.equal(validateRpcArgs("decide_ai_relationship_memory_v1", {
+    p_memory_id: memoryId,
+    p_decision: "ACCURATE",
+  }), null);
+});
+
 test("RPC validation permits the agreement loop with bounded inputs", () => {
   const roomId = "11111111-1111-4111-8111-111111111111";
   assert.deepEqual(
@@ -467,6 +622,71 @@ test("AI clarification endpoint fails honestly when Workers AI is not configured
     message: "AI 私人对话尚未配置。",
     code: "AI_SERVICE_NOT_CONFIGURED",
   });
+});
+
+test("AI clarification verifies membership, scopes memory context, and restores only caller proposals", async () => {
+  const harness = clarificationHarness();
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { revision: number; memoryProposals: unknown[] };
+  assert.equal(payload.revision, 3);
+  assert.deepEqual(payload.memoryProposals, [harness.restoredProposal]);
+  assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
+    "get_expression_workspace_v2",
+    "get_ai_memory_context_v1",
+    "get_ai_private_conversation_v1",
+  ]);
+  assert.equal(harness.adminRpcCalls[0]?.name, "internal_save_ai_private_conversation_v1");
+  assert.deepEqual(harness.generatedInput(), {
+    sourceText: "昨晚他说不想每天提醒，我很失望。",
+    turns: [],
+    memoryContext: { personal: [{ kind: "NEED", content: "被关心" }], relationship: [] },
+  });
+});
+
+test("AI clarification rejects a non-member before memory or model access", async () => {
+  const harness = clarificationHarness({ membershipError: { code: "42501" } });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 400);
+  assert.equal((await response.json() as { code: string }).code, "DATABASE_REQUEST_FAILED");
+  assert.deepEqual(harness.userRpcCalls.map((call) => call.name), ["get_expression_workspace_v2"]);
+  assert.equal(harness.adminRpcCalls.length, 0);
+  assert.equal(harness.generatedInput(), null);
+});
+
+test("AI clarification reports optimistic revision conflicts without returning generated content", async () => {
+  const harness = clarificationHarness({ saveError: { code: "40001" } });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    message: "这段私人对话刚刚在别处更新，请重新打开后继续。",
+    code: "PRIVATE_CONVERSATION_CONFLICT",
+  });
+  assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
+    "get_expression_workspace_v2", "get_ai_memory_context_v1",
+  ]);
+});
+
+test("AI clarification reports persistence and restoration failures honestly", async () => {
+  const saveHarness = clarificationHarness({ saveError: { code: "P0001" } });
+  const saveResponse = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), saveHarness.dependencies,
+  );
+  assert.equal(saveResponse.status, 502);
+  assert.equal((await saveResponse.json() as { code: string }).code, "PRIVATE_CONVERSATION_SAVE_FAILED");
+
+  const restoreHarness = clarificationHarness({ restoreError: { code: "P0001" } });
+  const restoreResponse = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), restoreHarness.dependencies,
+  );
+  assert.equal(restoreResponse.status, 502);
+  assert.equal((await restoreResponse.json() as { code: string }).code, "PRIVATE_CONVERSATION_SAVE_FAILED");
 });
 
 test("shared understanding endpoint fails honestly before any database call", async () => {
@@ -869,6 +1089,8 @@ test("private discovery asks about missing context before any expression path is
     },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
+    conversationSummary: "用户想说明提醒睡觉时发生的具体情况。",
+    memoryCandidates: [],
   };
   const generated = await generateDiscoveryQuestion({
     AI: {
@@ -902,6 +1124,8 @@ test("private discovery can finish without a ceremonial follow-up when context i
     nextQuestion: { focusDimension: "none", text: "", purpose: "" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
+    conversationSummary: "用户希望对方睡前提醒休息，并说明了失望感受。",
+    memoryCandidates: [],
   };
   const completed = await generateDiscoveryQuestion({
     AI: {
@@ -934,6 +1158,8 @@ test("private discovery stops safely without claiming incomplete context is read
     nextQuestion: { focusDimension: "none", text: "", purpose: "" },
     safetyDisposition: "PAUSE",
     safetyMessage: "请先离开可能发生伤害的环境，并联系可信任的人或当地紧急服务。",
+    conversationSummary: "用户提到迫近的安全风险。",
+    memoryCandidates: [],
   };
 
   assert.equal(isDiscoveryResult(response, { sourceText, turns: [] }), true);
@@ -972,6 +1198,8 @@ test("private discovery retries instead of repeating an answered question", asyn
           },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
+          conversationSummary: "用户正在补充提醒睡觉时希望得到的回应。",
+          memoryCandidates: [],
         }) };
       },
     },
@@ -1018,6 +1246,8 @@ test("private discovery keeps asking for missing schema evidence after many turn
           },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
+          conversationSummary: "用户仍在补充争执造成的影响与沟通意图。",
+          memoryCandidates: [],
         }) };
       },
     },

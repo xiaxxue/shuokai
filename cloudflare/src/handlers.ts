@@ -12,7 +12,11 @@ import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
 import { invitationContextFromRecords } from "./invitation-context.ts";
-import { generateDiscoveryQuestion, type DiscoveryTurn } from "./discovery-ai.ts";
+import {
+  generateDiscoveryQuestion,
+  type DiscoveryResult,
+  type DiscoveryTurn,
+} from "./discovery-ai.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
@@ -49,6 +53,18 @@ async function verifiedUserId(
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type ClarificationDependencies = {
+  userClient: typeof userClient;
+  adminClient: typeof adminClient;
+  generateDiscoveryQuestion: typeof generateDiscoveryQuestion;
+};
+
+const clarificationDependencies: ClarificationDependencies = {
+  userClient,
+  adminClient,
+  generateDiscoveryQuestion,
+};
+
 export function isValidDiscoveryTurns(value: unknown): value is DiscoveryTurn[] {
   return Array.isArray(value) && value.every((turn) =>
     turn && typeof turn === "object" && !Array.isArray(turn) &&
@@ -62,14 +78,18 @@ export function isValidDiscoveryTurns(value: unknown): value is DiscoveryTurn[] 
   );
 }
 
-export async function handleExpressionClarification(request: Request, env: WorkerEnv) {
+export async function handleExpressionClarification(
+  request: Request,
+  env: WorkerEnv,
+  dependencies: ClarificationDependencies = clarificationDependencies,
+) {
   if (request.method !== "POST") {
     return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
   }
   const authorization = bearerToken(request);
   if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.AI) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI) {
     return errorJson(request, env, "AI_SERVICE_NOT_CONFIGURED", "AI 私人对话尚未配置。", 503);
   }
   let body: unknown;
@@ -81,14 +101,22 @@ export async function handleExpressionClarification(request: Request, env: Worke
       ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
       : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
   }
-  const input = body as { roomId?: unknown; sourceText?: unknown; turns?: unknown } | null;
+  const input = body as {
+    roomId?: unknown;
+    expectedRevision?: unknown;
+    sourceText?: unknown;
+    turns?: unknown;
+  } | null;
   if (!input || typeof input.roomId !== "string" || !uuidPattern.test(input.roomId) ||
+    typeof input.expectedRevision !== "number" || !Number.isSafeInteger(input.expectedRevision) ||
+    input.expectedRevision < 0 ||
     typeof input.sourceText !== "string" || !input.sourceText.trim() || input.sourceText.length > 12000 ||
     !isValidDiscoveryTurns(input.turns)) {
     return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
   }
-  const supabase = userClient(config, authorization);
-  if (!await verifiedUserId(supabase, authorization)) {
+  const supabase = dependencies.userClient(config, authorization);
+  const userId = await verifiedUserId(supabase, authorization);
+  if (!userId) {
     return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
   }
   const { error: membershipError } = await supabase.rpc("get_expression_workspace_v2", {
@@ -104,11 +132,67 @@ export async function handleExpressionClarification(request: Request, env: Worke
     );
   }
   try {
-    const generated = await generateDiscoveryQuestion(env, {
+    const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v1", {
+      p_room_id: input.roomId,
+    });
+    if (memoryError) throw memoryError;
+    const generated = await dependencies.generateDiscoveryQuestion(env, {
       sourceText: input.sourceText.trim(),
       turns: input.turns,
+      memoryContext: memoryContext && typeof memoryContext === "object"
+        ? memoryContext as {
+          personal: Array<{ kind: string; content: string }>;
+          relationship: Array<{ kind: string; content: string }>;
+        }
+        : { personal: [], relationship: [] },
     });
-    return json(request, env, generated.result);
+    const discoveryResult = generated.result as DiscoveryResult;
+    const admin = dependencies.adminClient({ SUPABASE_URL: env.SUPABASE_URL!, SUPABASE_SECRET_KEY: env.SUPABASE_SECRET_KEY });
+    const { data: saved, error: saveError } = await admin.rpc("internal_save_ai_private_conversation_v1", {
+      p_room_id: input.roomId,
+      p_owner_user_id: userId,
+      p_expected_revision: input.expectedRevision,
+      p_source_text: input.sourceText.trim(),
+      p_turns: input.turns,
+      p_result: {
+        ready: discoveryResult.ready,
+        question: discoveryResult.nextQuestion.text,
+        understanding: {
+          coverage: discoveryResult.coverage,
+          latestAnswerUpdate: discoveryResult.latestAnswerUpdate,
+          nextQuestion: discoveryResult.nextQuestion,
+        },
+        safetyDisposition: discoveryResult.safetyDisposition,
+        safetyMessage: discoveryResult.safetyMessage,
+        conversationSummary: discoveryResult.conversationSummary,
+        memoryCandidates: discoveryResult.memoryCandidates,
+      },
+    });
+    if (saveError) {
+      const conflict = saveError.code === "40001";
+      return errorJson(
+        request,
+        env,
+        conflict ? "PRIVATE_CONVERSATION_CONFLICT" : "PRIVATE_CONVERSATION_SAVE_FAILED",
+        conflict ? "这段私人对话刚刚在别处更新，请重新打开后继续。" : "AI 已理解这句话，但私人对话没有保存，请重试。",
+        conflict ? 409 : 502,
+      );
+    }
+    const { data: restored, error: restoreError } = await supabase.rpc("get_ai_private_conversation_v1", {
+      p_room_id: input.roomId,
+    });
+    if (restoreError || !saved || typeof saved !== "object") {
+      return errorJson(request, env, "PRIVATE_CONVERSATION_SAVE_FAILED", "私人对话已经处理，但暂时无法确认保存状态，请重新读取。", 502);
+    }
+    const savedRevision = (saved as { revision?: unknown }).revision;
+    const memoryProposals = restored && typeof restored === "object"
+      ? (restored as { memoryProposals?: unknown }).memoryProposals
+      : [];
+    return json(request, env, {
+      ...discoveryResult,
+      revision: savedRevision,
+      memoryProposals: Array.isArray(memoryProposals) ? memoryProposals : [],
+    });
   } catch {
     return errorJson(request, env, "AI_CLARIFICATION_FAILED", "AI 暂时没有接住这句话，请稍后再试。", 502);
   }
