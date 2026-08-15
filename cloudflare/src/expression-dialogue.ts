@@ -102,6 +102,92 @@ export function sanitizedManualPayload(mode: SupportedExpressionMode, value: unk
   }));
 }
 
+const otherPersonSubject =
+  "(?:男朋友|女朋友|男友|女友|老公|老婆|丈夫|妻子|对象|伴侣|对方|他|她|他们|她们|TA|ta)";
+const userRelationSubject =
+  "(?:男朋友|女朋友|男友|女友|老公|老婆|丈夫|妻子|对象|伴侣)";
+
+function escapedRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function generatedFeelingTerms(value: string) {
+  return value
+    .split(/[、,，;；/｜|\s]+/u)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0 && item.length <= 20)
+    .slice(0, 24);
+}
+
+function feelingClauseOwner(clause: string, feeling: string) {
+  const feelingPattern = escapedRegExp(feeling);
+  const userOwnsFeeling = new RegExp(
+    `(?:我的感受(?:是|为)?|我(?!的?${userRelationSubject})[^。！？!?；;\\n]{0,24}` +
+      `(?:感到|感觉|觉得|有点|有些|很|挺|特别|非常|心里|身体|却|也|就|会|让我)?)` +
+      `[^。！？!?；;\\n]{0,12}${feelingPattern}`,
+    "iu",
+  ).test(clause);
+  if (userOwnsFeeling) return "USER";
+
+  const otherOwnsFeeling = new RegExp(
+    `${otherPersonSubject}[^。！？!?；;\\n]{0,36}` +
+      `(?:说|表示|觉得|感觉|感到|表现|显得|有点|有些|很|挺|特别|非常|受不了)?` +
+      `[^。！？!?；;\\n]{0,12}${feelingPattern}`,
+    "iu",
+  ).test(clause);
+  return otherOwnsFeeling ? "OTHER" : "UNKNOWN";
+}
+
+function sourceClausesContaining(text: string, feeling: string) {
+  return text
+    .split(/[。！？!?；;\n]+/u)
+    .map((item) => item.trim())
+    .filter((item) => item.includes(feeling));
+}
+
+/**
+ * Reject only the high-confidence failure mode where a generated NVC feeling is
+ * grounded exclusively in language that explicitly attributes it to somebody
+ * other than the current user. Ambiguous or paraphrased feelings remain a model
+ * concern instead of being guessed by this guard.
+ */
+export function nvcFeelingBelongsToUser(
+  value: unknown,
+  context: ExpressionConversationContext,
+  currentDraft: Record<string, string>,
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return true;
+  const candidate = value as Record<string, unknown>;
+  const fields = candidate.fields;
+  const grounding = candidate.grounding;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields) ||
+    !grounding || typeof grounding !== "object" || Array.isArray(grounding)) return true;
+
+  const feeling = (fields as Record<string, unknown>).feeling;
+  const feelingGrounding = (grounding as Record<string, unknown>).feeling;
+  if (typeof feeling !== "string" || !feeling.trim() || !feelingGrounding ||
+    typeof feelingGrounding !== "object" || Array.isArray(feelingGrounding)) return true;
+
+  const manuallyConfirmedFeeling = currentDraft.feeling?.trim();
+  if (manuallyConfirmedFeeling && manuallyConfirmedFeeling === feeling.trim()) return true;
+
+  const sources = (feelingGrounding as Record<string, unknown>).sources;
+  if (!Array.isArray(sources)) return true;
+  const sourceTextByRef = new Map<string, string>([
+    ["SOURCE", context.sourceText],
+    ...context.turns.map((turn, index) => [`TURN.${index + 1}.ANSWER`, turn.answer] as const),
+  ]);
+
+  return generatedFeelingTerms(feeling).every((term) => {
+    const clauses = sources.flatMap((source) => typeof source === "string"
+      ? sourceClausesContaining(sourceTextByRef.get(source) ?? "", term)
+      : []);
+    if (clauses.length === 0) return true;
+    const owners = clauses.map((clause) => feelingClauseOwner(clause, term));
+    return owners.includes("USER") || !owners.includes("OTHER");
+  });
+}
+
 export function expressionResultSchema(
   mode: SupportedExpressionMode,
   context: Pick<ExpressionConversationContext, "turns" | "sourceRefs"> = {

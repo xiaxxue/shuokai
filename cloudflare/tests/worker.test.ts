@@ -845,6 +845,8 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   assert.match(JSON.stringify(captured.input), /反思式表达澄清 Agent/);
   assert.match(JSON.stringify(captured.input), /不要重复已经回答的问题/);
   assert.match(JSON.stringify(captured.input), /情感困扰本身不是阻止分享的理由/);
+  assert.match(JSON.stringify(captured.input), /feeling 只能写当前用户本人的感受/);
+  assert.match(JSON.stringify(captured.input), /男朋友说他很烦，我感到难过、不舒服/);
   assert.match(JSON.stringify(captured.input), /如果有变化，希望当天告诉我/);
   assert.doesNotMatch(JSON.stringify(captured.input), /internalNote|不能发送/);
 });
