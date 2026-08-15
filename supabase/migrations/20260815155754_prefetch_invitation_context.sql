@@ -1,0 +1,2 @@
+-- Historical test-project alias for 20260815153844_prefetch_invitation_context.sql.
+-- The canonical migration contains the schema change; this version is a no-op.

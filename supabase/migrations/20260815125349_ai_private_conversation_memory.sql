@@ -1,0 +1,2 @@
+-- Historical test-project alias for 20260815114637_ai_private_conversation_memory.sql.
+-- The canonical migration contains the schema change; this version is a no-op.

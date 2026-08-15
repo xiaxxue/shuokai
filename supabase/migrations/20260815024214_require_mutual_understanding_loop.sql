@@ -1,0 +1,3 @@
+-- Historical test-project alias for 20260815023149_require_mutual_understanding_loop.sql.
+-- The canonical migration contains the schema change; this version only aligns
+-- the repository with the already-applied remote migration ledger.

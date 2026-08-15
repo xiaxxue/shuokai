@@ -1,0 +1,2 @@
+-- Historical test-project alias for 20260815024845_restart_dialogue_after_reconfirmation.sql.
+-- The canonical migration contains the schema change; this version is a no-op.

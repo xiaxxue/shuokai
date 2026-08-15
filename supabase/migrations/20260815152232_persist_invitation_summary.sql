@@ -1,0 +1,2 @@
+-- Historical duplicate of 20260815143000_persist_invitation_summary.sql in the
+-- test-project ledger. Keep it as a no-op so the duplicate SQL is never replayed.

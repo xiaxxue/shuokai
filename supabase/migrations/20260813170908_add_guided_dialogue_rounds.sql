@@ -1,0 +1,3 @@
+-- Historical test-project alias for 20260813164533_add_guided_dialogue_rounds.sql.
+-- Keep this migration as a no-op so fresh databases and the existing remote
+-- migration ledger share the same ordered version history without replaying SQL.

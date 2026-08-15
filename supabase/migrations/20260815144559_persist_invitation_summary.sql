@@ -1,0 +1,2 @@
+-- Historical test-project alias for 20260815143000_persist_invitation_summary.sql.
+-- The canonical migration contains the schema change; this version is a no-op.
