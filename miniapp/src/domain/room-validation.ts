@@ -1,5 +1,6 @@
 import { roomStates, type RoomState } from "./room-state";
 import type { Perspective, RoomSession, RoomSnapshot } from "./types";
+import { parseInvitationContext } from "./invitation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -43,12 +44,19 @@ export function parseRoomSession(value: unknown): RoomSession {
     "SETUP", "PRIVATE_EXPRESSION", "DIALOGUE", "UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING",
     "ACTION_GENERATING", "ACTION_CONFIRMING", "PAUSED", "COMPLETED", "ENDED",
   ].includes(String(phaseV2))) invalidResponse();
-  return value as RoomSession;
+  const invitationContext = value.invitationContext === undefined
+    ? undefined
+    : parseInvitationContext(value.invitationContext);
+  return {
+    ...value,
+    ...(invitationContext ? { invitationContext } : {}),
+  } as RoomSession;
 }
 
 export function parseRoomSnapshot(value: unknown): RoomSnapshot {
   if (!isRecord(value) || !isRecord(value.room) || !isRecord(value.me)) invalidResponse();
-  const { room, me, participants, privateDraft, ownPerspective, approvedPerspectives, sharedView, agreement } = value;
+  const { room, me, participants, privateDraft, ownPerspective, approvedPerspectives, sharedView, agreement,
+    invitationContext } = value;
   const validRoom = isText(room.id) && isText(room.code) && isRoomState(room.state) &&
     (room.goal === null || isText(room.goal));
   const validMe = isText(me.id) && isRole(me.role) && isText(me.display_name);
@@ -77,7 +85,13 @@ export function parseRoomSnapshot(value: unknown): RoomSnapshot {
     (ownPerspective !== null && !isPerspective(ownPerspective)) ||
     !validApproved || !validSharedView || !validAgreement
   ) invalidResponse();
-  return value as RoomSnapshot;
+  const parsedInvitationContext = invitationContext === undefined
+    ? undefined
+    : parseInvitationContext(invitationContext);
+  return {
+    ...value,
+    ...(parsedInvitationContext ? { invitationContext: parsedInvitationContext } : {}),
+  } as RoomSnapshot;
 }
 
 export function parseStateResult<T extends RoomState>(value: unknown, allowed: readonly T[]) {

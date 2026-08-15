@@ -1,4 +1,5 @@
 import type { RoomState } from "./room-state";
+import type { InvitationContext } from "./invitation";
 
 export type AuthSession = {
   accessToken: string;
@@ -15,6 +16,7 @@ export type RoomSession = {
   workflowVersion?: 1 | 2;
   phaseV2?: "SETUP" | "PRIVATE_EXPRESSION" | "UNDERSTANDING_GENERATING" | "UNDERSTANDING_CONFIRMING" |
     "DIALOGUE" | "ACTION_GENERATING" | "ACTION_CONFIRMING" | "PAUSED" | "COMPLETED" | "ENDED";
+  invitationContext?: InvitationContext;
 };
 
 export type Perspective = {
@@ -55,4 +57,5 @@ export type RoomSnapshot = {
     core_question: string;
   };
   agreement: Agreement | null;
+  invitationContext?: InvitationContext;
 };

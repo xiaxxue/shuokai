@@ -65,21 +65,21 @@ export function invitationContextFromEditableExpression(
 
 export function invitationTopicCopy(status: InvitationContextStatus, topic: string) {
   const normalizedTopic = boundedText(topic, 180);
-  if (status === "loading") return "正在读取这次沟通的主题…";
+  if (status === "loading") return "正在重新读取邀请说明…";
   if (status === "error") return "暂时没读到邀请说明";
   if (status === "ready" && normalizedTopic) return normalizedTopic;
   if (status === "ready") return "这次邀请暂未显示具体主题";
-  return "正在准备这次沟通的主题…";
+  return "这次邀请暂未显示具体主题";
 }
 
 export function invitationTitleCopy(status: InvitationContextStatus, title: string) {
-  if (status === "loading") return "正在理解这次想谈的事…";
+  if (status === "loading") return "正在重新读取邀请说明…";
   if (status === "error") return "暂时没读到邀请说明";
   return boundedText(title, 40) || "关于这次沟通";
 }
 
 export function invitationSummaryCopy(status: InvitationContextStatus, summary: string) {
-  if (status === "loading") return "AI 正在从发起方已确认的内容中提取时间、地点或场景、人物和事件。";
+  if (status === "loading") return "正在同步发起方已经确认的标题和说明。";
   if (status === "error") return "可能是网络或同步问题，不代表发起方没有填写。你可以重新读取。";
   return boundedText(summary, 300) || "发起方想邀请你先了解一件具体发生的事，再讲讲你的版本。";
 }

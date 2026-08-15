@@ -1062,6 +1062,10 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
 
 function applySnapshot(latest: RoomSnapshot) {
   snapshot.value = latest;
+  if (latest.invitationContext) {
+    invitationContext.value = latest.invitationContext;
+    invitationContextStatus.value = "ready";
+  }
   if (!room.value) return;
   updateRoom({ ...room.value, code: latest.room.code, state: latest.room.state });
   if (latest.room.goal) goal.value = latest.room.goal;
@@ -1087,10 +1091,9 @@ async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot)
   const latest = prefetched ?? await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
   stage.value = stageForCurrentRoom(roomSession, latest.room.state);
-  if ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
-    (roomSession.role === "A" && stage.value === "INVITE")) {
-    await refreshInvitationContext(roomSession.roomId);
-  }
+  if (!latest.invitationContext && !invitationContext.value &&
+    ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
+      (roomSession.role === "A" && stage.value === "INVITE"))) invitationContextStatus.value = "error";
   if (roomSession.workflowVersion === 2 && latest.room.state === "COMMON_VIEW_READY") {
     if (["UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING", "ACTION_GENERATING", "ACTION_CONFIRMING"]
       .includes(roomSession.phaseV2 ?? "")) {
@@ -1267,14 +1270,16 @@ async function joinRoom() {
     const joined = await roomApi.join(joinCode.value);
     resetPrivateWorkspace();
     updateRoom(joined);
+    if (joined.invitationContext) {
+      invitationContext.value = joined.invitationContext;
+      invitationContextStatus.value = "ready";
+    }
     const joinedStage = stageForCurrentRoom(joined);
     if (shouldLoadSnapshotAfterJoin(joinedStage)) {
       await loadSnapshot(joined);
     } else {
       stage.value = joinedStage;
-      if (joinedStage === "INVITATION_INTRO") {
-        await refreshInvitationContext(joined.roomId);
-      }
+      if (joinedStage === "INVITATION_INTRO" && !joined.invitationContext) invitationContextStatus.value = "error";
     }
     setNotice("success", joinedStage === "INVITATION_INTRO"
       ? "已进入沟通房间。先看看对方为什么邀请你。 "
@@ -1794,8 +1799,8 @@ async function next() {
         setNotice("success", "双方表达卡已确认。先互相确认听懂，再进入共同理解。 ");
       } else {
         invitationContext.value = invitationContextFromEditableExpression(editableExpression.value);
+        invitationContextStatus.value = "ready";
         stage.value = "INVITE";
-        void refreshInvitationContext(room.value.roomId);
         try {
           await requestSharedUnderstanding(room.value.roomId);
           updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });

@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(34);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -243,6 +243,23 @@ select set_config(
 select lives_ok(
   format('select public.join_room_v2(%L, %L)', room_code, 'B'),
   'invitee can join the versioned room'
+) from test_v2_context;
+select is(
+  (public.join_room_v2(room_code, 'B')->'invitationContext'->>'title'),
+  '关于周日仍未收到消息',
+  'the initial join response already contains the persisted invitation title'
+) from test_v2_context;
+select is(
+  (public.get_room_snapshot(room_id)->'invitationContext'->>'summary'),
+  '我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。',
+  'restoring a room returns the persisted invitation summary in the initial snapshot'
+) from test_v2_context;
+select ok(
+  (
+    public.get_room_snapshot(room_id)->'invitationContext'
+      - array['inviterName', 'topic', 'title', 'summary', 'confirmedSummary']
+  ) = '{}'::jsonb,
+  'prefetched invitation context exposes no private expression fields or internal metadata'
 ) from test_v2_context;
 select is(
   (select count(*) from public.expression_versions),
