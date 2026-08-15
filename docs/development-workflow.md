@@ -52,6 +52,17 @@ git diff --check
 
 Review 必须覆盖正确性、可读性、架构、安全和性能。Critical 或 Required 问题必须在合并前解决。涉及 Supabase 时同时检查：前端只含 publishable/anon key、没有 service-role key、授权仍由现有 RLS/RPC 边界控制。
 
+涉及 `supabase/`、根目录依赖锁文件或数据库测试 workflow 的 Pull Request，会触发
+`Supabase Database Tests`。GitHub 托管的临时 Linux runner 会使用锁定版本的 CLI：
+
+1. 启动一套干净的本地 Supabase Postgres；
+2. 按顺序应用仓库内全部 migration；
+3. 运行 `supabase/tests/` 下全部 pgTAP；
+4. 无论成功失败都删除测试数据库。
+
+这条 CI 不需要 Supabase 账号、项目密钥或开发者本机安装 Docker。涉及数据库的
+功能分支必须等该检查通过后再合并；不得用共享测试库或生产库代替它。
+
 ## 4. 合并本地 main
 
 功能分支提交后，回到本地 `main` worktree：

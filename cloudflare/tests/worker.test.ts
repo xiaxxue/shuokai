@@ -27,6 +27,7 @@ import {
   isUnderstandingResult,
   isUnderstandingReview,
   normalizeUnderstandingResult,
+  parseExpressionConversationSource,
   parseQueueMessage,
   processExpressionQueue,
   understandingResultSchema,
@@ -37,6 +38,37 @@ import {
   generateDiscoveryQuestion,
   isDiscoveryResult,
 } from "../src/discovery-ai.ts";
+
+function validNvcExpressionResult(state: "ASK" | "READY" = "ASK") {
+  const ask = state === "ASK";
+  const question = ask ? "这次没有消息时，你最希望对方理解哪一种影响？" : "";
+  return {
+    mode: "NVC",
+    fields: {
+      observation: "周日仍未收到消息",
+      feeling: "失望",
+      need: "确定感",
+      request: "变化时当天告诉我",
+    },
+    uncertainties: ask ? [question] : [],
+    conversation: {
+      state,
+      reflection: "你等到周日仍没有收到约定的消息，这让你失望，也更需要确定感。",
+      tentativeUnderstanding: ask ? "我不确定，等待本身可能比结果更让你难受。" : "",
+      question,
+      questionIntent: ask ? "CLARIFY_FEELING" : "NONE",
+      stopReason: ask ? "NEEDS_CLARIFICATION" : "SUFFICIENT_CONTEXT",
+    },
+    grounding: {
+      observation: { status: "USER_STATED", sources: ["SOURCE"] },
+      feeling: { status: "USER_STATED", sources: ["SOURCE"] },
+      need: { status: "USER_STATED", sources: ["SOURCE"] },
+      request: { status: "USER_STATED", sources: ["SOURCE"] },
+    },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
+}
 
 function validMutualUnderstandingResult() {
   return {
@@ -557,12 +589,19 @@ test("queue handler correlates unexpected processing failures and explicitly ret
 });
 
 test("each AI schema is strict and path-specific", () => {
-  const nvc = expressionResultSchema("NVC", true);
+  const nvc = expressionResultSchema("NVC");
   assert.equal(nvc.additionalProperties, false);
   assert.deepEqual(nvc.properties.fields.required, ["observation", "feeling", "need", "request"]);
-  assert.equal(nvc.properties.uncertainties.minItems, 1);
   assert.equal(nvc.properties.uncertainties.maxItems, 1);
-  assert.equal("minItems" in expressionResultSchema("NVC").properties.uncertainties, false);
+  assert.deepEqual(nvc.properties.conversation.properties.state.enum, ["ASK", "READY"]);
+  assert.equal((nvc.properties.conversation.properties.stopReason.enum as readonly string[])
+    .includes("TURN_LIMIT"), false);
+  assert.deepEqual(nvc.properties.grounding.required, ["observation", "feeling", "need", "request"]);
+  const atLimit = expressionResultSchema("NVC", {
+    turns: Array.from({ length: 5 }, (_, index) => ({ question: `问题${index}`, answer: `回答${index}` })),
+    sourceRefs: ["SOURCE", "CURRENT_DRAFT"],
+  });
+  assert.deepEqual(atLimit.properties.conversation.properties.state.enum, ["READY"]);
   const dispute = expressionResultSchema("FACT_DISPUTE");
   assert.deepEqual(dispute.properties.fields.required, ["claim", "basis", "verificationRequest"]);
 });
@@ -572,6 +611,16 @@ test("AI output validation rejects missing and invented expression fields", () =
     mode: "BOUNDARY",
     fields: { boundary: "不查看手机", reason: "", acceptableRange: "可以询问", selfProtectiveAction: "结束谈话" },
     uncertainties: [],
+    conversation: {
+      state: "READY", reflection: "你希望清楚表达不查看手机的边界。", tentativeUnderstanding: "",
+      question: "", questionIntent: "NONE", stopReason: "SUFFICIENT_CONTEXT",
+    },
+    grounding: {
+      boundary: { status: "USER_STATED", sources: ["SOURCE"] },
+      reason: { status: "MISSING", sources: [] },
+      acceptableRange: { status: "USER_STATED", sources: ["SOURCE"] },
+      selfProtectiveAction: { status: "USER_STATED", sources: ["SOURCE"] },
+    },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   };
@@ -584,6 +633,57 @@ test("AI output validation rejects missing and invented expression fields", () =
     ...valid,
     uncertainties: ["问题一？", "问题二？", "问题三？", "问题四？"],
   }, "BOUNDARY"), false);
+  assert.equal(isExpressionResult({
+    ...valid,
+    fields: { ...valid.fields, reason: "AI 猜测他害怕失去控制" },
+    grounding: { ...valid.grounding, reason: { status: "MISSING", sources: [] } },
+  }, "BOUNDARY"), false);
+  assert.equal(isExpressionResult({
+    ...valid,
+    safetyDisposition: "PAUSE",
+    safetyMessage: "如果有迫近危险，请先离开现场并联系可信任支持。",
+  }, "BOUNDARY"), false);
+  assert.equal(isExpressionResult({
+    ...valid,
+    safetyDisposition: "PAUSE",
+    safetyMessage: "如果有迫近危险，请先离开现场并联系可信任支持。",
+    conversation: { ...valid.conversation, stopReason: "SAFETY" },
+  }, "BOUNDARY"), true);
+  assert.equal(isExpressionResult({
+    ...valid,
+    conversation: { ...valid.conversation, stopReason: "TURN_LIMIT" },
+  }, "BOUNDARY"), false);
+});
+
+test("private clarification envelopes become bounded model context", () => {
+  const context = parseExpressionConversationSource(
+    "原始表达\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n" + JSON.stringify({
+      privateClarifications: [{ question: "你最在意什么？", answer: "我在意是否被重视。" }],
+    }),
+  );
+  assert.equal(context.sourceText, "原始表达");
+  assert.deepEqual(context.turns, [{ question: "你最在意什么？", answer: "我在意是否被重视。" }]);
+  assert.deepEqual(context.sourceRefs, ["SOURCE", "CURRENT_DRAFT", "TURN.1.ANSWER"]);
+});
+
+test("reflective Agent stops asking after five private turns", () => {
+  const turns = Array.from({ length: 5 }, (_, index) => ({
+    question: `问题 ${index + 1}`,
+    answer: `回答 ${index + 1}`,
+  }));
+  const context = {
+    turns,
+    sourceRefs: ["SOURCE", "CURRENT_DRAFT", ...turns.map((_, index) => `TURN.${index + 1}.ANSWER`)],
+  };
+  const result = validNvcExpressionResult("READY");
+  result.conversation.stopReason = "TURN_LIMIT";
+  assert.equal(isExpressionResult(result, "NVC", context), true);
+  result.conversation.state = "ASK";
+  result.conversation.question = "还要继续吗？";
+  result.conversation.questionIntent = "VERIFY_UNDERSTANDING";
+  result.conversation.stopReason = "NEEDS_CLARIFICATION";
+  result.uncertainties = ["还要继续吗？"];
+  assert.equal(isExpressionResult(result, "NVC", context), false);
 });
 
 test("shared understanding schemas are strict, traceable, and independently reviewed", () => {
@@ -715,16 +815,11 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
       async run(model, input) {
         captured.model = model;
         captured.input = input;
+        const result = validNvcExpressionResult("ASK");
         return {
           id: "cf_req_test",
           response: null,
-          choices: [{ message: { content: null, reasoning: JSON.stringify({
-            mode: "NVC",
-            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-            uncertainties: ["你最希望对方理解这次没有消息对你的哪种影响？"],
-            safetyDisposition: "ALLOW",
-            safetyMessage: "",
-          }) } }],
+          choices: [{ message: { content: null, reasoning: JSON.stringify(result) } }],
           usage: { prompt_tokens: 10, completion_tokens: 20 },
         };
       },
@@ -732,6 +827,7 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   }, {
     mode: "NVC",
     sourceText: "我们约好周五确认，但周日还没有消息。",
+    manualPayload: { request: "如果有变化，希望当天告诉我。", internalNote: "不能发送" },
   });
   assert.equal(generated.providerRequestRef, "cf_req_test");
   assert.equal(generated.tokenInput, 10);
@@ -742,13 +838,15 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
     ((captured.input?.response_format as { type?: string }).type),
     "json_schema",
   );
-  assert.equal(captured.input?.max_tokens, 1800);
+  assert.equal(captured.input?.max_tokens, 2200);
   assert.equal(captured.input?.temperature, 0.1);
   assert.deepEqual(captured.input?.chat_template_kwargs, { enable_thinking: false });
-  assert.match(JSON.stringify(captured.input), /当前最重要的 1 个问题/);
-  assert.match(JSON.stringify(captured.input), /第一次整理原话时 uncertainties 必须包含 1 个/);
+  assert.match(JSON.stringify(captured.input), /第一次调用也允许 READY/);
+  assert.match(JSON.stringify(captured.input), /反思式表达澄清 Agent/);
   assert.match(JSON.stringify(captured.input), /不要重复已经回答的问题/);
   assert.match(JSON.stringify(captured.input), /情感困扰本身不是阻止分享的理由/);
+  assert.match(JSON.stringify(captured.input), /如果有变化，希望当天告诉我/);
+  assert.doesNotMatch(JSON.stringify(captured.input), /internalNote|不能发送/);
 });
 
 test("private discovery asks about missing context before any expression path is selected", async () => {
@@ -822,6 +920,29 @@ test("private discovery can finish without a ceremonial follow-up when context i
   }, { sourceText, turns: [] }), false);
 });
 
+test("private discovery stops safely without claiming incomplete context is ready", () => {
+  const sourceText = "他刚才威胁要伤害我，我很害怕。";
+  const response = {
+    ready: false,
+    followUpLimitReached: false,
+    coverage: {
+      event: { status: "ENOUGH", evidence: ["他刚才威胁要伤害我"], missingInfo: "" },
+      impact: { status: "ENOUGH", evidence: ["我很害怕"], missingInfo: "" },
+      intention: { status: "MISSING", evidence: [], missingInfo: "当前应先处理安全风险" },
+    },
+    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
+    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    safetyDisposition: "PAUSE",
+    safetyMessage: "请先离开可能发生伤害的环境，并联系可信任的人或当地紧急服务。",
+  };
+
+  assert.equal(isDiscoveryResult(response, { sourceText, turns: [] }), true);
+  assert.equal(isDiscoveryResult({
+    ...response,
+    nextQuestion: { focusDimension: "intention", text: "你希望他怎么做？", purpose: "继续追问" },
+  }, { sourceText, turns: [] }), false);
+});
+
 test("private discovery retries instead of repeating an answered question", async () => {
   const repeatedQuestion = "你希望他提醒你睡觉的时候，具体是想让他提醒你做什么？";
   const turns = [{ question: repeatedQuestion, answer: "我希望他关心我。" }];
@@ -874,13 +995,15 @@ test("private discovery retries instead of repeating an answered question", asyn
 });
 
 test("private discovery stops honestly at the server-controlled follow-up limit", async () => {
-  const turns = Array.from({ length: 8 }, (_, index) => ({
+  const turns = Array.from({ length: 5 }, (_, index) => ({
     question: `问题 ${index + 1}`,
     answer: `回答 ${index + 1}`,
   }));
+  const captured: { input?: Record<string, unknown> } = {};
   const result = await generateDiscoveryQuestion({
     AI: {
-      async run() {
+      async run(_model, input) {
+        captured.input = input;
         return { response: JSON.stringify({
           ready: false,
           followUpLimitReached: false,
@@ -909,6 +1032,7 @@ test("private discovery stops honestly at the server-controlled follow-up limit"
     (result.result as { nextQuestion: unknown }).nextQuestion,
     { focusDimension: "none", text: "", purpose: "" },
   );
+  assert.match(JSON.stringify(captured.input), /现已达到上限/);
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
@@ -997,13 +1121,7 @@ test("review Agent uses a separate Cloudflare-hosted reasoning model", async () 
 
 test("Workers AI retries invalid structured output once and accounts for both attempts", async () => {
   let calls = 0;
-  const valid = {
-    mode: "NVC",
-    fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-    uncertainties: ["没有消息时，你最在意什么？"],
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  };
+  const valid = validNvcExpressionResult("ASK");
   const generated = await generateExpressionCandidate({
     AI: {
       async run() {
@@ -1020,47 +1138,66 @@ test("Workers AI retries invalid structured output once and accounts for both at
   assert.equal(generated.tokenOutput, 40);
 });
 
-test("initial expression generation refuses to skip the first AI question", async () => {
+test("initial expression generation may stop when context is already sufficient", async () => {
   let calls = 0;
-  await assert.rejects(generateExpressionCandidate({
+  const generated = await generateExpressionCandidate({
     AI: {
       async run() {
         calls += 1;
         return {
-          response: JSON.stringify({
-            mode: "NVC",
-            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-            uncertainties: [],
-            safetyDisposition: "ALLOW",
-            safetyMessage: "",
-          }),
+          response: JSON.stringify(validNvcExpressionResult("READY")),
         };
       },
     },
-  }, { mode: "NVC", sourceText: "周日还没有消息。" }), /CLOUDFLARE_AI_INVALID_OUTPUT/);
-  assert.equal(calls, 2);
+  }, { mode: "NVC", sourceText: "周日还没有消息。" });
+  assert.equal(calls, 1);
+  assert.deepEqual((generated.result as { uncertainties: unknown }).uncertainties, []);
 });
 
 test("AI may finish questioning after a private clarification answer", async () => {
   const generated = await generateExpressionCandidate({
     AI: {
       async run() {
+        const result = validNvcExpressionResult("READY");
+        result.grounding.need = { status: "USER_CONFIRMED", sources: ["TURN.1.ANSWER"] };
         return {
-          response: JSON.stringify({
-            mode: "NVC",
-            fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
-            uncertainties: [],
-            safetyDisposition: "ALLOW",
-            safetyMessage: "",
-          }),
+          response: JSON.stringify(result),
         };
       },
     },
   }, {
     mode: "NVC",
-    sourceText: "周日还没有消息。\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n{\"privateClarifications\":[]}",
+    sourceText: "周日还没有消息。\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n" + JSON.stringify({
+      privateClarifications: [{ question: "你最在意什么？", answer: "我需要确定感。" }],
+    }),
   });
   assert.deepEqual((generated.result as { uncertainties: unknown }).uncertainties, []);
+});
+
+test("reflective Agent rejects repeated questions and ungrounded inferred fields", async () => {
+  let calls = 0;
+  await assert.rejects(generateExpressionCandidate({
+    AI: {
+      async run() {
+        calls += 1;
+        const result = validNvcExpressionResult("ASK");
+        result.conversation.question = "这次没有消息时，你最希望对方理解哪一种影响? ";
+        result.uncertainties = [result.conversation.question];
+        result.fields.need = "你害怕被抛弃";
+        result.grounding.need = { status: "MISSING", sources: [] };
+        return { response: JSON.stringify(result) };
+      },
+    },
+  }, {
+    mode: "NVC",
+    sourceText: "周日还没有消息。\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n" + JSON.stringify({
+      privateClarifications: [{
+        question: "这次没有消息时，你最希望对方理解哪一种影响？",
+        answer: "我还没有想清楚。",
+      }],
+    }),
+  }), /CLOUDFLARE_AI_INVALID_OUTPUT/);
+  assert.equal(calls, 2);
 });
 
 test("Workers AI quota exhaustion is reported without an automatic retry", async () => {

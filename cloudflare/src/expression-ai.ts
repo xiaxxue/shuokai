@@ -1,10 +1,25 @@
 import { createClient } from "@supabase/supabase-js";
 import { requestStructuredOutput, REVIEW_MODEL } from "./cloudflare-ai.ts";
+import {
+  expressionResultSchema,
+  fieldSchemas,
+  isExpressionResult,
+  maxReflectiveConversationTurns,
+  parseExpressionConversationSource,
+  sanitizedManualPayload,
+  supportedExpressionModes,
+  type SupportedExpressionMode,
+} from "./expression-dialogue.ts";
 import type { WorkerEnv } from "./http.ts";
 import { logQueueBatch, logQueueMessage, type LogSink } from "./observability.ts";
 
-export const supportedExpressionModes = ["NVC", "FACT_DISPUTE", "BOUNDARY"] as const;
-export type SupportedExpressionMode = typeof supportedExpressionModes[number];
+export {
+  expressionResultSchema,
+  isExpressionResult,
+  parseExpressionConversationSource,
+  supportedExpressionModes,
+  type SupportedExpressionMode,
+} from "./expression-dialogue.ts";
 
 type ClaimPayload = {
   claimed: true;
@@ -12,6 +27,7 @@ type ClaimPayload = {
   jobType: "UNDERSTAND";
   selectedMode: SupportedExpressionMode;
   sourceText: string;
+  manualPayload?: unknown;
 };
 
 type ConfirmedExpression = {
@@ -61,28 +77,6 @@ type QueueResult = {
 
 export type QueueBatch = {
   messages: QueueMessageEnvelope[];
-};
-
-const privateClarificationMarker = "<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>";
-
-const fieldSchemas: Record<SupportedExpressionMode, Record<string, unknown>> = {
-  NVC: {
-    observation: { type: "string", maxLength: 3000 },
-    feeling: { type: "string", maxLength: 3000 },
-    need: { type: "string", maxLength: 3000 },
-    request: { type: "string", maxLength: 3000 },
-  },
-  FACT_DISPUTE: {
-    claim: { type: "string", maxLength: 3000 },
-    basis: { type: "string", maxLength: 3000 },
-    verificationRequest: { type: "string", maxLength: 3000 },
-  },
-  BOUNDARY: {
-    boundary: { type: "string", maxLength: 3000 },
-    reason: { type: "string", maxLength: 3000 },
-    acceptableRange: { type: "string", maxLength: 3000 },
-    selfProtectiveAction: { type: "string", maxLength: 3000 },
-  },
 };
 
 const understandingSourceKeys = [
@@ -212,58 +206,8 @@ export const understandingReviewSchema = {
   },
 } as const;
 
-export function expressionResultSchema(mode: SupportedExpressionMode, requireClarification = false) {
-  const fields = fieldSchemas[mode];
-  return {
-    type: "object",
-    additionalProperties: false,
-    required: ["mode", "fields", "uncertainties", "safetyDisposition", "safetyMessage"],
-    properties: {
-      mode: { type: "string", enum: [mode] },
-      fields: {
-        type: "object",
-        additionalProperties: false,
-        required: Object.keys(fields),
-        properties: fields,
-      },
-      uncertainties: {
-        type: "array",
-        ...(requireClarification ? { minItems: 1 } : {}),
-        maxItems: 1,
-        items: { type: "string", maxLength: 500 },
-      },
-      safetyDisposition: {
-        type: "string",
-        enum: ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"],
-      },
-      safetyMessage: { type: "string", maxLength: 1000 },
-    },
-  };
-}
-
 export function isSupportedExpressionMode(value: unknown): value is SupportedExpressionMode {
   return supportedExpressionModes.includes(value as SupportedExpressionMode);
-}
-
-export function isExpressionResult(value: unknown, mode: SupportedExpressionMode) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  if (candidate.mode !== mode || !candidate.fields || typeof candidate.fields !== "object" ||
-    Array.isArray(candidate.fields) || !Array.isArray(candidate.uncertainties) ||
-    !["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"].includes(String(candidate.safetyDisposition)) ||
-    typeof candidate.safetyMessage !== "string" || candidate.safetyMessage.length > 1000 ||
-    (candidate.safetyDisposition === "ALLOW"
-      ? candidate.safetyMessage.trim() !== ""
-      : candidate.safetyMessage.trim() === "")) return false;
-  const fields = candidate.fields as Record<string, unknown>;
-  const expectedFields = Object.keys(fieldSchemas[mode]);
-  if (Object.keys(fields).length !== expectedFields.length ||
-    expectedFields.some((key) => typeof fields[key] !== "string" || String(fields[key]).length > 3000)) {
-    return false;
-  }
-  return candidate.uncertainties.length <= 1 && candidate.uncertainties.every((item) =>
-    typeof item === "string" && item.length <= 500
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -620,26 +564,43 @@ function modeInstruction(mode: SupportedExpressionMode) {
 
 export async function generateExpressionCandidate(
   env: WorkerEnv,
-  input: { mode: SupportedExpressionMode; sourceText: string },
+  input: { mode: SupportedExpressionMode; sourceText: string; manualPayload?: unknown },
 ) {
-  const requireClarification = !input.sourceText.includes(privateClarificationMarker);
+  const context = parseExpressionConversationSource(input.sourceText);
+  const currentDraft = sanitizedManualPayload(input.mode, input.manualPayload);
+  const modelContext = {
+    ...context,
+    sourceRefs: context.sourceRefs.filter((source) =>
+      source !== "CURRENT_DRAFT" || Object.keys(currentDraft).length > 0
+    ),
+  };
+  const atTurnLimit = modelContext.turns.length >= maxReflectiveConversationTurns;
   return requestStructuredOutput(env, {
     schemaName: `shuokai_${input.mode.toLowerCase()}_expression`,
-    schema: expressionResultSchema(input.mode, requireClarification),
+    schema: expressionResultSchema(input.mode, modelContext),
     systemText: [
-      "你是‘说开’的表达整理助手。只整理用户已经表达的内容，不补造事实、不诊断任何人、不替用户作决定。",
+      "你是‘说开’的反思式表达澄清 Agent。你的价值不是把用户塞进表格，而是帮助用户把此刻愿意表达、但还说不清楚的体验说清楚。",
+      "你不是心理咨询师，不诊断人格、依恋、创伤、疾病、操控或关系性质；不追问童年和隐私，不声称知道用户真正的内心。只能提出暂定理解，并明确允许用户否定。",
       modeInstruction(input.mode),
-      "uncertainties 是给用户看的下一句追问。只返回当前最重要的 1 个问题，不要一次列多个；只问一件会影响表达准确性的关键信息，写成简短、具体、非诱导的中文问句。",
-      "第一次整理原话时 uncertainties 必须包含 1 个基于原话的背景问题，让用户先通过对话补全信息，再确认表达卡。",
-      "若 sourceText 含 privateClarifications 或私密补充问答，把回答视为用户补充的背景，不当作已核实事实；不要重复已经回答的问题。不要因为已经问过一次就结束。只有必要字段都有具体内容、指代与时间背景不再影响理解、用户希望对方理解的重点和具体请求已经清楚时，uncertainties 才可以返回空数组；否则继续问当前最关键的一件事。",
+      "每轮先用 conversation.reflection 简短复述用户刚刚表达的重点；如果确有帮助，再用 tentativeUnderstanding 写一句带有‘可能、听起来、我不确定’语气的暂定理解。暂定理解绝不能直接写进 fields。",
+      "只有一个答案会实质改变表达准确性时才进入 ASK。question 必须是一个简短、开放、非诱导的问题；不要把多个问题用顿号、斜杠或‘以及’拼在一起，不要重复已经回答的问题。",
+      "如果现有信息已经足够、继续追问不会带来新信息，或只是为了显得深入，就进入 READY。第一次调用也允许 READY，绝不能为了展示 AI 能力强制追问。",
+      "ASK 时 uncertainties 必须只包含 conversation.question；READY 时 question 为空、questionIntent 为 NONE、uncertainties 为空。",
+      "grounding 逐字段说明依据。只允许 USER_STATED、USER_CONFIRMED 或 MISSING：用户在原话、currentDraft 或回答中直接说出的内容是 USER_STATED；用户明确确认 AI 的暂定理解时才是 USER_CONFIRMED；AI 的猜测必须留在 tentativeUnderstanding，字段保持空并标为 MISSING。",
+      "CURRENT_DRAFT 是用户已经手动修改的当前草稿，优先保留；只有后续回答明确纠正时才能改写。不要因为重新生成而抹掉用户写过的内容。",
+      `前置倾听和本阶段合计最多允许 ${maxReflectiveConversationTurns} 轮澄清。${atTurnLimit ? "已经达到上限，必须进入 READY，stopReason 使用 TURN_LIMIT（安全停止除外）。" : "尚未达到上限，但只应补充所选表达路径特有的关键信息，并在信息足够时提前停止。"}`,
       "不要索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
       "普通的难过、嫉妒、失望、争吵、关系不安、分手或情感困扰本身不是阻止分享的理由，通常应为 ALLOW。只有分享本身可能带来现实危险时才使用 WARN；只有明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。",
       "输出中文。字段不足时留空，让用户本人补充和确认。",
     ].join("\n"),
-    userData: { sourceText: input.sourceText },
-    maxTokens: 1800,
-    validate: (value) => isExpressionResult(value, input.mode) &&
-      (!requireClarification || (value as { uncertainties: unknown[] }).uncertainties.length === 1),
+    userData: {
+      sourceText: modelContext.sourceText,
+      conversationTurns: modelContext.turns,
+      currentDraft,
+      allowedSourceRefs: modelContext.sourceRefs,
+    },
+    maxTokens: 2200,
+    validate: (value) => isExpressionResult(value, input.mode, modelContext),
   });
 }
 
@@ -787,6 +748,7 @@ async function processMessage(
       generated = await generateExpressionCandidate(env, {
         mode: input.selectedMode,
         sourceText: input.sourceText,
+        manualPayload: input.manualPayload,
       });
       completionRpc = "internal_complete_ai_job_v2";
     } else {

@@ -13,6 +13,7 @@ import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
 import { invitationContextFromRecords } from "./invitation-context.ts";
 import { generateDiscoveryQuestion, type DiscoveryTurn } from "./discovery-ai.ts";
+import { maxReflectiveConversationTurns } from "./expression-dialogue.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
@@ -50,7 +51,7 @@ async function verifiedUserId(
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function validDiscoveryTurns(value: unknown): value is DiscoveryTurn[] {
-  return Array.isArray(value) && value.length <= 8 && value.every((turn) =>
+  return Array.isArray(value) && value.length <= maxReflectiveConversationTurns && value.every((turn) =>
     turn && typeof turn === "object" && !Array.isArray(turn) &&
     Object.keys(turn).length === 2 &&
     typeof (turn as DiscoveryTurn).question === "string" &&
@@ -74,7 +75,7 @@ export async function handleExpressionClarification(request: Request, env: Worke
   }
   let body: unknown;
   try {
-    // Accommodate 12,000 Chinese characters plus eight bounded follow-up turns.
+    // Accommodate 12,000 Chinese characters plus five bounded follow-up turns.
     body = await readJson(request, 192 * 1024);
   } catch (error) {
     return error instanceof RangeError

@@ -57,7 +57,7 @@
     </view>
 
     <view class="composer-dock">
-      <view v-if="ready && !busy" class="finish-row">
+      <view v-if="ready && !busy && !safetyStopped" class="finish-row">
         <button class="finish-action" @tap="$emit('finish')">
           <text>可以开始整理了</text>
           <text>选择表达路径 →</text>
@@ -79,7 +79,7 @@
           class="answer"
           :value="currentValue"
           :maxlength="started ? 1200 : 12000"
-          :disabled="busy || recording || ready || followUpLimitReached"
+          :disabled="busy || recording || ready || followUpLimitReached || safetyStopped"
           :auto-height="true"
           :aria-label="started ? '回复 AI' : '告诉 AI 发生了什么'"
           :placeholder="started ? '想到哪说到哪，不完整也没关系……' : '例如：刚才发生了一件事，我在意的是……'"
@@ -87,7 +87,7 @@
         />
         <button
           class="send"
-          :disabled="busy || recording || !currentValue.trim() || (started && (ready || followUpLimitReached))"
+          :disabled="busy || recording || !currentValue.trim() || (started && (ready || followUpLimitReached || safetyStopped))"
           :aria-label="busy ? 'AI 正在思考' : '发送给 AI'"
           @tap="$emit('send')"
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
@@ -99,7 +99,7 @@
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
       </view>
       <button
-        v-if="started && !busy && !ready"
+        v-if="started && !busy && !ready && !safetyStopped"
         class="skip-action"
         @tap="$emit('finish')"
       >{{ followUpLimitReached ? '先按现有内容选择表达路径' : '先不继续追问，直接选择表达路径' }}</button>
@@ -140,6 +140,7 @@ const emit = defineEmits<{
 }>();
 
 const currentValue = computed(() => props.started ? props.answer : props.sourceText);
+const safetyStopped = computed(() => ["BLOCK_SHARE", "PAUSE"].includes(props.safetyDisposition));
 const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
   : "我在这里。先用你自己的话告诉我发生了什么，不需要组织得很完整。");

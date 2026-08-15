@@ -52,8 +52,9 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     if (!sourceText) return;
     const currentQuestion = question.value.trim();
     const currentAnswer = options.answer.value.trim();
+    const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value);
     if (!isInitialMessage && (
-      !currentQuestion || !currentAnswer || ready.value || followUpLimitReached.value
+      !currentQuestion || !currentAnswer || ready.value || followUpLimitReached.value || safetyStopped
     )) return;
 
     options.clearNotice();
@@ -92,6 +93,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
 
   function finish() {
     if (!started.value || options.busy.value || options.recording.value) return;
+    if (["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value)) return;
     if (options.answer.value.trim()) {
       options.setNotice("info", "这句话还没有发给 AI。请先发送，或清空后再选择表达路径。 ");
       return;

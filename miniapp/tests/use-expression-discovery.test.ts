@@ -154,4 +154,22 @@ describe("expression discovery orchestration", () => {
       "这句话还没有发给 AI。请先发送，或清空后再选择表达路径。 ",
     );
   });
+
+  it("does not enter route selection after a safety stop", async () => {
+    mocks.clarify.mockResolvedValueOnce({
+      ...discoveryResponse(""),
+      safetyDisposition: "PAUSE",
+      safetyMessage: "请先离开可能发生伤害的环境。",
+      understanding: {
+        ...discoveryResponse("").understanding,
+        nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+      },
+    });
+    const state = useTestFlow();
+
+    await state.flow.send();
+    state.flow.finish();
+
+    expect(state.stage.value).toBe("RECORD");
+  });
 });

@@ -386,7 +386,8 @@ export async function requestExpressionClarification(
   const understanding = parseDiscoveryUnderstandingState(result);
   const allCovered = Boolean(understanding && discoveryDimensions.every((dimension) =>
     understanding.coverage[dimension].status === "ENOUGH"));
-  const hasStopped = Boolean(result.ready || result.followUpLimitReached);
+  const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(result.safetyDisposition));
+  const hasStopped = Boolean(result.ready || result.followUpLimitReached || safetyStopped);
   const nextQuestion = understanding?.nextQuestion;
   if (!understanding || typeof result.ready !== "boolean" ||
     typeof result.followUpLimitReached !== "boolean" ||

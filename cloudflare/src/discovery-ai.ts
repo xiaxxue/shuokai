@@ -1,4 +1,8 @@
 import { requestStructuredOutput } from "./cloudflare-ai.ts";
+import {
+  isRepeatedConversationQuestion,
+  maxReflectiveConversationTurns,
+} from "./expression-dialogue.ts";
 import type { WorkerEnv } from "./http.ts";
 
 export type DiscoveryTurn = {
@@ -31,7 +35,6 @@ export type DiscoveryResult = {
   safetyMessage: string;
 };
 
-const MAX_DISCOVERY_TURNS = 8;
 const discoveryDimensions = ["event", "impact", "intention"] as const;
 const discoveryDimensionSchema = { type: "string", enum: [...discoveryDimensions] } as const;
 const coverageDimensionSchema = {
@@ -106,7 +109,7 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   return Object.keys(value).length === keys.length && keys.every((key) => key in value);
 }
 
-function normalizedComparisonText(value: string) {
+function normalizedEvidenceText(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/[\p{P}\p{S}\s]/gu, "");
 }
 
@@ -120,7 +123,7 @@ function validateCoverage(value: unknown, sourceMaterials: string[]) {
       !Array.isArray(item.evidence) || item.evidence.length > 3 ||
       !item.evidence.every((evidence) => typeof evidence === "string" &&
         evidence.trim() && evidence.length <= 240 &&
-        sourceMaterials.some((material) => material.includes(normalizedComparisonText(evidence)))) ||
+        sourceMaterials.some((material) => material.includes(normalizedEvidenceText(evidence)))) ||
       typeof item.missingInfo !== "string" || item.missingInfo.length > 300 ||
       (item.status === "ENOUGH" && (!item.evidence.length || item.missingInfo.trim())) ||
       (item.status === "MISSING" && !item.missingInfo.trim())) return null;
@@ -177,13 +180,14 @@ export function isDiscoveryResult(
   const sourceMaterials = [
     input.sourceText,
     ...input.turns.map((turn) => turn.answer),
-  ].map(normalizedComparisonText);
+  ].map(normalizedEvidenceText);
   const coverage = validateCoverage(value.coverage, sourceMaterials);
   if (!coverage) return false;
   const allCovered = discoveryDimensions.every((dimension) => coverage[dimension].status === "ENOUGH");
   if (value.ready !== allCovered || (value.ready && value.followUpLimitReached)) return false;
 
-  const hasStopped = value.ready || value.followUpLimitReached;
+  const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(value.safetyDisposition));
+  const hasStopped = value.ready || value.followUpLimitReached || safetyStopped;
   if (hasStopped) {
     if (value.nextQuestion.focusDimension !== "none" ||
       value.nextQuestion.text.trim() || value.nextQuestion.purpose.trim()) return false;
@@ -191,21 +195,18 @@ export function isDiscoveryResult(
     const focus = value.nextQuestion.focusDimension as DiscoveryDimension;
     if (!discoveryDimensions.includes(focus) || coverage[focus].status !== "MISSING" ||
       !value.nextQuestion.text.trim() || !value.nextQuestion.purpose.trim()) return false;
-    const nextQuestion = normalizedComparisonText(value.nextQuestion.text);
-    if (!nextQuestion || input.turns.some((turn) =>
-      normalizedComparisonText(turn.question) === nextQuestion)) return false;
+    if (isRepeatedConversationQuestion(value.nextQuestion.text, input.turns)) return false;
   }
 
   if (input.turns.length === 0) {
     if (value.latestAnswerUpdate.absorbed || value.latestAnswerUpdate.updatedDimensions.length) return false;
   } else {
     if (!value.latestAnswerUpdate.absorbed) return false;
-    const latestAnswer = normalizedComparisonText(input.turns.at(-1)?.answer ?? "");
+    const latestAnswer = normalizedEvidenceText(input.turns.at(-1)?.answer ?? "");
     if (value.latestAnswerUpdate.updatedDimensions.some((dimension) =>
       !coverage[dimension as DiscoveryDimension].evidence.some((evidence) =>
-        latestAnswer.includes(normalizedComparisonText(evidence))))) return false;
+        latestAnswer.includes(normalizedEvidenceText(evidence))))) return false;
   }
-
   return value.safetyDisposition === "ALLOW"
     ? value.safetyMessage.trim() === ""
     : value.safetyMessage.trim() !== "";
@@ -215,7 +216,7 @@ export function generateDiscoveryQuestion(
   env: WorkerEnv,
   input: { sourceText: string; turns: DiscoveryTurn[] },
 ) {
-  const atFollowUpLimit = input.turns.length >= MAX_DISCOVERY_TURNS;
+  const atTurnLimit = input.turns.length >= maxReflectiveConversationTurns;
   return requestStructuredOutput(env, {
     schemaName: "shuokai_private_discovery",
     schema: discoveryResultSchema,
@@ -226,7 +227,9 @@ export function generateDiscoveryQuestion(
       "如果已有问答，先吸收用户最新回答：latestAnswerUpdate.absorbed 必须为 true，并用 updatedDimensions 标记它补充或修正了哪些维度；首次讲述时 absorbed=false、updatedDimensions=[]。",
       "只有 event、impact、intention 全部为 ENOUGH 时，ready 才能为 true。只要还有 MISSING，ready 必须为 false，nextQuestion 必须针对最影响准确表达的一项，只问一个简短、具体、非诱导的问题，并在 purpose 中说明要补的具体信息。",
       "下一问必须结合用户最新回答，不得重复、轻微改写或重新索取 privateConversation 中已经回答的信息。第一次讲述如果三类都足够，可以直接 ready；轮数不是理解完成的依据。",
-      "followUpLimitReached 固定填写 false，平台会根据实际轮数处理追问上限。ready 或停止追问时，nextQuestion 必须为 {focusDimension:'none',text:'',purpose:''}。",
+      `前置倾听与后续表达整理共用最多 ${maxReflectiveConversationTurns} 轮的停机策略。${atTurnLimit ? "现已达到上限；平台会如实标记信息仍不完整并停止继续追问，不能伪装为 ready。" : "不要为了显得深入而追问；已经回答过的问题不得换标点后重复。"}`,
+      "followUpLimitReached 固定填写 false，平台会根据实际轮数处理追问上限。ready、达到轮次上限或安全停止时，nextQuestion 必须为 {focusDimension:'none',text:'',purpose:''}。",
+      "你的职责只到帮助用户说清背景为止。用户选择表达路径后，另一个整理 Agent 只补充该路径特有的信息；不要提前替它生成或填写表达字段。",
       "不要评价谁对谁错，不诊断人格或关系，不推断动机，不把用户的感受改写成事实，不索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。",
       "普通的难过、嫉妒、失望、争吵、关系不安或分手本身不是危险。只有分享可能带来现实危险时使用 WARN；明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。没有真实安全风险时 safetyDisposition 必须为 ALLOW，safetyMessage 必须为空。",
       "只输出中文。",
@@ -237,10 +240,10 @@ export function generateDiscoveryQuestion(
     },
     maxTokens: 1100,
     validationRetryText: "如果上一次问题与 privateConversation 中的问题重复，必须改问仍为 MISSING 的另一项具体信息。",
-    normalize: (value) => normalizeDiscoveryLimit(value, atFollowUpLimit),
+    normalize: (value) => normalizeDiscoveryLimit(value, atTurnLimit),
     validate: (value) => {
       if (!isDiscoveryResult(value, input)) return false;
-      if (atFollowUpLimit) return value.ready || value.followUpLimitReached;
+      if (atTurnLimit) return value.ready || value.followUpLimitReached;
       return !value.followUpLimitReached;
     },
   });
