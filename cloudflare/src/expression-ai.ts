@@ -5,6 +5,7 @@ import {
   fieldSchemas,
   isExpressionResult,
   maxReflectiveConversationTurns,
+  nvcFeelingBelongsToUser,
   parseExpressionConversationSource,
   sanitizedManualPayload,
   supportedExpressionModes,
@@ -554,7 +555,12 @@ function adminClient(env: WorkerEnv) {
 
 function modeInstruction(mode: SupportedExpressionMode) {
   if (mode === "NVC") {
-    return "按非暴力沟通的观察、感受、需要、请求整理。观察只保留可核实事件；请求必须具体、可拒绝。";
+    return [
+      "按非暴力沟通的观察、感受、需要、请求整理。观察只保留可核实事件；请求必须具体、可拒绝。",
+      "这张表达卡始终属于当前用户：feeling 只能写当前用户本人的感受，need 只能写当前用户本人的需要，request 只能写当前用户想向对方提出的请求。",
+      "必须逐句辨认感受的语法主体。对方说自己‘烦、受不了、生气、难过’时，这些是对方的感受，只能按需留在 observation，绝不能借给当前用户填入 feeling。",
+      "例如‘男朋友说他很烦，我感到难过、不舒服’应整理为 feeling=‘难过、不舒服’，不能写‘烦’。如果只知道对方很烦、当前用户尚未说自己的感受，feeling 必须留空并优先用 CLARIFY_FEELING 询问。",
+    ].join("\n");
   }
   if (mode === "FACT_DISPUTE") {
     return "保留用户主张、依据和待核实事项。不得裁判真假，不得把推测改写成事实。";
@@ -600,7 +606,8 @@ export async function generateExpressionCandidate(
       allowedSourceRefs: modelContext.sourceRefs,
     },
     maxTokens: 2200,
-    validate: (value) => isExpressionResult(value, input.mode, modelContext),
+    validate: (value) => isExpressionResult(value, input.mode, modelContext) &&
+      (input.mode !== "NVC" || nvcFeelingBelongsToUser(value, modelContext, currentDraft)),
   });
 }
 
