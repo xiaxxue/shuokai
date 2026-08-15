@@ -43,6 +43,7 @@ const specs = {
   confirm_understanding_v2: { required: { p_room_id: 36 } },
   reopen_expression_v2: { required: { p_room_id: 36 } },
   confirm_expression_version_v2: { required: { p_room_id: 36 } },
+  confirm_expression_version_v3: { required: { p_room_id: 36 } },
   pause_room_v2: { required: { p_room_id: 36 } },
   save_expression_workspace_v2: { required: { p_room_id: 36 } },
 } as const;
@@ -132,6 +133,29 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0 ||
       !isRecord(payload) || JSON.stringify(payload).length > 16000) return null;
     return { p_room_id: roomId, p_expected_revision: revision, p_payload: payload };
+  }
+  if (method === "confirm_expression_version_v3") {
+    const {
+      p_room_id: roomId,
+      p_expected_revision: revision,
+      p_payload: payload,
+      p_invitation_title: invitationTitle,
+      p_invitation_summary: invitationSummary,
+    } = input;
+    if (Object.keys(input).length !== 5 || typeof roomId !== "string" || !uuidPattern.test(roomId) ||
+      typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0 ||
+      !isRecord(payload) || JSON.stringify(payload).length > 16000 ||
+      typeof invitationTitle !== "string" || invitationTitle.trim().length < 4 ||
+      invitationTitle.trim().length > 40 || /[\r\n]/u.test(invitationTitle) ||
+      typeof invitationSummary !== "string" || invitationSummary.trim().length < 20 ||
+      invitationSummary.trim().length > 300) return null;
+    return {
+      p_room_id: roomId,
+      p_expected_revision: revision,
+      p_payload: payload,
+      p_invitation_title: invitationTitle.replace(/\s+/g, " ").trim(),
+      p_invitation_summary: invitationSummary.replace(/\s+/g, " ").trim(),
+    };
   }
   if (method === "append_dialogue_turn_v2") {
     const {

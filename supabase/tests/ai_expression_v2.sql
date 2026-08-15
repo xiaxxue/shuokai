@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(21);
+select plan(31);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -23,6 +23,14 @@ grant all on table test_v2_context to authenticated, service_role;
 select ok(
   not has_function_privilege('anon', 'public.create_room_v2(text)', 'EXECUTE'),
   'anonymous users cannot create v2 rooms'
+);
+select ok(
+  not has_function_privilege(
+    'anon',
+    'public.confirm_expression_version_v3(uuid,bigint,jsonb,text,text)',
+    'EXECUTE'
+  ),
+  'anonymous users cannot confirm a persisted invitation summary'
 );
 select ok(
   not has_function_privilege('authenticated', 'public.internal_claim_ai_job_v2(uuid,text)', 'EXECUTE'),
@@ -143,19 +151,78 @@ select is(
   'job owner sees a bounded status and result through the RPC'
 ) from test_v2_context;
 
+select throws_ok(
+  format(
+    'select public.confirm_expression_version_v3(%L::uuid, %L, %L::jsonb, %L, %L)',
+    room_id::text,
+    revision,
+    '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"变化时当天告诉我","uncertainties":[]}',
+    '太短',
+    '说明也太短'
+  ),
+  'P0001',
+  '邀请标题需要 4—40 字，说明需要 20—300 字。',
+  'v3 confirmation rejects an incomplete recipient-facing summary'
+) from test_v2_context;
+
 update test_v2_context context
 set expression_id = (confirmed->>'expressionId')::uuid
 from (
-  select public.confirm_expression_version_v2(
+  select public.confirm_expression_version_v3(
     room_id,
     revision,
-    '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"变化时当天告诉我","uncertainties":[]}'::jsonb
+    '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"变化时当天告诉我","uncertainties":[]}'::jsonb,
+    '关于周日仍未收到消息',
+    '我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。'
   ) confirmed
   from test_v2_context
 ) result;
 
 select ok(expression_id is not null, 'only the user-confirmed payload becomes a public expression version')
 from test_v2_context;
+select is(
+  (select schema_version from public.expression_versions where id = expression_id),
+  2::smallint,
+  'persisted invitation summaries use expression schema version 2'
+) from test_v2_context;
+select is(
+  (select invitation_title from public.expression_versions where id = expression_id),
+  '关于周日仍未收到消息',
+  'the exact user-confirmed invitation title is stored with the expression version'
+) from test_v2_context;
+select is(
+  (select invitation_summary from public.expression_versions where id = expression_id),
+  '我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。',
+  'the exact user-confirmed invitation explanation is stored with the expression version'
+) from test_v2_context;
+select ok(
+  (select invitation_source_hash ~ '^[a-f0-9]{64}$' from public.expression_versions where id = expression_id),
+  'the stored summary is bound to a normalized event-source hash'
+) from test_v2_context;
+select lives_ok(
+  format(
+    'select public.confirm_expression_version_v3(%L::uuid, %L, %L::jsonb, %L, %L)',
+    room_id::text,
+    revision,
+    '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"变化时当天告诉我","uncertainties":[]}',
+    '关于周日仍未收到消息',
+    '我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。'
+  ),
+  'retrying the identical confirmed invitation is idempotent'
+) from test_v2_context;
+select throws_ok(
+  format(
+    'select public.confirm_expression_version_v3(%L::uuid, %L, %L::jsonb, %L, %L)',
+    room_id::text,
+    revision,
+    '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"变化时当天告诉我","uncertainties":[]}',
+    '关于另一件已经变化的事',
+    '这是一段不同的邀请说明，不能悄悄覆盖已经由本人确认并分享出去的版本。'
+  ),
+  '40001',
+  '确认版本已经发生变化，请刷新后重试。',
+  'a confirmed invitation snapshot cannot be overwritten in place'
+) from test_v2_context;
 
 select set_config(
   'request.jwt.claims',
@@ -179,9 +246,21 @@ select lives_ok(
 ) from test_v2_context;
 select is(
   (select count(*) from public.expression_versions),
-  1::bigint,
-  'room member can read only the current confirmed expression'
+  0::bigint,
+  'invitee cannot read the inviter full expression before confirming their own version'
 );
+select is(
+  (public.get_invitation_context_v3(room_id)->>'title'),
+  '关于周日仍未收到消息',
+  'invitee can read the bounded confirmed invitation through the dedicated RPC'
+) from test_v2_context;
+select ok(
+  (
+    public.get_invitation_context_v3(room_id)
+      - array['inviterName', 'topic', 'title', 'summary', 'confirmedSummary']
+  ) = '{}'::jsonb,
+  'the invitation RPC exposes no private expression fields or internal metadata'
+) from test_v2_context;
 select lives_ok(
   format('select public.pause_room_v2(%L::uuid)', room_id::text),
   'either participant can explicitly pause without generating consensus'
