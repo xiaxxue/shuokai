@@ -38,7 +38,6 @@ export type EditorDraft = {
   discoveryStarted?: boolean;
   discoveryQuestion?: string;
   discoveryReady?: boolean;
-  discoveryFollowUpLimitReached?: boolean;
   discoveryUnderstanding?: DiscoveryUnderstandingState;
   discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
   discoverySafetyMessage?: string;
@@ -148,9 +147,6 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoveryReady = typeof candidate.discoveryReady === "boolean"
     ? candidate.discoveryReady
     : undefined;
-  const discoveryFollowUpLimitReached = typeof candidate.discoveryFollowUpLimitReached === "boolean"
-    ? candidate.discoveryFollowUpLimitReached
-    : undefined;
   const discoveryUnderstanding = candidate.discoveryUnderstanding === undefined
     ? undefined
     : parseDiscoveryUnderstandingState(candidate.discoveryUnderstanding) ?? undefined;
@@ -161,6 +157,9 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoverySafetyMessage = isBoundedText(candidate.discoverySafetyMessage, 1000)
     ? candidate.discoverySafetyMessage
     : undefined;
+  const restartIncompleteDiscovery = discoveryStarted === true && discoveryReady !== true &&
+    !discoveryQuestion?.trim() &&
+    !["BLOCK_SHARE", "PAUSE"].includes(String(discoverySafetyDisposition));
   return {
     roomId: candidate.roomId,
     role: candidate.role,
@@ -180,10 +179,11 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(clarificationTurns !== undefined ? { clarificationTurns } : {}),
     ...(clarificationAnswer !== undefined ? { clarificationAnswer } : {}),
     ...(clarificationSkipped !== undefined ? { clarificationSkipped } : {}),
-    ...(discoveryStarted !== undefined ? { discoveryStarted } : {}),
+    ...(discoveryStarted !== undefined
+      ? { discoveryStarted: restartIncompleteDiscovery ? false : discoveryStarted }
+      : {}),
     ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
     ...(discoveryReady !== undefined ? { discoveryReady } : {}),
-    ...(discoveryFollowUpLimitReached !== undefined ? { discoveryFollowUpLimitReached } : {}),
     ...(discoveryUnderstanding !== undefined ? { discoveryUnderstanding } : {}),
     ...(discoverySafetyDisposition !== undefined ? { discoverySafetyDisposition } : {}),
     ...(discoverySafetyMessage !== undefined ? { discoverySafetyMessage } : {}),

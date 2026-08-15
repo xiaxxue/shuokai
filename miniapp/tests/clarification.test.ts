@@ -25,15 +25,20 @@ describe("private AI clarification", () => {
     ])).toBe("还要补充吗？");
   });
 
-  it("offers an open-ended continuation only while another private turn remains", () => {
-    expect(optionalClarificationQuestion([])).toContain("具体细节");
+  it("offers each open-ended continuation once without using a turn cutoff", () => {
+    const first = optionalClarificationQuestion([]);
+    expect(first).toContain("具体细节");
+    const second = optionalClarificationQuestion([{ question: first, answer: "补充一" }]);
+    expect(second).toContain("不像你真正想说的话");
+    const third = optionalClarificationQuestion([
+      { question: first, answer: "补充一" },
+      { question: second, answer: "补充二" },
+    ]);
+    expect(third).toContain("最希望对方理解");
     expect(optionalClarificationQuestion([
-      { question: "发生了什么？", answer: "我们在视频通话。" },
-    ])).toContain("不像你真正想说的话");
-    expect(optionalClarificationQuestion([
-      { question: "一？", answer: "一" },
-      { question: "二？", answer: "二" },
-      { question: "三？", answer: "三" },
+      { question: first, answer: "补充一" },
+      { question: second, answer: "补充二" },
+      { question: third, answer: "补充三" },
     ])).toBe("");
   });
 
@@ -88,6 +93,14 @@ describe("private AI clarification", () => {
       { question: "没有回答", answer: "" },
       null,
     ])).toEqual([{ question: "发生在什么时候？", answer: "昨晚" }]);
+  });
+
+  it("keeps every valid cached turn instead of truncating by conversation count", () => {
+    const turns = Array.from({ length: 12 }, (_, index) => ({
+      question: `问题 ${index + 1}`,
+      answer: `回答 ${index + 1}`,
+    }));
+    expect(sanitizeClarificationTurns(turns)).toEqual(turns);
   });
 
   it("normalizes punctuation and spacing before comparing discovery questions", () => {

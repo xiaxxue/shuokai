@@ -2,7 +2,6 @@ export const supportedExpressionModes = ["NVC", "FACT_DISPUTE", "BOUNDARY"] as c
 export type SupportedExpressionMode = typeof supportedExpressionModes[number];
 
 const privateClarificationMarker = "<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>";
-export const maxReflectiveConversationTurns = 5;
 
 type PrivateConversationTurn = {
   question: string;
@@ -21,9 +20,6 @@ const expressionQuestionIntents = [
 ] as const;
 
 const expressionStopReasons = [
-  "NEEDS_CLARIFICATION", "SUFFICIENT_CONTEXT", "NO_NEW_INFORMATION", "TURN_LIMIT", "SAFETY",
-] as const;
-const expressionStopReasonsBeforeLimit = [
   "NEEDS_CLARIFICATION", "SUFFICIENT_CONTEXT", "NO_NEW_INFORMATION", "SAFETY",
 ] as const;
 
@@ -75,7 +71,7 @@ export function parseExpressionConversationSource(value: string): ExpressionConv
         privateClarifications?: unknown;
       };
       if (Array.isArray(parsed.privateClarifications)) {
-        for (const item of parsed.privateClarifications.slice(0, 8)) {
+        for (const item of parsed.privateClarifications) {
           if (!item || typeof item !== "object" || Array.isArray(item)) continue;
           const question = cleanPrivateText((item as { question?: unknown }).question, 500);
           const answer = cleanPrivateText((item as { answer?: unknown }).answer, 1200);
@@ -190,13 +186,11 @@ export function nvcFeelingBelongsToUser(
 
 export function expressionResultSchema(
   mode: SupportedExpressionMode,
-  context: Pick<ExpressionConversationContext, "turns" | "sourceRefs"> = {
-    turns: [],
+  context: Pick<ExpressionConversationContext, "sourceRefs"> = {
     sourceRefs: ["SOURCE", "CURRENT_DRAFT"],
   },
 ) {
   const fields = fieldSchemas[mode];
-  const atTurnLimit = context.turns.length >= maxReflectiveConversationTurns;
   const groundingProperties = Object.fromEntries(Object.keys(fields).map((key) => [key, {
     type: "object",
     additionalProperties: false,
@@ -237,14 +231,14 @@ export function expressionResultSchema(
           "state", "reflection", "tentativeUnderstanding", "question", "questionIntent", "stopReason",
         ],
         properties: {
-          state: { type: "string", enum: atTurnLimit ? ["READY"] : ["ASK", "READY"] },
+          state: { type: "string", enum: ["ASK", "READY"] },
           reflection: { type: "string", minLength: 1, maxLength: 600 },
           tentativeUnderstanding: { type: "string", maxLength: 600 },
           question: { type: "string", maxLength: 500 },
           questionIntent: { type: "string", enum: expressionQuestionIntents },
           stopReason: {
             type: "string",
-            enum: atTurnLimit ? ["TURN_LIMIT", "SAFETY"] : expressionStopReasonsBeforeLimit,
+            enum: expressionStopReasons,
           },
         },
       },
@@ -307,15 +301,12 @@ export function isExpressionResult(
 
   const questions = candidate.uncertainties as unknown[];
   if (conversation.state === "ASK") {
-    if (context.turns.length >= maxReflectiveConversationTurns || !conversation.question.trim() ||
+    if (!conversation.question.trim() ||
       conversation.questionIntent === "NONE" || conversation.stopReason !== "NEEDS_CLARIFICATION" ||
       questions.length !== 1 || questions[0] !== conversation.question ||
       isRepeatedConversationQuestion(conversation.question, context.turns)) return false;
   } else if (conversation.question !== "" || conversation.questionIntent !== "NONE" ||
-    conversation.stopReason === "NEEDS_CLARIFICATION" || questions.length !== 0 ||
-    (context.turns.length < maxReflectiveConversationTurns && conversation.stopReason === "TURN_LIMIT") ||
-    (context.turns.length >= maxReflectiveConversationTurns &&
-      !["TURN_LIMIT", "SAFETY"].includes(String(conversation.stopReason)))) return false;
+    conversation.stopReason === "NEEDS_CLARIFICATION" || questions.length !== 0) return false;
 
   if (Object.keys(grounding).length !== expectedFields.length) return false;
   const allowedSources = new Set(context.sourceRefs);

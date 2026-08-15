@@ -182,7 +182,6 @@
         :question="discoveryQuestion"
         :started="discoveryStarted"
         :ready="discoveryReady"
-        :follow-up-limit-reached="discoveryFollowUpLimitReached"
         :busy="busy"
         :thinking="discoveryThinking"
         :recording="recording"
@@ -515,7 +514,6 @@ import {
 import {
   composeClarificationSource,
   expressionCandidateClarificationQuestion,
-  MAX_CLARIFICATION_TURNS,
   nextClarificationQuestion,
   optionalClarificationQuestion,
   parseClarificationSource,
@@ -530,7 +528,6 @@ import {
 import {
   expressionReviewIsSummary as isExpressionReviewSummary,
   expressionReviewSummaryStep,
-  shouldResumeExpressionClarification,
 } from "../../domain/expression-review";
 import {
   invitationClarificationMessage,
@@ -641,7 +638,6 @@ const expressionDiscovery = useExpressionDiscovery({
 const discoveryStarted = expressionDiscovery.started;
 const discoveryQuestion = expressionDiscovery.question;
 const discoveryReady = expressionDiscovery.ready;
-const discoveryFollowUpLimitReached = expressionDiscovery.followUpLimitReached;
 const discoveryUnderstanding = expressionDiscovery.understanding;
 const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
@@ -692,7 +688,6 @@ watch(
     discoveryStarted,
     discoveryQuestion,
     discoveryReady,
-    discoveryFollowUpLimitReached,
     () => JSON.stringify(discoveryUnderstanding.value),
     discoverySafetyDisposition,
     discoverySafetyMessage,
@@ -776,7 +771,7 @@ const nextLabel = computed(() => {
 const backLabel = computed(() => {
   if (stage.value !== "EXPRESSION_REVIEW") return "返回修改";
   if (!expressionReviewIsSummary.value) return "返回表达卡";
-  return clarificationTurns.value.length < MAX_CLARIFICATION_TURNS
+  return currentClarificationQuestion.value || optionalClarificationQuestion(clarificationTurns.value)
     ? "继续和 AI 说"
     : "修改表达卡";
 });
@@ -945,7 +940,6 @@ function flushEditorDraft() {
     discoveryStarted: discoveryStarted.value,
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
-    discoveryFollowUpLimitReached: discoveryFollowUpLimitReached.value,
     discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
     discoverySafetyDisposition: discoverySafetyDisposition.value,
     discoverySafetyMessage: discoverySafetyMessage.value,
@@ -976,9 +970,6 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.discoveryStarted !== undefined) discoveryStarted.value = draft.discoveryStarted;
   if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
-  if (draft.discoveryFollowUpLimitReached !== undefined) {
-    discoveryFollowUpLimitReached.value = draft.discoveryFollowUpLimitReached;
-  }
   if (draft.discoveryUnderstanding !== undefined) {
     discoveryUnderstanding.value = draft.discoveryUnderstanding;
   }
@@ -1770,13 +1761,8 @@ function goBack() {
     }
     clarificationSkipped.value = false;
     const pendingQuestion = currentClarificationQuestion.value;
-    if (shouldResumeExpressionClarification(
-      pendingQuestion,
-      clarificationTurns.value.length,
-      MAX_CLARIFICATION_TURNS,
-    )) {
-      const question = pendingQuestion || addOptionalClarificationQuestion();
-      if (!question) return;
+    const question = pendingQuestion || addOptionalClarificationQuestion();
+    if (question) {
       stage.value = "CLARIFICATION_CHAT";
       setNotice(
         "info",
@@ -1786,7 +1772,7 @@ function goBack() {
       );
     } else {
       expressionReviewStep.value = 0;
-      setNotice("info", "私人对话已达到安全上限。你仍可以直接修改表达卡内容。 ");
+      setNotice("info", "这张表达卡目前没有待确认的问题；你仍可以直接修改内容。 ");
     }
     return;
   }

@@ -10,7 +10,7 @@
     │
     ▼
 前置 Discovery Agent（路径选择前，只澄清背景）
-    │ 私密回答沿用同一轮次预算
+    │ 私密回答持续进入完整度 schema
     ▼
 用户选择表达路径 / 当前草稿
               │
@@ -27,7 +27,8 @@ request_understanding_job_v2（版本与输入 hash）
 私人候选草稿 ── 用户编辑确认 ── public.expression_versions
 ```
 
-前置 Discovery Agent 和表达 Agent 职责不同，但共用五轮总上限与重复问题识别。
+前置 Discovery Agent 和表达 Agent 职责不同，但都以结构化完整度和证据状态决定
+`ASK` 或 `READY`，不使用固定对话轮数。两者共用重复问题识别。
 双方表达确认之后的共识 Agent、独立 Review Agent及引导对话流程保持原有编排。
 
 ## 职责边界
@@ -35,7 +36,7 @@ request_understanding_job_v2（版本与输入 hash）
 - Agent 帮助用户澄清当前愿意表达的内容，不诊断人格、依恋、创伤、疾病或关系性质。
 - Agent 每轮先复述，再按需给出一个暂定理解，最多提出一个非诱导问题。
 - 第一次调用不强制追问；信息充分时可以直接进入 `READY`。
-- 默认最多五轮。达到上限、没有新增信息或存在安全停止条件时不再追问。
+- 不按轮数停止；只有信息充分、继续追问不会产生新信息或存在安全停止条件时才停止。
 - AI 猜测只能进入 `conversation.tentativeUnderstanding`，不得直接进入可分享字段。
 - 只有用户最终确认的表达卡会进入 `public.expression_versions`。
 
@@ -81,7 +82,6 @@ request_understanding_job_v2（版本与输入 hash）
 | `state` | `READY` | 当前内容可以交给用户编辑确认 |
 | `stopReason` | `SUFFICIENT_CONTEXT` | 已有信息足够 |
 | `stopReason` | `NO_NEW_INFORMATION` | 继续追问不会产生新信息 |
-| `stopReason` | `TURN_LIMIT` | 已达到五轮后端上限 |
 | `stopReason` | `SAFETY` | 不适合继续普通澄清 |
 
 ## 依据状态

@@ -46,11 +46,11 @@
         <view v-if="thinking && started && answer.trim()" class="message-row user">
           <view class="message-bubble user-bubble"><text>{{ answer }}</text></view>
         </view>
-        <view v-if="thinking || ready || followUpLimitReached" class="message-row assistant">
+        <view v-if="thinking || ready" class="message-row assistant">
           <view class="ai-avatar">AI</view>
           <view class="message-bubble assistant-bubble">
             <view v-if="thinking" class="typing" aria-label="AI 正在思考"><text /><text /><text /></view>
-            <text v-else>{{ ready ? readyMessage : limitMessage }}</text>
+            <text v-else>{{ readyMessage }}</text>
           </view>
         </view>
       </template>
@@ -79,7 +79,7 @@
           class="answer"
           :value="currentValue"
           :maxlength="started ? 1200 : 12000"
-          :disabled="busy || recording || ready || followUpLimitReached || safetyStopped"
+          :disabled="busy || recording || ready || safetyStopped"
           :auto-height="true"
           :aria-label="started ? '回复 AI' : '告诉 AI 发生了什么'"
           :placeholder="started ? '想到哪说到哪，不完整也没关系……' : '例如：刚才发生了一件事，我在意的是……'"
@@ -87,7 +87,7 @@
         />
         <button
           class="send"
-          :disabled="busy || recording || !currentValue.trim() || (started && (ready || followUpLimitReached || safetyStopped))"
+          :disabled="busy || recording || !currentValue.trim() || (started && (ready || safetyStopped))"
           :aria-label="busy ? 'AI 正在思考' : '发送给 AI'"
           @tap="$emit('send')"
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
@@ -102,7 +102,7 @@
         v-if="started && !busy && !ready && !safetyStopped"
         class="skip-action"
         @tap="$emit('finish')"
-      >{{ followUpLimitReached ? '先按现有内容选择表达路径' : '先不继续追问，直接选择表达路径' }}</button>
+      >先不继续追问，直接选择表达路径</button>
     </view>
   </view>
 </template>
@@ -119,7 +119,6 @@ const props = defineProps<{
   question: string;
   started: boolean;
   ready: boolean;
-  followUpLimitReached: boolean;
   busy: boolean;
   thinking: boolean;
   recording: boolean;
@@ -145,7 +144,6 @@ const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
   : "我在这里。先用你自己的话告诉我发生了什么，不需要组织得很完整。");
 const readyMessage = "我已经理解到足够开始整理的程度了。现在由你选择表达路径，我再把这段对话整理成卡片。";
-const limitMessage = "我还有没完全弄清楚的地方，但这轮追问先到这里。我不会假装已经理解完整；你可以先按现有内容整理，之后继续修改。";
 const durationLabel = computed(() => {
   const minutes = Math.floor(props.recordingSeconds / 60).toString().padStart(2, "0");
   const seconds = (props.recordingSeconds % 60).toString().padStart(2, "0");

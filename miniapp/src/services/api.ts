@@ -387,11 +387,10 @@ export async function requestExpressionClarification(
   const allCovered = Boolean(understanding && discoveryDimensions.every((dimension) =>
     understanding.coverage[dimension].status === "ENOUGH"));
   const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(result.safetyDisposition));
-  const hasStopped = Boolean(result.ready || result.followUpLimitReached || safetyStopped);
+  const hasStopped = Boolean(result.ready || safetyStopped);
   const nextQuestion = understanding?.nextQuestion;
   if (!understanding || typeof result.ready !== "boolean" ||
-    typeof result.followUpLimitReached !== "boolean" ||
-    result.ready !== allCovered || (result.ready && result.followUpLimitReached) ||
+    result.ready !== allCovered ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
     typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
     (turns.length === 0
@@ -409,7 +408,6 @@ export async function requestExpressionClarification(
   return {
     question: understanding.nextQuestion.text,
     ready: result.ready,
-    followUpLimitReached: result.followUpLimitReached,
     understanding,
     safetyDisposition: result.safetyDisposition as typeof dispositions[number],
     safetyMessage: result.safetyMessage,
