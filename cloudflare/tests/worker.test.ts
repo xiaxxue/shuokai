@@ -33,6 +33,58 @@ import {
   understandingReviewSchema,
 } from "../src/expression-ai.ts";
 
+function validMutualUnderstandingResult() {
+  return {
+    schemaVersion: 2,
+    mutualUnderstanding: [{
+      listenerRole: "A",
+      speakerRole: "B",
+      text: "A 听懂 B 想减少反复变化带来的消耗",
+      sources: ["DIALOGUE.RESPONSE.B.4", "DIALOGUE.REFLECTION.A.5", "DIALOGUE.REFLECTION_CONFIRMATION.B.6"],
+    }, {
+      listenerRole: "B",
+      speakerRole: "A",
+      text: "B 听懂 A 需要在变化发生时获得确定感",
+      sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.REFLECTION.B.2", "DIALOGUE.REFLECTION_CONFIRMATION.A.3"],
+    }],
+    newUnderstanding: {
+      text: "双方确认，分歧不是要不要告知，而是怎样避免过早信息与迟来的不安",
+      sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.RESPONSE.B.4"],
+    },
+    differences: [{
+      topic: "何时告知",
+      sideA: "发现可能变化时告知",
+      sideB: "确认变化后告知",
+      sources: ["A.request", "B.request"],
+    }],
+    unverifiedFacts: [],
+    boundaries: [],
+    nextQuestion: {
+      text: "计划尚未确定时，先告知到什么程度既能让 A 安心，又不会让 B 反复更正？",
+      sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.RESPONSE.B.4"],
+    },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  };
+}
+
+function validMutualDialogueTimeline() {
+  return [
+    { sequence: 1, round: 1, kind: "RESPONSE", authorRole: "A", replyToSequence: null,
+      payload: { text: "变化时迟迟不知道会让我不安。", internalNote: "不得发送" } },
+    { sequence: 2, round: 1, kind: "REFLECTION", authorRole: "B", replyToSequence: 1,
+      payload: { text: "我听见未知的等待让你不安。" } },
+    { sequence: 3, round: 1, kind: "REFLECTION_CONFIRMATION", authorRole: "A", replyToSequence: 2,
+      payload: { decision: "ACCURATE", feedback: "", expressionId: "不得发送的内部 ID" } },
+    { sequence: 4, round: 1, kind: "RESPONSE", authorRole: "B", replyToSequence: 3,
+      payload: { text: "我担心过早告知后要反复更正。" } },
+    { sequence: 5, round: 1, kind: "REFLECTION", authorRole: "A", replyToSequence: 4,
+      payload: { text: "我听见你担心反复更正带来消耗。" } },
+    { sequence: 6, round: 1, kind: "REFLECTION_CONFIRMATION", authorRole: "B", replyToSequence: 5,
+      payload: { decision: "ACCURATE", feedback: "" } },
+  ];
+}
+
 test("health endpoint identifies the Worker", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/health"), {});
   assert.equal(response.status, 200);
@@ -519,62 +571,36 @@ test("AI output validation rejects missing and invented expression fields", () =
 test("shared understanding schemas are strict, traceable, and independently reviewed", () => {
   assert.equal(understandingResultSchema.additionalProperties, false);
   assert.equal(understandingReviewSchema.additionalProperties, false);
-  const valid = {
-    schemaVersion: 1,
-    commonGround: [{ text: "双方都希望提前知道变化", sources: ["A.need", "B.request"] }],
-    differences: [{
-      topic: "何时告知",
-      sideA: "发现可能变化时告知",
-      sideB: "确认变化后告知",
-      sources: ["A.request", "B.request"],
-    }],
-    unverifiedFacts: [{ text: "消息是否已经发送", sources: ["A.observation"] }],
-    boundaries: [],
-    candidateUnderstanding: [{ text: "unused", sources: ["A.need"] }],
-    coreQuestion: { text: "怎样定义足够早", sources: ["A.request", "B.request"] },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
-  };
-  const corrected = {
+  const valid = validMutualUnderstandingResult();
+  assert.equal(isUnderstandingResult(valid), true);
+  assert.equal(isUnderstandingResult({
     ...valid,
-    candidateUnderstanding: { text: "双方都在寻找更可预期的通知方式", sources: ["A.need", "B.request"] },
-  };
-  assert.equal(isUnderstandingResult(corrected), true);
-  assert.equal(isUnderstandingResult({
-    ...corrected,
-    commonGround: [{
-      text: "双方在后续沟通中确认了新的理解",
-      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
-    }],
-    candidateUnderstanding: {
-      text: "双方仍在继续澄清",
-      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
-    },
-    coreQuestion: {
-      text: "下一轮最需要澄清什么",
-      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.RESPONSE.B.7"],
-    },
-  }), true);
-  assert.equal(isUnderstandingResult({
-    ...corrected,
-    commonGround: [{
-      text: "B 复述了 A 的需要",
-      sources: ["DIALOGUE.RESPONSE.A.6", "DIALOGUE.REFLECTION.B.7"],
-    }],
+    mutualUnderstanding: valid.mutualUnderstanding.slice(0, 1),
   }), false);
   assert.equal(isUnderstandingResult({
-    ...corrected,
-    commonGround: [{ text: "他故意忽略我", sources: ["A.diagnosis"] }],
+    ...valid,
+    newUnderstanding: { text: "只有 A 的回应", sources: ["DIALOGUE.RESPONSE.A.1"] },
   }), false);
   assert.equal(isUnderstandingResult({
-    ...corrected,
+    ...valid,
+    mutualUnderstanding: valid.mutualUnderstanding.map((item) => ({
+      ...item,
+      sources: item.sources.filter((source) => !source.includes("REFLECTION_CONFIRMATION")),
+    })),
+  }), false);
+  assert.equal(isUnderstandingResult({
+    ...valid,
+    mutualUnderstanding: valid.mutualUnderstanding.map((item) => ({ ...item, listenerRole: "A" })),
+  }), false);
+  assert.equal(isUnderstandingResult({
+    ...valid,
     differences: [{
       topic: "何时告知", sideA: "A.request", sideB: "B.request",
       sources: ["A.request", "B.request"],
     }],
   }), false);
   assert.equal(isUnderstandingResult({
-    ...corrected,
+    ...valid,
     boundaries: [{ text: "希望当天告诉我", sources: ["A.request"] }],
   }), false);
   assert.equal(isUnderstandingReview({
@@ -609,15 +635,8 @@ test("shared understanding normalization removes repeated model sections before 
     sources: ["A.need", "B.request"],
   };
   const normalized = normalizeUnderstandingResult({
-    schemaVersion: 1,
-    commonGround: [],
+    ...validMutualUnderstandingResult(),
     differences: [difference, { ...difference }, { ...difference }],
-    unverifiedFacts: [],
-    boundaries: [],
-    candidateUnderstanding: { text: "双方表达不同", sources: ["A.need", "B.request"] },
-    coreQuestion: { text: "如何同时回应双方需要？", sources: ["A.need", "B.request"] },
-    safetyDisposition: "ALLOW",
-    safetyMessage: "",
   }) as { differences: unknown[] };
   assert.equal(normalized.differences.length, 1);
 });
@@ -716,21 +735,11 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
   const captured: { input?: Record<string, unknown> } = {};
+  const baseResult = validMutualUnderstandingResult();
   const result = {
-    schemaVersion: 1,
-    commonGround: [{ text: "双方都希望减少临时变化带来的不确定", sources: ["A.need", "B.need"] }],
-    differences: [{
-      topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
-      sources: ["A.request", "B.request"],
-    }, {
-      topic: "何时告知", sideA: "可能变化时", sideB: "确认变化后",
-      sources: ["A.request", "B.request"],
-    }],
-    unverifiedFacts: [],
+    ...baseResult,
+    differences: [...baseResult.differences, { ...baseResult.differences[0] }],
     boundaries: [{ text: "模型虚构的边界", sources: ["A.boundary"] }],
-    candidateUnderstanding: { text: "双方对通知时点的期待不同", sources: ["A.request", "B.request"] },
-    coreQuestion: { text: "哪个时点既及时又足够确定", sources: ["A.request", "B.request"] },
-    safetyDisposition: "ALLOW", safetyMessage: "",
   };
   const generated = await generateSharedUnderstanding({
     AI: {
@@ -748,13 +757,7 @@ test("consensus Agent sends only confirmed cards to Workers AI", async () => {
       payload: { need: "确定感", request: "可能变化时告诉我", internalNote: "不得发送" },
     },
     expressionB: { mode: "NVC", payload: { need: "准确", request: "确认变化后告诉你" } },
-    dialogueTimeline: [{
-      sequence: 7,
-      round: 2,
-      kind: "REFLECTION_CONFIRMATION",
-      authorRole: "A",
-      payload: { decision: "ACCURATE", feedback: "", expressionId: "不得发送的内部 ID" },
-    }],
+    dialogueTimeline: validMutualDialogueTimeline(),
   });
   const requestText = JSON.stringify(captured.input);
   assert.equal(requestText.includes("sourceText"), false);
@@ -771,22 +774,31 @@ test("consensus Agent sends only confirmed cards to Workers AI", async () => {
   );
 });
 
+test("consensus Agent rejects a claimed understanding without an accurate reply chain", async () => {
+  let calls = 0;
+  const brokenTimeline = validMutualDialogueTimeline().map((turn) => turn.sequence === 3
+    ? { ...turn, payload: { decision: "NEEDS_CORRECTION", feedback: "还没听懂" } }
+    : turn);
+  await assert.rejects(() => generateSharedUnderstanding({
+    AI: {
+      async run() {
+        calls += 1;
+        return { response: JSON.stringify(validMutualUnderstandingResult()) };
+      },
+    },
+  }, {
+    expressionA: { mode: "NVC", payload: { request: "变化时告诉我" } },
+    expressionB: { mode: "NVC", payload: { request: "确认后告诉你" } },
+    dialogueTimeline: brokenTimeline,
+  }));
+  assert.equal(calls, 2);
+});
+
 test("review Agent uses a separate Cloudflare-hosted reasoning model", async () => {
   const captured: { model?: string; input?: Record<string, unknown> } = {};
   const expressionA = { mode: "NVC" as const, payload: { need: "及时信息", request: "当天告诉我" } };
   const expressionB = { mode: "NVC" as const, payload: { need: "准确信息", request: "确认后告诉你" } };
-  const candidate = {
-    schemaVersion: 1,
-    commonGround: [],
-    differences: [{
-      topic: "告知时点", sideA: "当天告知", sideB: "确认后告知",
-      sources: ["A.request", "B.request"],
-    }],
-    unverifiedFacts: [], boundaries: [],
-    candidateUnderstanding: { text: "A 希望当天告知；B 希望确认后告知", sources: ["A.request", "B.request"] },
-    coreQuestion: { text: "怎样确定告知时点", sources: ["A.request", "B.request"] },
-    safetyDisposition: "ALLOW", safetyMessage: "",
-  };
+  const candidate = validMutualUnderstandingResult();
   const reviewed = await reviewSharedUnderstanding({
     AI: {
       async run(model, input) {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { dialogueActionCopy, dialogueTurnText, parseDialogueState } from "../src/domain/dialogue";
+import {
+  canSummarizeMutualUnderstanding,
+  dialogueActionCopy,
+  dialogueMutualProgress,
+  dialogueTurnText,
+  parseDialogueState,
+} from "../src/domain/dialogue";
 
 const state = {
   phase: "DIALOGUE",
@@ -31,5 +37,29 @@ describe("guided dialogue", () => {
 
   it("rejects malformed timeline events at the client boundary", () => {
     expect(() => parseDialogueState({ ...state, turns: [{ payload: "private" }] })).toThrow("无效内容");
+  });
+
+  it("only allows a summary after both listeners are confirmed and respond", () => {
+    const turns = [
+      ...state.turns,
+      { id: "b-reflects-a", sequence: 2, round: 1, kind: "REFLECTION", authorRole: "B", replyToTurnId: state.turns[0].id, payload: { text: "我听见你想被听见。" }, createdAt: "2026-08-14T00:01:00Z" },
+      { id: "a-confirms-b", sequence: 3, round: 1, kind: "REFLECTION_CONFIRMATION", authorRole: "A", replyToTurnId: "b-reflects-a", payload: { decision: "ACCURATE", feedback: "" }, createdAt: "2026-08-14T00:02:00Z" },
+      { id: "b-responds", sequence: 4, round: 1, kind: "RESPONSE", authorRole: "B", replyToTurnId: "a-confirms-b", payload: { text: "我会先听完。" }, createdAt: "2026-08-14T00:03:00Z" },
+      { id: "b-opening", sequence: 5, round: 1, kind: "OPENING", authorRole: "B", replyToTurnId: null, payload: { card: { mode: "NVC", need: "喘息空间" } }, createdAt: "2026-08-14T00:04:00Z" },
+      { id: "a-reflects-b", sequence: 6, round: 1, kind: "REFLECTION", authorRole: "A", replyToTurnId: "b-opening", payload: { text: "我听见你需要喘息空间。" }, createdAt: "2026-08-14T00:05:00Z" },
+      { id: "b-confirms-a", sequence: 7, round: 1, kind: "REFLECTION_CONFIRMATION", authorRole: "B", replyToTurnId: "a-reflects-b", payload: { decision: "ACCURATE", feedback: "" }, createdAt: "2026-08-14T00:06:00Z" },
+    ];
+    const awaitingFinalResponse = parseDialogueState({ ...state, turns });
+    expect(dialogueMutualProgress(awaitingFinalResponse)).toEqual([
+      { listenerRole: "A", heardOther: true, responded: false },
+      { listenerRole: "B", heardOther: true, responded: true },
+    ]);
+    expect(canSummarizeMutualUnderstanding(awaitingFinalResponse)).toBe(false);
+
+    const complete = parseDialogueState({
+      ...state,
+      turns: [...turns, { id: "a-responds", sequence: 8, round: 1, kind: "RESPONSE", authorRole: "A", replyToTurnId: "b-confirms-a", payload: { text: "我愿意一次只谈十分钟。" }, createdAt: "2026-08-14T00:07:00Z" }],
+    });
+    expect(canSummarizeMutualUnderstanding(complete)).toBe(true);
   });
 });

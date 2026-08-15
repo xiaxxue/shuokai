@@ -27,7 +27,7 @@ export type UnderstandingDifference = {
   sources: UnderstandingSource[];
 };
 
-export type SharedUnderstanding = {
+export type SharedUnderstandingV1 = {
   schemaVersion: 1;
   commonGround: EvidenceItem[];
   differences: UnderstandingDifference[];
@@ -36,6 +36,25 @@ export type SharedUnderstanding = {
   candidateUnderstanding: EvidenceItem;
   coreQuestion: EvidenceItem;
 };
+
+export type MutualUnderstandingItem = {
+  listenerRole: "A" | "B";
+  speakerRole: "A" | "B";
+  text: string;
+  sources: UnderstandingSource[];
+};
+
+export type SharedUnderstandingV2 = {
+  schemaVersion: 2;
+  mutualUnderstanding: MutualUnderstandingItem[];
+  newUnderstanding: EvidenceItem;
+  differences: UnderstandingDifference[];
+  unverifiedFacts: EvidenceItem[];
+  boundaries: EvidenceItem[];
+  nextQuestion: EvidenceItem;
+};
+
+export type SharedUnderstanding = SharedUnderstandingV1 | SharedUnderstandingV2;
 
 export type UnderstandingStatus = {
   phase: NonNullable<RoomSession["phaseV2"]>;
@@ -87,13 +106,26 @@ export function sharedUnderstandingDisplay(value: SharedUnderstanding): SharedUn
     items,
     (item) => canonicalDisplayText(item.text),
   );
+  const differences = uniqueDisplayItems(
+    value.differences,
+    (item) => [item.topic, item.sideA, item.sideB].map(canonicalDisplayText).join("\u0000"),
+  );
+  if (value.schemaVersion === 2) {
+    return {
+      ...value,
+      mutualUnderstanding: uniqueDisplayItems(
+        value.mutualUnderstanding,
+        (item) => `${item.listenerRole}\u0000${item.speakerRole}\u0000${canonicalDisplayText(item.text)}`,
+      ),
+      differences,
+      unverifiedFacts: evidence(value.unverifiedFacts),
+      boundaries: evidence(value.boundaries),
+    };
+  }
   return {
     ...value,
     commonGround: evidence(value.commonGround),
-    differences: uniqueDisplayItems(
-      value.differences,
-      (item) => [item.topic, item.sideA, item.sideB].map(canonicalDisplayText).join("\u0000"),
-    ),
+    differences,
     unverifiedFacts: evidence(value.unverifiedFacts),
     boundaries: evidence(value.boundaries),
   };
@@ -110,19 +142,42 @@ function isEvidence(value: unknown): value is EvidenceItem {
     value.sources.every(isUnderstandingSource);
 }
 
-export function isSharedUnderstanding(value: unknown): value is SharedUnderstanding {
-  return isRecord(value) && Object.keys(value).length === 7 && value.schemaVersion === 1 &&
+function isUnderstandingDifference(value: unknown) {
+  return isRecord(value) && Object.keys(value).length === 4 &&
+    typeof value.topic === "string" && value.topic.length <= 500 &&
+    typeof value.sideA === "string" && value.sideA.length <= 1200 &&
+    typeof value.sideB === "string" && value.sideB.length <= 1200 &&
+    Array.isArray(value.sources) && value.sources.length > 0 && value.sources.length <= 8 &&
+    value.sources.every(isUnderstandingSource);
+}
+
+function isSharedUnderstandingV1(value: Record<string, unknown>) {
+  return Object.keys(value).length === 7 && value.schemaVersion === 1 &&
     Array.isArray(value.commonGround) && value.commonGround.length <= 6 && value.commonGround.every(isEvidence) &&
     Array.isArray(value.unverifiedFacts) && value.unverifiedFacts.length <= 6 && value.unverifiedFacts.every(isEvidence) &&
     Array.isArray(value.boundaries) && value.boundaries.length <= 6 && value.boundaries.every(isEvidence) &&
-    Array.isArray(value.differences) && value.differences.length <= 6 && value.differences.every((difference) =>
-      isRecord(difference) && Object.keys(difference).length === 4 &&
-      typeof difference.topic === "string" && difference.topic.length <= 500 &&
-      typeof difference.sideA === "string" && difference.sideA.length <= 1200 &&
-      typeof difference.sideB === "string" && difference.sideB.length <= 1200 &&
-      Array.isArray(difference.sources) && difference.sources.length > 0 && difference.sources.length <= 8 &&
-      difference.sources.every(isUnderstandingSource)) &&
+    Array.isArray(value.differences) && value.differences.length <= 6 && value.differences.every(isUnderstandingDifference) &&
     isEvidence(value.candidateUnderstanding) && isEvidence(value.coreQuestion);
+}
+
+function isSharedUnderstandingV2(value: Record<string, unknown>) {
+  return Object.keys(value).length === 7 && value.schemaVersion === 2 &&
+    Array.isArray(value.mutualUnderstanding) && value.mutualUnderstanding.length === 2 &&
+    value.mutualUnderstanding.every((item) => isRecord(item) && Object.keys(item).length === 4 &&
+      ["A", "B"].includes(String(item.listenerRole)) && ["A", "B"].includes(String(item.speakerRole)) &&
+      item.listenerRole !== item.speakerRole && typeof item.text === "string" && item.text.length <= 1200 &&
+      Array.isArray(item.sources) && item.sources.length >= 3 && item.sources.length <= 8 &&
+      item.sources.every(isUnderstandingSource)) &&
+    new Set(value.mutualUnderstanding.map((item) => (item as Record<string, unknown>).listenerRole)).size === 2 &&
+    isEvidence(value.newUnderstanding) &&
+    Array.isArray(value.differences) && value.differences.length <= 6 && value.differences.every(isUnderstandingDifference) &&
+    Array.isArray(value.unverifiedFacts) && value.unverifiedFacts.length <= 6 && value.unverifiedFacts.every(isEvidence) &&
+    Array.isArray(value.boundaries) && value.boundaries.length <= 6 && value.boundaries.every(isEvidence) &&
+    isEvidence(value.nextQuestion);
+}
+
+export function isSharedUnderstanding(value: unknown): value is SharedUnderstanding {
+  return isRecord(value) && (isSharedUnderstandingV1(value) || isSharedUnderstandingV2(value));
 }
 
 export function parseUnderstandingStatus(value: unknown): UnderstandingStatus {

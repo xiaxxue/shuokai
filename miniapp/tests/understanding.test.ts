@@ -59,10 +59,44 @@ describe("shared understanding", () => {
       commonGround: [payload.commonGround[0], { ...payload.commonGround[0] }],
     };
     const display = sharedUnderstandingDisplay(repeated as unknown as SharedUnderstanding);
+    if (display.schemaVersion !== 1) throw new Error("expected historical v1 result");
     expect(display.differences).toHaveLength(1);
     expect(display.commonGround).toHaveLength(1);
     expect(repeated.differences).toHaveLength(3);
     expect(repeated.commonGround).toHaveLength(2);
+  });
+
+  it("accepts the reciprocal-understanding result while keeping v1 history readable", () => {
+    const mutual: SharedUnderstanding = {
+      schemaVersion: 2 as const,
+      mutualUnderstanding: [{
+        listenerRole: "A" as const,
+        speakerRole: "B" as const,
+        text: "发起者听懂受邀者担心反复更正会带来消耗",
+        sources: ["DIALOGUE.RESPONSE.B.4", "DIALOGUE.REFLECTION.A.5", "DIALOGUE.REFLECTION_CONFIRMATION.B.6"],
+      }, {
+        listenerRole: "B" as const,
+        speakerRole: "A" as const,
+        text: "受邀者听懂发起者面对未知等待会不安",
+        sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.REFLECTION.B.2", "DIALOGUE.REFLECTION_CONFIRMATION.A.3"],
+      }],
+      newUnderstanding: {
+        text: "双方确认争议不是要不要告知，而是如何兼顾及时与准确",
+        sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.RESPONSE.B.4"],
+      },
+      differences: payload.differences.map((item) => ({ ...item, sources: [...item.sources] })),
+      unverifiedFacts: [],
+      boundaries: [],
+      nextQuestion: {
+        text: "信息未确定时，先告知到什么程度？",
+        sources: ["DIALOGUE.RESPONSE.A.1", "DIALOGUE.RESPONSE.B.4"],
+      },
+    };
+    expect(isSharedUnderstanding(mutual)).toBe(true);
+    const display = sharedUnderstandingDisplay(mutual);
+    if (display.schemaVersion !== 2) throw new Error("expected reciprocal v2 result");
+    expect(display.mutualUnderstanding).toHaveLength(2);
+    expect(isSharedUnderstanding(payload)).toBe(true);
   });
 
   it("rejects a malformed public result", () => {

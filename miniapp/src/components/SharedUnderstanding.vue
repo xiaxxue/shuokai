@@ -2,13 +2,26 @@
   <view class="understanding-shell">
     <view class="understanding-intro">
       <text class="kicker">理解层 · 双方分别确认</text>
-      <text class="headline">先确认是否准确，<br />不是确认谁对谁错。</text>
-      <text class="lede">这份共同理解只使用双方已经分享并确认过的表达与多轮沟通。它不会替你认错、原谅，也不会自动进入下一步方案。</text>
+      <text class="headline">{{ isMutualVersion ? "先看见彼此真正听懂了什么。" : "先确认是否准确，不是确认谁对谁错。" }}</text>
+      <text class="lede">{{ isMutualVersion ? "这里不再重复两张原话卡。只有经过“复述—由原表达者确认准确”的内容，才会进入互相理解。" : "这份共同理解只使用双方已经分享并确认过的表达与多轮沟通。它不会替你认错、原谅，也不会自动进入下一步方案。" }}</text>
     </view>
 
-    <view v-if="displayResult.commonGround.length" class="section section-common">
+    <view v-if="mutualItems.length" class="mutual-section">
+      <view class="section-heading"><text class="section-number">01</text><text>已经互相听懂的部分</text></view>
+      <view v-for="item in mutualItems" :key="item.listenerRole" class="mutual-card">
+        <view class="mutual-topline">
+          <text class="listener-mark">{{ item.listenerRole }}</text>
+          <text>{{ roleLabel(item.listenerRole) }}已经听懂{{ roleLabel(item.speakerRole) }}</text>
+          <text class="confirmed-mark">本人确认</text>
+        </view>
+        <text class="mutual-copy">{{ item.text }}</text>
+        <view class="source-row"><text v-for="source in item.sources" :key="source" class="source-chip">{{ sourceLabel(source) }}</text></view>
+      </view>
+    </view>
+
+    <view v-if="commonGround.length" class="section section-common">
       <view class="section-heading"><text class="section-number">01</text><text>双方明确的共同点</text></view>
-      <view v-for="(item, index) in displayResult.commonGround" :key="`common-${index}`" class="evidence-card">
+      <view v-for="(item, index) in commonGround" :key="`common-${index}`" class="evidence-card">
         <text class="evidence-text">{{ item.text }}</text>
         <view class="source-row"><text v-for="source in item.sources" :key="source" class="source-chip">{{ sourceLabel(source) }}</text></view>
       </view>
@@ -42,13 +55,13 @@
       </view>
     </view>
 
-    <view class="candidate-card">
-      <text class="candidate-label">候选共同理解</text>
-      <text class="candidate-copy">{{ displayResult.candidateUnderstanding.text }}</text>
-      <view class="source-row"><text v-for="source in displayResult.candidateUnderstanding.sources" :key="source" class="source-chip light">{{ sourceLabel(source) }}</text></view>
+    <view class="candidate-card" :class="{ mutual: isMutualVersion }">
+      <text class="candidate-label">{{ isMutualVersion ? "交流后新增的理解" : "候选共同理解" }}</text>
+      <text class="candidate-copy">{{ centerpiece.text }}</text>
+      <view class="source-row"><text v-for="source in centerpiece.sources" :key="source" class="source-chip light">{{ sourceLabel(source) }}</text></view>
       <view class="core-question">
-        <text>此刻真正需要一起看见的问题</text>
-        <text>{{ displayResult.coreQuestion.text }}</text>
+        <text>{{ isMutualVersion ? "下一轮只需要说清这一件事" : "此刻真正需要一起看见的问题" }}</text>
+        <text>{{ nextQuestion.text }}</text>
       </view>
     </view>
 
@@ -99,6 +112,7 @@ import {
   shouldShowRoomReminder,
   sourceLabel,
   type SharedUnderstanding,
+  type EvidenceItem,
 } from "../domain/understanding";
 
 const props = defineProps<{
@@ -110,7 +124,21 @@ const props = defineProps<{
 }>();
 
 const displayResult = computed(() => sharedUnderstandingDisplay(props.result));
+const isMutualVersion = computed(() => displayResult.value.schemaVersion === 2);
+const mutualItems = computed(() => displayResult.value.schemaVersion === 2
+  ? displayResult.value.mutualUnderstanding
+  : []);
+const commonGround = computed(() => displayResult.value.schemaVersion === 1
+  ? displayResult.value.commonGround
+  : []);
+const centerpiece = computed<EvidenceItem>(() => displayResult.value.schemaVersion === 2
+  ? displayResult.value.newUnderstanding
+  : displayResult.value.candidateUnderstanding);
+const nextQuestion = computed<EvidenceItem>(() => displayResult.value.schemaVersion === 2
+  ? displayResult.value.nextQuestion
+  : displayResult.value.coreQuestion);
 const showRoomReminder = computed(() => shouldShowRoomReminder(props.ownDecision, props.accurateCount));
+const roleLabel = (role: "A" | "B") => role === "A" ? "发起者" : "受邀者";
 
 defineEmits<{
   decide: [decision: "ACCURATE" | "INACCURATE", feedback: string];
@@ -130,6 +158,13 @@ const feedback = ref("");
 .headline { display: block; margin-top: 16px; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 32px; font-weight: 700; line-height: 1.22; overflow-wrap: anywhere; }
 .lede { display: block; margin-top: 14px; color: #68736f; font-size: 13px; line-height: 1.85; }
 .section { padding: 18px; border: 1px solid rgba(34, 52, 45, .1); border-radius: 20px; }
+.mutual-section { padding: 18px; border: 1px solid rgba(49, 90, 69, .13); border-radius: 22px; background: linear-gradient(145deg, rgba(226, 237, 225, .84), rgba(247, 242, 230, .72)); }
+.mutual-card + .mutual-card { margin-top: 12px; }
+.mutual-card { padding: 16px; border-radius: 16px; background: rgba(255, 253, 248, .88); box-shadow: 0 10px 28px rgba(36, 66, 52, .07); }
+.mutual-topline { display: flex; align-items: center; gap: 8px; color: #315a45; font-size: 10px; font-weight: 800; }
+.listener-mark { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #315a45; color: #fffdf8; font-family: Georgia, serif; }
+.confirmed-mark { margin-left: auto; padding: 3px 7px; border-radius: 999px; background: #e4eee1; color: #315a45; font-size: 8px; }
+.mutual-copy { display: block; margin-top: 12px; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 18px; font-weight: 700; line-height: 1.65; }
 .section-common { background: rgba(219, 232, 216, .52); }
 .section-difference { background: rgba(246, 223, 214, .56); }
 .section-unverified { background: rgba(239, 230, 209, .58); }
@@ -148,6 +183,7 @@ const feedback = ref("");
 .source-chip { max-width: 100%; padding: 3px 7px; border: 1px solid rgba(34, 52, 45, .14); border-radius: 999px; color: #68736f; font-size: 8px; overflow-wrap: anywhere; }
 .source-chip.light { border-color: rgba(255, 255, 255, .25); color: rgba(255, 255, 255, .72); }
 .candidate-card { padding: 22px; border-radius: 22px; background: #315a45; color: #fff; box-shadow: 0 18px 42px rgba(28, 51, 42, .16); }
+.candidate-card.mutual { background: linear-gradient(145deg, #274f3e, #386d54); }
 .candidate-label { display: block; color: rgba(255, 255, 255, .64); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
 .candidate-copy { display: block; margin-top: 14px; font-family: "Songti SC", "STSong", serif; font-size: 21px; font-weight: 700; line-height: 1.55; }
 .core-question { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .2); }

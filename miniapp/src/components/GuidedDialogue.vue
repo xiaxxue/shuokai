@@ -14,6 +14,15 @@
       <button v-if="!state.canAct" class="refresh" :disabled="busy" @tap="$emit('refresh')">刷新对方进展</button>
     </view>
 
+    <view class="progress-card">
+      <view class="progress-head"><text>互相听懂进度</text><text>{{ completedListeners }}/2</text></view>
+      <view v-for="item in mutualProgress" :key="item.listenerRole" class="progress-row">
+        <text class="progress-person">{{ roleName(item.listenerRole) }}听懂{{ roleName(item.listenerRole === 'A' ? 'B' : 'A') }}</text>
+        <text :class="['progress-state', { done: item.heardOther && item.responded }]">{{ progressCopy(item) }}</text>
+      </view>
+      <text v-if="!canSummarize && !readOnly" class="progress-help">双方都完成“复述被确认 + 回应”后，AI 才会整理互相理解。</text>
+    </view>
+
     <view class="timeline">
       <view v-for="turn in state.turns" :key="turn.id" class="turn" :class="[`kind-${turn.kind.toLowerCase()}`, { mine: turn.authorRole === state.ownRole }]">
         <view class="rail"><text class="rail-dot">{{ turn.kind === 'AI_SUMMARY' ? 'AI' : turn.sequence }}</text><text class="rail-line" /></view>
@@ -42,10 +51,10 @@
         <textarea v-model="draft" class="composer-input" :maxlength="3000" :placeholder="placeholder" />
         <button class="primary" :disabled="busy || !draft.trim()" @tap="submitText">{{ state.step === 'AWAITING_REFLECTION' ? '请对方确认我是否听懂' : '发送回应，进入下一轮' }}</button>
       </template>
-      <button v-if="hasCompletedRound" class="secondary" :disabled="busy" @tap="$emit('summarize')">先整理我们目前谈到哪</button>
+      <button v-if="canSummarize" class="secondary" :disabled="busy" @tap="$emit('summarize')">先整理我们目前谈到哪</button>
       <button class="pause" :disabled="busy" @tap="$emit('pause')">先暂停这次沟通</button>
     </view>
-    <view v-else-if="!readOnly && hasCompletedRound" class="round-actions">
+    <view v-else-if="!readOnly && canSummarize" class="round-actions">
       <text>这一轮已经留下完整记录。你们可以继续，也可以先整理阶段性共同理解。</text>
       <button class="secondary" :disabled="busy" @tap="$emit('summarize')">整理我们目前谈到哪</button>
     </view>
@@ -55,17 +64,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import {
+  canSummarizeMutualUnderstanding,
   dialogueActionCopy,
+  dialogueMutualProgress,
   dialogueTurnText,
   type DialogueState,
   type DialogueTurn,
+  type MutualUnderstandingProgress,
 } from "../domain/dialogue";
 
 const props = defineProps<{ state: DialogueState; busy: boolean; readOnly?: boolean }>();
 const draft = ref("");
 const correction = ref("");
 const actionCopy = computed(() => dialogueActionCopy(props.state));
-const hasCompletedRound = computed(() => props.state.turns.some((turn) => turn.kind === "RESPONSE"));
+const mutualProgress = computed(() => dialogueMutualProgress(props.state));
+const completedListeners = computed(() => mutualProgress.value.filter((item) => item.heardOther && item.responded).length);
+const canSummarize = computed(() => canSummarizeMutualUnderstanding(props.state));
 const placeholder = computed(() => props.state.step === "AWAITING_REFLECTION"
   ? "例如：我听见你在这件事里感到……你看重的是……你希望我……"
   : "例如：听见你这样说，我想补充的是……我的感受和需要是……");
@@ -81,6 +95,11 @@ const emit = defineEmits<{
 
 watch(() => props.state.revision, () => { draft.value = ""; correction.value = ""; });
 function roleName(role: "A" | "B") { return role === "A" ? "发起者" : "受邀者"; }
+function progressCopy(item: MutualUnderstandingProgress) {
+  if (item.responded) return "已听懂并回应";
+  if (item.heardOther) return "已被确认，等待回应";
+  return "等待完成复述确认";
+}
 function turnLabel(turn: DialogueTurn) {
   if (turn.kind === "AI_SUMMARY") return "AI 阶段小结";
   const who = turn.authorRole === props.state.ownRole ? "我" : roleName(turn.authorRole ?? "A");
@@ -112,6 +131,14 @@ function submitCorrection() {
 .now-label { opacity: .7; font-size: 19rpx; letter-spacing: .12em; }
 .now-title { margin-top: 6rpx; font-family: "Songti SC", "STSong", serif; font-size: 36rpx; font-weight: 700; }
 .now-copy { margin-top: 7rpx; font-size: 23rpx; line-height: 1.55; }
+.progress-card { margin-top: 18rpx; padding: 21rpx 24rpx; border: 1rpx solid #cfd8d0; border-radius: 22rpx; background: rgba(232,239,232,.72); }
+.progress-head, .progress-row { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; }
+.progress-head { padding-bottom: 14rpx; color: #315b49; font-size: 20rpx; font-weight: 800; letter-spacing: .06em; }
+.progress-row { padding: 13rpx 0; border-top: 1rpx solid rgba(96,118,103,.18); font-size: 21rpx; }
+.progress-person { color: #294b3d; font-weight: 700; }
+.progress-state { color: #8a766c; text-align: right; }
+.progress-state.done { color: #2f7056; font-weight: 800; }
+.progress-help { display: block; margin-top: 10rpx; color: #68756e; font-size: 19rpx; line-height: 1.55; }
 .refresh { margin: 17rpx 0 0; padding: 0; background: transparent; color: #ad4431; font-size: 22rpx; text-align: left; }
 .refresh::after, .pause::after { border: 0; }
 .timeline { margin-top: 42rpx; }

@@ -24,6 +24,12 @@ export type DialogueState = {
   turns: DialogueTurn[];
 };
 
+export type MutualUnderstandingProgress = {
+  listenerRole: "A" | "B";
+  heardOther: boolean;
+  responded: boolean;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -52,6 +58,31 @@ export function dialogueActionCopy(state: DialogueState) {
   if (state.step === "AWAITING_REFLECTION") return "先说说你听懂了什么，不急着回应或辩解";
   if (state.step === "AWAITING_CONFIRMATION") return "确认对方是否准确听懂；不准确时指出遗漏即可";
   return "现在可以回应对方，也可以补充自己的感受、需要或请求";
+}
+
+export function dialogueMutualProgress(state: DialogueState): MutualUnderstandingProgress[] {
+  const byId = new Map(state.turns.map((turn) => [turn.id, turn]));
+  return (["A", "B"] as const).map((listenerRole) => {
+    const accurateConfirmations = state.turns.filter((confirmation) => {
+      if (confirmation.kind !== "REFLECTION_CONFIRMATION" ||
+        confirmation.payload.decision !== "ACCURATE" || !confirmation.replyToTurnId) return false;
+      const reflection = byId.get(confirmation.replyToTurnId);
+      return reflection?.kind === "REFLECTION" && reflection.authorRole === listenerRole &&
+        confirmation.authorRole !== listenerRole;
+    });
+    return {
+      listenerRole,
+      heardOther: accurateConfirmations.length > 0,
+      responded: accurateConfirmations.some((confirmation) => state.turns.some((response) =>
+        response.kind === "RESPONSE" && response.authorRole === listenerRole &&
+        response.replyToTurnId === confirmation.id
+      )),
+    };
+  });
+}
+
+export function canSummarizeMutualUnderstanding(state: DialogueState) {
+  return dialogueMutualProgress(state).every((item) => item.heardOther && item.responded);
 }
 
 export function dialogueTurnText(turn: DialogueTurn) {

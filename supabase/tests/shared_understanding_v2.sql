@@ -52,19 +52,38 @@ select public.confirm_expression_version_v2(
   '{"mode":"FACT_DISPUTE","schemaVersion":1,"claim":"计划当时还没有确定","basis":"当时仍在等待确认","verificationRequest":"核对最终确认时间","uncertainties":[]}'::jsonb
 ) from test_m3_context;
 
--- M4 requires one complete guided exchange before a new shared understanding.
--- This older consensus-focused fixture seeds the already-tested response event.
+-- The dialogue-specific test exercises the state machine. This consensus fixture
+-- seeds two complete, accurately confirmed listening-and-response chains.
 reset role;
+with dialogue_base as (
+  select context.room_id, room.dialogue_generation,
+    participant_a.id participant_a_id, participant_b.id participant_b_id,
+    opening_a.id opening_a_id, opening_b.id opening_b_id
+  from test_m3_context context
+  join public.rooms room on room.id = context.room_id
+  join public.participants participant_a on participant_a.room_id = context.room_id and participant_a.role = 'A'
+  join public.participants participant_b on participant_b.room_id = context.room_id and participant_b.role = 'B'
+  join private.dialogue_turns opening_a on opening_a.room_id = context.room_id
+    and opening_a.generation_no = room.dialogue_generation and opening_a.sequence_no = 1
+  join private.dialogue_turns opening_b on opening_b.room_id = context.room_id
+    and opening_b.generation_no = room.dialogue_generation and opening_b.sequence_no = 2
+)
 insert into private.dialogue_turns (
-  room_id, generation_no, sequence_no, round_no, participant_id, turn_kind,
+  id, room_id, generation_no, sequence_no, round_no, participant_id, turn_kind,
   reply_to_turn_id, payload, content_hash
 )
-select context.room_id, room.dialogue_generation, 3, 1, participant.id, 'RESPONSE', room.dialogue_focus_turn_id,
-  '{"text":"我已经完成本轮回应。"}'::jsonb,
-  encode(extensions.digest(convert_to('{"text":"我已经完成本轮回应。"}', 'UTF8'), 'sha256'), 'hex')
-from test_m3_context context
-join public.rooms room on room.id = context.room_id
-join public.participants participant on participant.room_id = context.room_id and participant.role = 'B';
+select seed.id, base.room_id, base.dialogue_generation, seed.sequence_no, 1,
+  seed.participant_id, seed.turn_kind, seed.reply_to_turn_id, seed.payload,
+  encode(extensions.digest(convert_to(seed.payload::text, 'UTF8'), 'sha256'), 'hex')
+from dialogue_base base
+cross join lateral (values
+  ('31000000-0000-4000-8000-000000000003'::uuid, 3, base.participant_b_id, 'REFLECTION', base.opening_a_id, '{"text":"我听见未知的等待让你不安。"}'::jsonb),
+  ('31000000-0000-4000-8000-000000000004'::uuid, 4, base.participant_a_id, 'REFLECTION_CONFIRMATION', '31000000-0000-4000-8000-000000000003'::uuid, '{"decision":"ACCURATE","feedback":""}'::jsonb),
+  ('31000000-0000-4000-8000-000000000005'::uuid, 5, base.participant_b_id, 'RESPONSE', '31000000-0000-4000-8000-000000000004'::uuid, '{"text":"我担心过早告知后需要反复更正。"}'::jsonb),
+  ('31000000-0000-4000-8000-000000000006'::uuid, 6, base.participant_a_id, 'REFLECTION', base.opening_b_id, '{"text":"我听见你担心反复更正带来消耗。"}'::jsonb),
+  ('31000000-0000-4000-8000-000000000007'::uuid, 7, base.participant_b_id, 'REFLECTION_CONFIRMATION', '31000000-0000-4000-8000-000000000006'::uuid, '{"decision":"ACCURATE","feedback":""}'::jsonb),
+  ('31000000-0000-4000-8000-000000000008'::uuid, 8, base.participant_a_id, 'RESPONSE', '31000000-0000-4000-8000-000000000007'::uuid, '{"text":"我希望未确定时也能收到简短提醒。"}'::jsonb)
+) seed(id, sequence_no, participant_id, turn_kind, reply_to_turn_id, payload);
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"30000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 
@@ -84,7 +103,7 @@ select is(
 update test_m3_context context set review_job_id = (completed->>'nextJobId')::uuid
 from (select public.internal_complete_consensus_job_v2(
   consensus_job_id, 'm3-worker', 'test-model',
-  '{"schemaVersion":1,"commonGround":[{"text":"双方都希望减少计划变化带来的不确定","sources":["A.need","B.verificationRequest"]}],"differences":[{"topic":"何时告知","sideA":"可能变化时","sideB":"确认变化后","sources":["A.request","B.claim"]}],"unverifiedFacts":[{"text":"计划最终确认时间","sources":["B.verificationRequest"]}],"boundaries":[],"candidateUnderstanding":{"text":"双方对通知时点的期待不同","sources":["A.request","B.claim"]},"coreQuestion":{"text":"怎样兼顾及时与准确","sources":["A.request","B.verificationRequest"]},"safetyDisposition":"ALLOW","safetyMessage":""}'::jsonb
+  '{"schemaVersion":2,"mutualUnderstanding":[{"listenerRole":"A","speakerRole":"B","text":"A 听懂 B 担心反复更正会带来消耗","sources":["DIALOGUE.OPENING.B.2","DIALOGUE.REFLECTION.A.6","DIALOGUE.REFLECTION_CONFIRMATION.B.7"]},{"listenerRole":"B","speakerRole":"A","text":"B 听懂 A 面对未知等待会感到不安","sources":["DIALOGUE.OPENING.A.1","DIALOGUE.REFLECTION.B.3","DIALOGUE.REFLECTION_CONFIRMATION.A.4"]}],"newUnderstanding":{"text":"双方确认分歧不是要不要告知，而是怎样兼顾及时与准确","sources":["DIALOGUE.RESPONSE.A.8","DIALOGUE.RESPONSE.B.5"]},"differences":[{"topic":"何时告知","sideA":"可能变化时","sideB":"确认变化后","sources":["A.request","B.claim"]}],"unverifiedFacts":[{"text":"计划最终确认时间","sources":["B.verificationRequest"]}],"boundaries":[],"nextQuestion":{"text":"尚未确定时，先告知到什么程度既及时又不会反复更正？","sources":["DIALOGUE.RESPONSE.A.8","DIALOGUE.RESPONSE.B.5"]},"safetyDisposition":"ALLOW","safetyMessage":""}'::jsonb
 ) completed from test_m3_context) result;
 select ok(review_job_id is not null, 'consensus completion creates an independent review job') from test_m3_context;
 select is(
@@ -181,11 +200,10 @@ select public.confirm_expression_version_v2(
   room_id, a_revision,
   '{"mode":"NVC","schemaVersion":1,"observation":"周日仍未收到消息","feeling":"失望","need":"确定感","request":"可能变化时当天告诉我","uncertainties":[]}'::jsonb
 ) from test_m3_context;
-select public.request_consensus_job_v2(room_id) from test_m3_context;
 select is(
-  (select room.state from public.rooms room join test_m3_context context on room.id = context.room_id),
-  'COMMON_VIEW_READY',
-  'reconfirming A while B remains confirmed repairs the restorable room state'
+  (select room.phase_v2 from public.rooms room join test_m3_context context on room.id = context.room_id),
+  'DIALOGUE',
+  'reconfirming A while B remains confirmed begins a fresh reciprocal dialogue'
 );
 
 select * from finish();

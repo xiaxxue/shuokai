@@ -39,6 +39,7 @@ type ConfirmedDialogueTurn = {
   kind: "OPENING" | "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE";
   authorRole: "A" | "B";
   source: `DIALOGUE.${"OPENING" | "REFLECTION" | "REFLECTION_CONFIRMATION" | "RESPONSE"}.${"A" | "B"}.${number}`;
+  replyToSequence: number | null;
   payload: Record<string, unknown>;
 };
 
@@ -124,16 +125,39 @@ const boundaryEvidenceItemSchema = {
   },
 };
 
+const mutualUnderstandingItemSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["listenerRole", "speakerRole", "text", "sources"],
+  properties: {
+    listenerRole: { type: "string", enum: ["A", "B"] },
+    speakerRole: { type: "string", enum: ["A", "B"] },
+    text: { type: "string", maxLength: 1200 },
+    sources: {
+      type: "array",
+      minItems: 3,
+      maxItems: 8,
+      items: { type: "string", enum: understandingSourceKeys },
+    },
+  },
+};
+
 export const understandingResultSchema = {
   type: "object",
   additionalProperties: false,
   required: [
-    "schemaVersion", "commonGround", "differences", "unverifiedFacts", "boundaries",
-    "candidateUnderstanding", "coreQuestion", "safetyDisposition", "safetyMessage",
+    "schemaVersion", "mutualUnderstanding", "newUnderstanding", "differences",
+    "unverifiedFacts", "boundaries", "nextQuestion", "safetyDisposition", "safetyMessage",
   ],
   properties: {
-    schemaVersion: { type: "integer", enum: [1] },
-    commonGround: { type: "array", maxItems: 6, items: evidenceItemSchema },
+    schemaVersion: { type: "integer", enum: [2] },
+    mutualUnderstanding: {
+      type: "array",
+      minItems: 2,
+      maxItems: 2,
+      items: mutualUnderstandingItemSchema,
+    },
+    newUnderstanding: evidenceItemSchema,
     differences: {
       type: "array",
       maxItems: 6,
@@ -151,8 +175,7 @@ export const understandingResultSchema = {
     },
     unverifiedFacts: { type: "array", maxItems: 6, items: evidenceItemSchema },
     boundaries: { type: "array", maxItems: 6, items: boundaryEvidenceItemSchema },
-    candidateUnderstanding: evidenceItemSchema,
-    coreQuestion: evidenceItemSchema,
+    nextQuestion: evidenceItemSchema,
     safetyDisposition: { type: "string", enum: ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] },
     safetyMessage: { type: "string", maxLength: 1000 },
   },
@@ -174,7 +197,10 @@ export const understandingReviewSchema = {
         properties: {
           code: {
             type: "string",
-            enum: ["UNSUPPORTED", "FALSE_CONSENSUS", "FACT_AS_TRUTH", "BOUNDARY_DILUTED", "PRIVATE_LEAK", "UNSAFE"],
+            enum: [
+              "UNSUPPORTED", "UNCONFIRMED_HEARING", "NO_UNDERSTANDING_GAIN", "GENERIC_NEXT_QUESTION",
+              "FALSE_CONSENSUS", "FACT_AS_TRUTH", "BOUNDARY_DILUTED", "PRIVATE_LEAK", "UNSAFE",
+            ],
           },
           message: { type: "string", maxLength: 800 },
           sources: { type: "array", maxItems: 8, items: { type: "string", enum: understandingSourceKeys } },
@@ -260,6 +286,12 @@ function sourceRole(value: string) {
   return dialogue?.[1] === "REFLECTION" ? null : dialogue?.[2] ?? null;
 }
 
+function sourceAuthorRole(value: string) {
+  if (value.startsWith("A.")) return "A";
+  if (value.startsWith("B.")) return "B";
+  return /^DIALOGUE\.(?:OPENING|REFLECTION|REFLECTION_CONFIRMATION|RESPONSE)\.([AB])\./.exec(value)?.[1] ?? null;
+}
+
 function isDialogueBoundarySource(value: string) {
   return /^DIALOGUE\.(OPENING|REFLECTION_CONFIRMATION|RESPONSE)\.[AB]\.[1-9]\d*$/.test(value);
 }
@@ -286,23 +318,41 @@ function isBoundaryEvidenceItem(value: unknown) {
   );
 }
 
+function isMutualUnderstandingItem(value: unknown) {
+  if (!isRecord(value) || Object.keys(value).length !== 4 ||
+    !["A", "B"].includes(String(value.listenerRole)) ||
+    !["A", "B"].includes(String(value.speakerRole)) ||
+    value.listenerRole === value.speakerRole || typeof value.text !== "string" ||
+    value.text.length > 1200 || !isSourceList(value.sources) || value.sources.length < 3) return false;
+  const listener = String(value.listenerRole);
+  const speaker = String(value.speakerRole);
+  return value.sources.some((source) => new RegExp(`^DIALOGUE\\.(OPENING|RESPONSE)\\.${speaker}\\.`).test(source)) &&
+    value.sources.some((source) => new RegExp(`^DIALOGUE\\.REFLECTION\\.${listener}\\.`).test(source)) &&
+    value.sources.some((source) => new RegExp(`^DIALOGUE\\.REFLECTION_CONFIRMATION\\.${speaker}\\.`).test(source));
+}
+
 export function isUnderstandingResult(value: unknown) {
-  if (!isRecord(value) || Object.keys(value).length !== 9 || value.schemaVersion !== 1 ||
-    !Array.isArray(value.commonGround) || value.commonGround.length > 6 ||
+  const newUnderstandingRoles = isRecord(value) && isEvidenceItem(value.newUnderstanding)
+    ? new Set((value.newUnderstanding as { sources: string[] }).sources.map(sourceAuthorRole))
+    : new Set<string | null>();
+  if (!isRecord(value) || Object.keys(value).length !== 9 || value.schemaVersion !== 2 ||
+    !Array.isArray(value.mutualUnderstanding) || value.mutualUnderstanding.length !== 2 ||
+    !value.mutualUnderstanding.every(isMutualUnderstandingItem) ||
+    new Set(value.mutualUnderstanding.map((item) => (item as Record<string, unknown>).listenerRole)).size !== 2 ||
+    !isEvidenceItem(value.newUnderstanding) ||
     !Array.isArray(value.differences) || value.differences.length > 6 ||
     !Array.isArray(value.unverifiedFacts) || value.unverifiedFacts.length > 6 ||
     !Array.isArray(value.boundaries) || value.boundaries.length > 6 ||
-    !isEvidenceItem(value.candidateUnderstanding) || !isEvidenceItem(value.coreQuestion) ||
-    !hasBothSides((value.candidateUnderstanding as { sources: unknown }).sources) ||
-    !hasBothSides((value.coreQuestion as { sources: unknown }).sources) ||
+    !isEvidenceItem(value.nextQuestion) ||
+    !hasBothSides((value.nextQuestion as { sources: unknown }).sources) ||
+    !(value.newUnderstanding as { sources: string[] }).sources.every(isDialogueSource) ||
+    !newUnderstandingRoles.has("A") || !newUnderstandingRoles.has("B") ||
     !["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"].includes(String(value.safetyDisposition)) ||
     typeof value.safetyMessage !== "string" || value.safetyMessage.length > 1000 ||
     (value.safetyDisposition === "ALLOW" ? value.safetyMessage.trim() !== "" : value.safetyMessage.trim() === "")) {
     return false;
   }
-  if (!value.commonGround.every(isEvidenceItem) || !value.unverifiedFacts.every(isEvidenceItem) ||
-    !value.commonGround.every((item) => hasBothSides((item as { sources?: unknown }).sources)) ||
-    !value.boundaries.every(isBoundaryEvidenceItem)) return false;
+  if (!value.unverifiedFacts.every(isEvidenceItem) || !value.boundaries.every(isBoundaryEvidenceItem)) return false;
   return value.differences.every((item) => isRecord(item) && Object.keys(item).length === 4 &&
     typeof item.topic === "string" && item.topic.length <= 500 &&
     typeof item.sideA === "string" && item.sideA.length <= 1200 &&
@@ -326,7 +376,10 @@ export function isUnderstandingReview(value: unknown) {
       : !["ALLOW", "WARN"].includes(String(value.safetyDisposition))) ||
     ((value.verdict === "PASS") !== (Array.isArray(value.issues) && value.issues.length === 0))) return false;
   return value.issues.every((issue) => isRecord(issue) && Object.keys(issue).length === 3 &&
-    ["UNSUPPORTED", "FALSE_CONSENSUS", "FACT_AS_TRUTH", "BOUNDARY_DILUTED", "PRIVATE_LEAK", "UNSAFE"]
+    [
+      "UNSUPPORTED", "UNCONFIRMED_HEARING", "NO_UNDERSTANDING_GAIN", "GENERIC_NEXT_QUESTION",
+      "FALSE_CONSENSUS", "FACT_AS_TRUTH", "BOUNDARY_DILUTED", "PRIVATE_LEAK", "UNSAFE",
+    ]
       .includes(String(issue.code)) &&
     typeof issue.message === "string" && issue.message.length <= 800 &&
     isSourceList(issue.sources, true));
@@ -374,12 +427,18 @@ function sanitizedDialogueTimeline(value: DialogueContext | undefined): Confirme
       if (typeof item.payload.text !== "string") continue;
       payload = { text: item.payload.text.slice(0, 3000) };
     }
+    const replyToSequence = item.replyToSequence === null || item.replyToSequence === undefined
+      ? null
+      : Number.isSafeInteger(item.replyToSequence) && Number(item.replyToSequence) > 0
+        ? Number(item.replyToSequence)
+        : null;
     turns.push({
       sequence,
       round: Number(item.round),
       kind,
       authorRole,
       source,
+      replyToSequence,
       payload,
     });
   }
@@ -406,20 +465,42 @@ function availableSources(input: {
 function usesOnlyAvailableSources(value: unknown, sources: Set<string>) {
   if (!isRecord(value)) return false;
   const lists: unknown[] = [];
-  for (const key of ["commonGround", "unverifiedFacts", "boundaries"] as const) {
+  for (const key of ["mutualUnderstanding", "unverifiedFacts", "boundaries"] as const) {
     const items = value[key];
     if (Array.isArray(items)) lists.push(...items.map((item) => isRecord(item) ? item.sources : null));
   }
   if (Array.isArray(value.differences)) {
     lists.push(...value.differences.map((item) => isRecord(item) ? item.sources : null));
   }
-  for (const key of ["candidateUnderstanding", "coreQuestion"] as const) {
+  for (const key of ["newUnderstanding", "nextQuestion"] as const) {
     const item = value[key];
     lists.push(isRecord(item) ? item.sources : null);
   }
   return lists.every((list) => Array.isArray(list) && list.every((source) =>
     typeof source === "string" && sources.has(source)
   ));
+}
+
+function mutualEvidenceChainsAreConfirmed(value: unknown, timeline: ConfirmedDialogueTurn[]) {
+  if (!isRecord(value) || !Array.isArray(value.mutualUnderstanding)) return false;
+  const bySource = new Map<string, ConfirmedDialogueTurn>(timeline.map((turn) => [turn.source, turn]));
+  return value.mutualUnderstanding.every((item) => {
+    if (!isMutualUnderstandingItem(item)) return false;
+    const sources = (item as { sources: string[] }).sources;
+    const listenerRole = (item as { listenerRole: "A" | "B" }).listenerRole;
+    const speakerRole = (item as { speakerRole: "A" | "B" }).speakerRole;
+    const statement = sources.map((source) => bySource.get(source)).find((turn) =>
+      turn?.authorRole === speakerRole && ["OPENING", "RESPONSE"].includes(turn.kind)
+    );
+    const reflection = sources.map((source) => bySource.get(source)).find((turn) =>
+      turn?.kind === "REFLECTION" && turn.authorRole === listenerRole &&
+      turn.replyToSequence === statement?.sequence
+    );
+    return sources.map((source) => bySource.get(source)).some((turn) =>
+      turn?.kind === "REFLECTION_CONFIRMATION" && turn.authorRole === speakerRole &&
+      turn.replyToSequence === reflection?.sequence && turn.payload.decision === "ACCURATE"
+    );
+  });
 }
 
 function reviewUsesOnlyAvailableSources(value: unknown, sources: Set<string>) {
@@ -468,7 +549,10 @@ export function normalizeUnderstandingResult(value: unknown) {
     .join("\u0000");
   return {
     ...value,
-    commonGround: uniqueGeneratedItems(value.commonGround, evidenceKey),
+    mutualUnderstanding: uniqueGeneratedItems(
+      value.mutualUnderstanding,
+      (item) => `${item.listenerRole}\u0000${item.speakerRole}\u0000${canonicalGeneratedText(item.text)}`,
+    ),
     differences: uniqueGeneratedItems(value.differences, differenceKey),
     unverifiedFacts: uniqueGeneratedItems(value.unverifiedFacts, evidenceKey),
     boundaries: uniqueGeneratedItems(value.boundaries, evidenceKey),
@@ -584,21 +668,22 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
       sourceKeys,
     ) as unknown as Record<string, unknown>,
     systemText: [
-      "你是‘说开’的共识 Agent，只生成理解层候选，不裁判谁对谁错，也不提出行动方案。",
+      "你是‘说开’的互相理解 Agent。你的任务不是复述两张表达卡，而是找出双方经过真实复述与本人确认后，已经听懂了对方什么。你不裁判谁对谁错，也不提出行动方案。",
       "输入只包含双方本人确认并同意分享的表达卡。不得推断私人原话、人格、动机、诊断或关系结论。",
-      "若输入含 confirmedDialogueTimeline，它是双方在房间内已共享的多轮表达、复述、确认与回应，每条 source 都可作为证据。必须以其中较新的纠正和确认作为阶段总结依据；不能只复述最初两张表达卡。",
-      "共同点必须是双方表达中都有依据的重叠；不同主张必须保留为分歧；未经双方确认的事实只能放进未核实事实。",
-      "共同点必须是具体语义重叠，不能仅写‘双方都有负面情绪’等空泛类别；找不到真实重叠时 commonGround 必须为空数组，绝不能为了填满结构制造共同点。每个共同点、候选理解和核心问题的 sources 都必须同时包含 A 与 B。",
+      "confirmedDialogueTimeline 是双方已共享的表达、复述、确认与回应。replyToSequence 表示这一条在回应哪一条。必须以较新的纠正和确认作为依据，不能只复述最初两张表达卡。",
+      "mutualUnderstanding 必须恰好两项：A 听懂 B、B 听懂 A。每项都必须引用三类证据：原表达者的 OPENING/RESPONSE、倾听者的 REFLECTION、原表达者 decision=ACCURATE 的 REFLECTION_CONFIRMATION。没有这条完整证据链就不得声称已经听懂。",
+      "mutualUnderstanding.text 要写对方真正希望被理解的含义，例如关心、影响、顾虑或边界；不要复制整段原话，不要写‘A 表示……；B 表示……’式会议纪要。",
+      "newUnderstanding 只写交流后才变清楚的一层含义：被纠正的误读、行为背后的已确认顾虑，或双方终于能同时看见的关系。它必须只引用 DIALOGUE sources，并同时包含 A、B 的对话证据；不得照抄任一张初始表达卡。",
+      "不同主张必须保留为 differences；未经双方确认的事实只能放进 unverifiedFacts。不要为了显得圆满制造共同点。",
       "边界只允许来自 boundary、acceptableRange、selfProtectiveAction 字段，或 confirmedDialogueTimeline 中某一方后来明确声明的边界；普通 request 绝不能写入 boundaries。边界必须原样保留其约束性。",
       "differences.sideA 和 sideB 必须写双方表达的自然语言摘要，绝不能填写 A.request、B.need 等字段名。",
       "同一项共同点、分歧、未核实事实或边界只能输出一次。相同 topic、sideA 和 sideB 的分歧必须合并，绝不能用换序或重复措辞凑满数组。",
       "任何摘要里出现观察、感受、需要或请求的内容，sources 都必须逐项包含对应字段；如果 sources 只写 observation，side 文本就绝不能顺带加入 feeling。",
       "unverifiedFacts 只收录输入中确实出现但仍有争议或不确定的事实，不得把输入未提及的细节包装成待核实事实。",
-      "candidateUnderstanding 表达双方现在可以共同确认的最小理解；优先用‘A 表示……；B 表示……；双方尚未对……达成一致’这种带归属的对照摘要。不得把双方不同观察拼接成一条共同事实，不代表认错、原谅或接受方案。",
-      "coreQuestion 必须写成中立、可共同讨论的问题。双方需要不同时，必须带归属地分别表述，例如‘如何同时回应 A 的……与 B 的……’，不能把不同需要合并成‘双方都……’。没有安全风险时 safetyDisposition 为 ALLOW 且 safetyMessage 必须为空字符串。",
+      "nextQuestion 必须是下一轮只需回答的一个具体问题，直接连接尚未解决的分歧，并同时回应双方已经确认的顾虑。禁止写‘如何更好沟通’等空泛问题。没有安全风险时 safetyDisposition 为 ALLOW 且 safetyMessage 必须为空字符串。",
       `本次允许引用的 sources 只有：${sourceKeys.join("、")}。绝不能引用列表之外或内容为空的字段。`,
       isRevision
-        ? "这是唯一一次修订：必须逐条消除 reviewIssues。只要出现 FALSE_CONSENSUS，commonGround 就宁可为空；candidateUnderstanding 只能写两句带归属的‘A 表示……；B 表示……’，不得再追加‘双方……’结论。sources 必须精确指向实际支撑语义的字段，不确定就删掉该项。"
+        ? "这是唯一一次修订：必须逐条消除 reviewIssues。UNCONFIRMED_HEARING 必须回到准确确认的证据链；NO_UNDERSTANDING_GAIN 必须改写为对话后才清楚的含义；GENERIC_NEXT_QUESTION 必须收窄到一个可回答的问题。sources 必须精确，不确定就删掉不受支持的措辞。"
         : "这是初次候选，不包含修订指令。",
       "输出中文。",
     ].join("\n"),
@@ -607,7 +692,8 @@ export function generateSharedUnderstanding(env: WorkerEnv, input: {
     normalize: (value) => normalizeUnderstandingResult(
       withoutUnavailableBoundaries(value, sourceSet),
     ),
-    validate: (value) => isUnderstandingResult(value) && usesOnlyAvailableSources(value, sourceSet),
+    validate: (value) => isUnderstandingResult(value) && usesOnlyAvailableSources(value, sourceSet) &&
+      mutualEvidenceChainsAreConfirmed(value, confirmedDialogueTimeline),
   });
 }
 
@@ -634,11 +720,13 @@ export function reviewSharedUnderstanding(env: WorkerEnv, input: {
     ) as unknown as Record<string, unknown>,
     systemText: [
       "你是独立的审查 Agent。不要重写候选，只判断它是否可以安全、忠实地展示给双方。",
-      "逐项检查：每个结论是否有 sources 支持；是否制造虚假共识；是否把争议事实写成真相；是否弱化边界；是否泄露未分享内容；是否含有可能升级风险的建议。",
+      "逐项检查：每个结论是否有 sources 支持；双方是否真的分别完成了经本人确认准确的复述；newUnderstanding 是否比初始表达卡多出经过对话确认的新理解；nextQuestion 是否具体；以及是否制造虚假共识、把争议当真相、弱化边界或泄露未分享内容。",
+      "mutualUnderstanding 每项必须能沿 replyToSequence 找到‘原表达—对方复述—原表达者确认 ACCURATE’的完整链。缺失、角色颠倒或只有 NEEDS_CORRECTION 时输出 UNCONFIRMED_HEARING。",
+      "如果 newUnderstanding 只是把 expressionA 和 expressionB 连接、压缩或换词，没有使用后续对话形成的新含义，输出 NO_UNDERSTANDING_GAIN。即使摘要忠实，也不能 PASS。",
+      "如果 nextQuestion 是‘如何沟通’‘怎样兼顾双方’这类无法直接回答的泛化问题，输出 GENERIC_NEXT_QUESTION。",
       "不能只看 sources 标签存在：必须把候选文本与对应输入字段逐字义对照；把双方不同观察拼成共同事实属于 FALSE_CONSENSUS。把普通请求列为边界属于 BOUNDARY_DILUTED。",
-      "候选若明确写成‘A 表示……；B 表示……’或‘双方的已确认表达存在差异’，这是有归属的对照摘要，不是共同事实，不能据此报 FALSE_CONSENSUS 或 FACT_AS_TRUTH。differences 中 sideA/sideB 明确分别归属双方的忠实摘要，同样不是把争议当真相。",
-      "只有 commonGround 真的表达双方都有的同一具体含义才允许通过；笼统说‘都有负面情绪’不算共同点。需求或请求可以交叉支持共同点，但 sources 必须准确指向实际支持字段。",
-      "没有实质问题才输出 PASS。UNSUPPORTED、FALSE_CONSENSUS、FACT_AS_TRUTH、BOUNDARY_DILUTED 都是可修订的语义问题，必须输出 REVISE，safetyDisposition 保持 ALLOW。",
+      "differences 中 sideA/sideB 明确分别归属双方的忠实摘要，不是把争议当真相；但忠实复述本身也不能替代互相理解证据和理解增量。",
+      "没有实质问题才输出 PASS。UNSUPPORTED、UNCONFIRMED_HEARING、NO_UNDERSTANDING_GAIN、GENERIC_NEXT_QUESTION、FALSE_CONSENSUS、FACT_AS_TRUTH、BOUNDARY_DILUTED 都是可修订问题，必须输出 REVISE，safetyDisposition 保持 ALLOW。",
       "非阻断但确需提醒的安全语境可以使用 WARN 并提供 safetyMessage。只有确有 PRIVATE_LEAK，或输入本身显示胁迫、自伤、伤人等真实危险且对应 UNSAFE 时才输出 BLOCK_SHARE/PAUSE 与 BLOCK；不得把普通依据不足标成 UNSAFE。",
       "issues 必须具体且只引用输入中存在的稳定字段。没有真实安全风险时 safetyMessage 必须为空字符串。输出中文。",
       `本次允许引用的 sources 只有：${sourceKeys.join("、")}。`,
