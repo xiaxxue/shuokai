@@ -10,7 +10,7 @@
     <view class="discovery-heading">
       <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
       <text class="title">先说给我听。</text>
-      <text class="description">不用一次讲完整。我会一次只追问一个关键背景；等你觉得讲清楚了，再由你选择用哪条路径整理表达卡。</text>
+      <text class="description">不用一次讲完整。我会一次只追问一个关键背景；等我确认已经听清关键内容，再由你选择用哪条路径整理表达卡。</text>
     </view>
 
     <view v-if="safetyDisposition !== 'ALLOW'" class="safety-note">
@@ -57,9 +57,9 @@
     </view>
 
     <view class="composer-dock">
-      <view v-if="(ready || followUpLimitReached) && !busy" class="finish-row">
+      <view v-if="ready && !busy" class="finish-row">
         <button class="finish-action" @tap="$emit('finish')">
-          <text>{{ ready ? '可以开始整理了' : '先按现有内容整理' }}</text>
+          <text>可以开始整理了</text>
           <text>选择表达路径 →</text>
         </button>
       </view>
@@ -99,10 +99,10 @@
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
       </view>
       <button
-        v-if="started && !busy && !ready && !followUpLimitReached"
+        v-if="started && !busy && !ready"
         class="skip-action"
         @tap="$emit('finish')"
-      >先不继续追问，直接选择表达路径</button>
+      >{{ followUpLimitReached ? '先按现有内容选择表达路径' : '先不继续追问，直接选择表达路径' }}</button>
     </view>
   </view>
 </template>
