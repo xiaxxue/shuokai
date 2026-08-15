@@ -192,6 +192,25 @@ function clarificationRequest() {
   });
 }
 
+test("private discovery schema avoids unsupported Cloudflare grammar keywords", () => {
+  assert.doesNotMatch(JSON.stringify(discoveryResultSchema), /"uniqueItems"/);
+
+  const input = {
+    sourceText: "昨晚他说不想每天提醒，我很失望。",
+    turns: [{ question: "你希望他怎么做？", answer: "希望他睡前问我一次" }],
+  };
+  const valid = structuredClone(validDiscoveryReadyResult());
+  assert.equal(isDiscoveryResult(valid, input), true);
+  const duplicated = {
+    ...valid,
+    latestAnswerUpdate: {
+      ...valid.latestAnswerUpdate,
+      updatedDimensions: ["intention", "intention"],
+    },
+  };
+  assert.equal(isDiscoveryResult(duplicated, input), false);
+});
+
 function clarificationEnv() {
   return {
     SUPABASE_URL: "https://project.example.test",
