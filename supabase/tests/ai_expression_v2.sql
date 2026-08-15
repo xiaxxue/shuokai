@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(16);
+select plan(21);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -27,6 +27,24 @@ select ok(
 select ok(
   not has_function_privilege('authenticated', 'public.internal_claim_ai_job_v2(uuid,text)', 'EXECUTE'),
   'authenticated clients cannot claim private AI jobs'
+);
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'private.expression_ai_input_hash(text,text,jsonb)',
+    'EXECUTE'
+  ),
+  'authenticated clients cannot call the private AI input hash helper'
+);
+select isnt(
+  private.expression_ai_input_hash(repeat('a', 64), 'NVC', '{}'::jsonb),
+  private.expression_ai_input_hash(repeat('a', 64), 'NVC', '{"request":"当天告诉我"}'::jsonb),
+  'manual draft changes produce a different model input hash'
+);
+select is(
+  private.expression_ai_input_hash(repeat('a', 64), 'NVC', '{"need":"确定感","request":"当天告诉我"}'::jsonb),
+  private.expression_ai_input_hash(repeat('a', 64), 'NVC', '{"request":"当天告诉我","need":"确定感"}'::jsonb),
+  'json object key order does not change the model input hash'
 );
 
 set local role authenticated;
@@ -88,6 +106,20 @@ select lives_ok(
   format('select public.internal_claim_ai_job_v2(%L::uuid, %L)', job_id::text, 'test-worker'),
   'service role can claim the queued job'
 ) from test_v2_context;
+
+reset role;
+select is(
+  (select job.pipeline_version from private.ai_jobs job where job.id = context.job_id),
+  'expression-dialogue-v2',
+  'reflective expression jobs use the versioned dialogue pipeline'
+) from test_v2_context context;
+select is(
+  (select job.prompt_version from private.ai_jobs job where job.id = context.job_id),
+  'reflective-dialogue-v2',
+  'reflective expression jobs record the prompt contract version'
+) from test_v2_context context;
+
+set local role service_role;
 select lives_ok(
   format(
     'select public.internal_complete_ai_job_v2(%L::uuid, %L, %L, %L::jsonb)',
