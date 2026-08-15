@@ -106,6 +106,8 @@ select lives_ok(
   format('select public.internal_claim_ai_job_v2(%L::uuid, %L)', job_id::text, 'test-worker'),
   'service role can claim the queued job'
 ) from test_v2_context;
+
+reset role;
 select is(
   (select job.pipeline_version from private.ai_jobs job where job.id = context.job_id),
   'expression-dialogue-v2',
@@ -116,6 +118,8 @@ select is(
   'reflective-dialogue-v2',
   'reflective expression jobs record the prompt contract version'
 ) from test_v2_context context;
+
+set local role service_role;
 select lives_ok(
   format(
     'select public.internal_complete_ai_job_v2(%L::uuid, %L, %L, %L::jsonb)',
