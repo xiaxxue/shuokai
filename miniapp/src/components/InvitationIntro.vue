@@ -10,7 +10,7 @@
         <view role="status" aria-live="polite">
           <view class="topic-meta">
             <text class="topic-label">这次想谈的是</text>
-            <text v-if="status === 'ready'" class="topic-source">{{ context.generatedByAi ? "AI 根据已确认内容整理" : "根据已确认内容整理" }}</text>
+            <text v-if="status === 'ready'" class="topic-source">{{ context.confirmedSummary ? "发起方已确认" : "根据确认内容整理" }}</text>
           </view>
           <text class="topic-title">{{ titleCopy }}</text>
           <text class="topic-summary">{{ summaryCopy }}</text>

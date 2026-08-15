@@ -8,7 +8,7 @@ import {
   parseInvitationContext,
   topicFromEditableExpression,
 } from "../src/domain/invitation";
-import { createEditableExpression } from "../src/domain/expression";
+import { createEditableExpression, invitationDraftFromExpression } from "../src/domain/expression";
 
 describe("receiver invitation guidance", () => {
   it("accepts only a bounded inviter label and neutral topic", () => {
@@ -17,14 +17,14 @@ describe("receiver invitation guidance", () => {
       topic: "  视频聊天时提到另一个女生好看。  ",
       title: "关于视频聊天中的一句话",
       summary: "在一次视频聊天中，发起方想谈谈对方称赞另一个女生这件事。",
-      generatedByAi: true,
+      confirmedSummary: true,
       hiddenDraft: "不得进入客户端状态",
     })).toEqual({
       inviterName: "邀请你的人",
       topic: "视频聊天时提到另一个女生好看。",
       title: "关于视频聊天中的一句话",
       summary: "在一次视频聊天中，发起方想谈谈对方称赞另一个女生这件事。",
-      generatedByAi: true,
+      confirmedSummary: true,
     });
     expect(() => parseInvitationContext({ inviterName: "", topic: "某件事" }))
       .toThrow("邀请说明格式无效");
@@ -37,7 +37,7 @@ describe("receiver invitation guidance", () => {
         topic: "周日仍未收到消息",
         title: "关于这次沟通",
         summary: "发起方确认的背景是：周日仍未收到消息",
-        generatedByAi: false,
+        confirmedSummary: false,
       });
   });
 
@@ -47,10 +47,11 @@ describe("receiver invitation guidance", () => {
     expression.fields.feeling = "难过";
     expression.fields.need = "尊重";
     expression.fields.request = "希望先听我说完";
+    expression.invitation = invitationDraftFromExpression(expression);
     expect(topicFromEditableExpression(expression)).toBe("视频聊天时提到另一个女生好看");
     expect(invitationContextFromEditableExpression(expression)).toMatchObject({
       title: "关于这次具体经历",
-      generatedByAi: false,
+      confirmedSummary: true,
     });
   });
 
@@ -60,7 +61,7 @@ describe("receiver invitation guidance", () => {
       topic: "视频聊天时提到另一个女生好看",
       title: "关于视频聊天中的一句话",
       summary: "发起方想谈谈视频聊天时发生的一件事。",
-      generatedByAi: true,
+      confirmedSummary: true,
     }, "SAY2026");
     expect(message).toContain("房间 SAY2026");
     expect(message).toContain("发生时间、场景或具体行为");

@@ -245,6 +245,13 @@ describe("private editor draft recovery", () => {
       editableExpression: {
         mode: "NVC" as const,
         fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+        invitation: {
+          ready: true,
+          title: "关于周日仍未收到消息",
+          summary: "我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+          sourceHash: "",
+          generatedByAi: false,
+        },
         uncertainties: [],
         safetyDisposition: "ALLOW" as const,
         safetyMessage: "",

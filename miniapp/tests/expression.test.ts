@@ -6,6 +6,7 @@ import {
   expressionModeOption,
   expressionModeOptions,
   expressionSharePayload,
+  invitationDraftIsComplete,
   parseAiExpressionCandidate,
 } from "../src/domain/expression";
 
@@ -58,11 +59,20 @@ describe("expression modes", () => {
         request: "变化时当天告诉我",
       },
       uncertainties: ["是否已经发送但未送达"],
+      invitation: {
+        ready: true,
+        title: "关于周日仍未收到消息",
+        summary: "我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+        sourceHash: "a".repeat(64),
+        generatedByAi: true,
+      },
       safetyDisposition: "WARN",
       safetyMessage: "分享前确认场合是否安全。",
     }, "NVC");
     expect(parsed.fields.need).toBe("确定感");
     expect(parsed.safetyDisposition).toBe("WARN");
+    expect(parsed.invitation.title).toBe("关于周日仍未收到消息");
+    expect(invitationDraftIsComplete(parsed.invitation)).toBe(true);
   });
 
   it("rejects a result for a different path", () => {

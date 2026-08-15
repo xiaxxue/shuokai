@@ -266,6 +266,7 @@
         :source-text="transcript"
         :current-step="expressionReviewStep"
         @update-field="updateExpressionField"
+        @update-invitation="updateInvitationDraft"
         @change-mode="changeExpressionMode"
         @edit-step="expressionReviewStep = $event"
       />
@@ -330,7 +331,7 @@
         <view class="invite-preview">
           <view class="invite-preview-meta">
             <text class="invite-preview-label">对方将先看到</text>
-            <text class="invite-preview-method">{{ resolvedInvitationContext.generatedByAi ? "AI 已整理" : invitationContextStatus === "loading" ? "AI 正在整理" : "根据确认内容整理" }}</text>
+            <text class="invite-preview-method">{{ resolvedInvitationContext.confirmedSummary ? "已随表达卡固定" : invitationContextStatus === "loading" ? "正在读取" : "根据确认内容整理" }}</text>
           </view>
           <text class="invite-preview-topic">{{ resolvedInvitationContext.title }}</text>
           <text class="invite-preview-summary">{{ resolvedInvitationContext.summary }}</text>
@@ -536,6 +537,8 @@ import {
   expressionModeOption,
   expressionIsComplete,
   expressionSharePayload,
+  invitationDraftFromExpression,
+  invitationDraftIsComplete,
   parseAiExpressionCandidate,
   type EditableExpression,
   type ExpressionMode,
@@ -795,6 +798,7 @@ const canContinue = computed(() => {
       return Boolean(editableExpression.value.fields[field.key]?.trim());
     }
     return expressionIsComplete(editableExpression.value) &&
+      invitationDraftIsComplete(editableExpression.value.invitation) &&
       !["BLOCK_SHARE", "PAUSE"].includes(editableExpression.value.safetyDisposition);
   }
   if (activeNvcCard.value) return perspective[activeNvcCard.value.key].trim().length > 0;
@@ -805,7 +809,7 @@ const canContinue = computed(() => {
 const nextLabel = computed(() => {
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
   if (stage.value === "EXPRESSION_REVIEW") {
-    if (expressionReviewIsSummary.value) return "确认并分享这张表达卡";
+    if (expressionReviewIsSummary.value) return "确认表达卡和邀请说明";
     return "保存修改，返回表达卡";
   }
   if (activeNvcCard.value) {
@@ -901,6 +905,13 @@ function resetClarification(skipped = false) {
 }
 
 function openExpressionReview(showSummary = true) {
+  if (showSummary && !editableExpression.value.invitation.title.trim() &&
+    !editableExpression.value.invitation.summary.trim()) {
+    editableExpression.value = {
+      ...editableExpression.value,
+      invitation: invitationDraftFromExpression(editableExpression.value),
+    };
+  }
   expressionReviewStep.value = showSummary
     ? expressionReviewSummaryStep(currentExpressionOption.value.fields.length)
     : 0;
@@ -1544,6 +1555,17 @@ function updateExpressionField(key: string, value: string) {
   };
 }
 
+function updateInvitationDraft(key: "title" | "summary", value: string) {
+  const next = { ...editableExpression.value.invitation, [key]: value };
+  editableExpression.value = {
+    ...editableExpression.value,
+    invitation: {
+      ...next,
+      ready: invitationDraftIsComplete({ ...next, ready: true }),
+    },
+  };
+}
+
 function changeExpressionMode() {
   stopExpressionJobPolling();
   expressionReviewStep.value = 0;
@@ -1715,7 +1737,7 @@ function confirmPause() {
 async function next() {
   if (!room.value || !canContinue.value) return;
   if (stage.value === "EXPRESSION_REVIEW" && !expressionReviewIsSummary.value) {
-    expressionReviewStep.value = expressionReviewSummaryStep(currentExpressionOption.value.fields.length);
+    openExpressionReview();
     return;
   }
   const attemptedStage = stage.value;
@@ -1760,6 +1782,8 @@ async function next() {
         room.value.roomId,
         workspaceRevision.value,
         expressionSharePayload(editableExpression.value),
+        editableExpression.value.invitation.title,
+        editableExpression.value.invitation.summary,
       );
       clearEditorDraft(room.value.roomId, room.value.role);
       aiJobId.value = "";
@@ -1816,7 +1840,7 @@ async function next() {
           topic: perspective.fact.trim().slice(0, 180),
           title: "关于这次具体经历",
           summary: `发起方确认的背景是：${perspective.fact.trim().slice(0, 180)} 你可以先讲讲自己记得的情况。`,
-          generatedByAi: false,
+          confirmedSummary: false,
         };
         stage.value = "INVITE";
         setNotice("success", "你的版本已确认，不会再分享草稿内容。 ");
@@ -1988,7 +2012,7 @@ function goBack() {
   }
   if (stage.value === "EXPRESSION_REVIEW") {
     if (!expressionReviewIsSummary.value) {
-      expressionReviewStep.value = expressionReviewSummaryStep(currentExpressionOption.value.fields.length);
+      openExpressionReview();
       return;
     }
     clarificationSkipped.value = false;

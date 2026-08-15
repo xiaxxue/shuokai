@@ -312,10 +312,22 @@ export const roomApi = {
       "reopen_expression_v2",
       { p_room_id: roomId },
     ),
-  confirmExpression: async (roomId: string, revision: number, payload: Record<string, unknown>) =>
+  confirmExpression: async (
+    roomId: string,
+    revision: number,
+    payload: Record<string, unknown>,
+    invitationTitle: string,
+    invitationSummary: string,
+  ) =>
     rpc<{ state: RoomSession["state"]; version: number; expressionId: string }>(
-      "confirm_expression_version_v2",
-      { p_room_id: roomId, p_expected_revision: revision, p_payload: payload },
+      "confirm_expression_version_v3",
+      {
+        p_room_id: roomId,
+        p_expected_revision: revision,
+        p_payload: payload,
+        p_invitation_title: invitationTitle,
+        p_invitation_summary: invitationSummary,
+      },
     ),
   pause: async (roomId: string) =>
     rpc<{ phase: "PAUSED"; paused: true }>("pause_room_v2", { p_room_id: roomId }),
