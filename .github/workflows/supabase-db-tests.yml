@@ -1,0 +1,54 @@
+name: Supabase Database Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/supabase-db-tests.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/supabase-db-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-db-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pgtap:
+    name: Apply migrations and run pgTAP
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Start clean Supabase database
+        run: npx --no-install supabase db start
+
+      - name: Run database tests
+        run: npx --no-install supabase test db
+
+      - name: Stop and remove test database
+        if: always()
+        run: npx --no-install supabase stop --no-backup
