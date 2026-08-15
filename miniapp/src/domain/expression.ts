@@ -78,6 +78,19 @@ export function invitationDraftIsComplete(invitation: EditableInvitationDraft) {
     !/[\r\n]/u.test(title) && summary.length >= 20 && summary.length <= 300;
 }
 
+export function expressionAfterFieldEdit(
+  expression: EditableExpression,
+  key: string,
+  value: string,
+): EditableExpression {
+  const next = {
+    ...expression,
+    fields: { ...expression.fields, [key]: value },
+  };
+  if (key !== invitationSourceField(expression.mode)) return next;
+  return { ...next, invitation: invitationDraftFromExpression(next) };
+}
+
 const nvcFields: readonly ExpressionField[] = [
   {
     key: "observation",

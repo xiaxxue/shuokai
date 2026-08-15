@@ -537,6 +537,7 @@ import {
   expressionModeOption,
   expressionIsComplete,
   expressionSharePayload,
+  expressionAfterFieldEdit,
   invitationDraftFromExpression,
   invitationDraftIsComplete,
   parseAiExpressionCandidate,
@@ -1549,10 +1550,7 @@ async function toggleRecording() {
 }
 
 function updateExpressionField(key: string, value: string) {
-  editableExpression.value = {
-    ...editableExpression.value,
-    fields: { ...editableExpression.value.fields, [key]: value },
-  };
+  editableExpression.value = expressionAfterFieldEdit(editableExpression.value, key, value);
 }
 
 function updateInvitationDraft(key: "title" | "summary", value: string) {

@@ -5,6 +5,7 @@ import {
   expressionIsComplete,
   expressionModeOption,
   expressionModeOptions,
+  expressionAfterFieldEdit,
   expressionSharePayload,
   invitationDraftIsComplete,
   parseAiExpressionCandidate,
@@ -78,6 +79,42 @@ describe("expression modes", () => {
   it("rejects a result for a different path", () => {
     expect(() => parseAiExpressionCandidate({ mode: "NVC", fields: {} }, "BOUNDARY"))
       .toThrow("格式无效");
+  });
+
+  it("invalidates an AI invitation when its event source is edited", () => {
+    const expression = createEditableExpression("NVC");
+    expression.fields.observation = "周日仍未收到消息";
+    expression.invitation = {
+      ready: true,
+      title: "关于周日仍未收到消息",
+      summary: "我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+      sourceHash: "a".repeat(64),
+      generatedByAi: true,
+    };
+
+    const updated = expressionAfterFieldEdit(expression, "observation", "周一已经收到回复");
+
+    expect(updated.invitation.generatedByAi).toBe(false);
+    expect(updated.invitation.sourceHash).toBe("");
+    expect(updated.invitation.summary).toContain("周一已经收到回复");
+    expect(updated.invitation.summary).not.toContain("周日仍没有消息");
+    expect(invitationDraftIsComplete(updated.invitation)).toBe(true);
+  });
+
+  it("keeps a confirmed invitation draft when a non-source card field is edited", () => {
+    const expression = createEditableExpression("NVC");
+    expression.fields.observation = "周日仍未收到消息";
+    expression.invitation = {
+      ready: true,
+      title: "关于周日仍未收到消息",
+      summary: "我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+      sourceHash: "a".repeat(64),
+      generatedByAi: true,
+    };
+
+    const updated = expressionAfterFieldEdit(expression, "feeling", "失望和担心");
+
+    expect(updated.invitation).toEqual(expression.invitation);
   });
 
   it("bounds AI follow-up questions at the client boundary", () => {
