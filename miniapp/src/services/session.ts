@@ -36,6 +36,7 @@ export type EditorDraft = {
   discoveryStarted?: boolean;
   discoveryQuestion?: string;
   discoveryReady?: boolean;
+  discoveryFollowUpLimitReached?: boolean;
   discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
   discoverySafetyMessage?: string;
 };
@@ -144,6 +145,9 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoveryReady = typeof candidate.discoveryReady === "boolean"
     ? candidate.discoveryReady
     : undefined;
+  const discoveryFollowUpLimitReached = typeof candidate.discoveryFollowUpLimitReached === "boolean"
+    ? candidate.discoveryFollowUpLimitReached
+    : undefined;
   const discoverySafetyDisposition = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"]
     .includes(String(candidate.discoverySafetyDisposition))
     ? candidate.discoverySafetyDisposition
@@ -173,6 +177,7 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(discoveryStarted !== undefined ? { discoveryStarted } : {}),
     ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
     ...(discoveryReady !== undefined ? { discoveryReady } : {}),
+    ...(discoveryFollowUpLimitReached !== undefined ? { discoveryFollowUpLimitReached } : {}),
     ...(discoverySafetyDisposition !== undefined ? { discoverySafetyDisposition } : {}),
     ...(discoverySafetyMessage !== undefined ? { discoverySafetyMessage } : {}),
   };

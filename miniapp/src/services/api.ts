@@ -378,16 +378,24 @@ export async function requestExpressionClarification(
   }
   const result = response.data as Record<string, unknown>;
   const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
+  const coverage = result.coverage as Record<string, unknown> | undefined;
+  const coverageKeys = ["event", "impact", "intention"] as const;
+  const coverageIsValid = Boolean(coverage && Object.keys(coverage).length === coverageKeys.length &&
+    coverageKeys.every((key) => ["ENOUGH", "MISSING"].includes(String(coverage[key]))));
+  const allCovered = coverageIsValid && coverageKeys.every((key) => coverage?.[key] === "ENOUGH");
   if (typeof result.question !== "string" || result.question.length > 500 ||
     typeof result.ready !== "boolean" ||
+    typeof result.followUpLimitReached !== "boolean" || !coverageIsValid ||
+    result.ready !== allCovered || (result.ready && result.followUpLimitReached) ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
     typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
-    result.ready === Boolean(result.question.trim())) {
+    (result.ready || result.followUpLimitReached) === Boolean(result.question.trim())) {
     throw new Error("AI 私人对话返回了无效内容，请稍后重试。");
   }
   return {
     question: result.question,
     ready: result.ready,
+    followUpLimitReached: result.followUpLimitReached,
     safetyDisposition: result.safetyDisposition as typeof dispositions[number],
     safetyMessage: result.safetyMessage,
   };

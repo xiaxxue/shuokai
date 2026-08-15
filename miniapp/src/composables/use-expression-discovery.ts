@@ -25,6 +25,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   const started = ref(false);
   const question = ref("");
   const ready = ref(false);
+  const followUpLimitReached = ref(false);
   const safetyDisposition = ref<SafetyDisposition>("ALLOW");
   const safetyMessage = ref("");
   const thinking = ref(false);
@@ -33,6 +34,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     started.value = false;
     question.value = "";
     ready.value = false;
+    followUpLimitReached.value = false;
     safetyDisposition.value = "ALLOW";
     safetyMessage.value = "";
     thinking.value = false;
@@ -45,7 +47,9 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     if (!sourceText) return;
     const currentQuestion = question.value.trim();
     const currentAnswer = options.answer.value.trim();
-    if (!isInitialMessage && (!currentQuestion || !currentAnswer || ready.value)) return;
+    if (!isInitialMessage && (
+      !currentQuestion || !currentAnswer || ready.value || followUpLimitReached.value
+    )) return;
 
     options.clearNotice();
     options.busy.value = true;
@@ -66,6 +70,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       }
       question.value = result.question;
       ready.value = result.ready;
+      followUpLimitReached.value = result.followUpLimitReached;
       safetyDisposition.value = result.safetyDisposition;
       safetyMessage.value = result.safetyMessage;
     } catch (error) {
@@ -87,8 +92,16 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     }
     options.selectedMode.value = null;
     options.stage.value = "MODE_SELECT";
-    options.setNotice("info", "现在选择表达路径。AI 会用刚才的完整对话整理卡片。 ");
+    options.setNotice(
+      "info",
+      ready.value
+        ? "这些背景已经足够开始整理。现在选择表达路径。 "
+        : "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ",
+    );
   }
 
-  return { started, question, ready, safetyDisposition, safetyMessage, thinking, reset, send, finish };
+  return {
+    started, question, ready, followUpLimitReached,
+    safetyDisposition, safetyMessage, thinking, reset, send, finish,
+  };
 }

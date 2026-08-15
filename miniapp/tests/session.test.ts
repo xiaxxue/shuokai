@@ -196,6 +196,7 @@ describe("private editor draft recovery", () => {
       discoveryStarted: true,
       discoveryQuestion: "你当时具体说了什么？",
       discoveryReady: false,
+      discoveryFollowUpLimitReached: false,
       discoverySafetyDisposition: "ALLOW" as const,
       discoverySafetyMessage: "",
     };
@@ -211,6 +212,7 @@ describe("private editor draft recovery", () => {
       discoveryStarted: true,
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
+      discoveryFollowUpLimitReached: false,
       discoverySafetyDisposition: "ALLOW",
       discoverySafetyMessage: "",
     });

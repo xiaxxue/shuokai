@@ -55,6 +55,7 @@ describe("expression discovery orchestration", () => {
     mocks.clarify.mockResolvedValueOnce({
       question: "当他拒绝提醒时，你最希望他理解什么？",
       ready: false,
+      followUpLimitReached: false,
       safetyDisposition: "ALLOW",
       safetyMessage: "",
     });
@@ -78,12 +79,14 @@ describe("expression discovery orchestration", () => {
       .mockResolvedValueOnce({
         question: "当他拒绝提醒时，你最希望他理解什么？",
         ready: false,
+        followUpLimitReached: false,
         safetyDisposition: "ALLOW",
         safetyMessage: "",
       })
       .mockResolvedValueOnce({
         question: "如果他愿意回应，你希望他具体怎么做？",
         ready: true,
+        followUpLimitReached: false,
         safetyDisposition: "ALLOW",
         safetyMessage: "",
       });
@@ -106,10 +109,11 @@ describe("expression discovery orchestration", () => {
     expect(state.flow.ready.value).toBe(true);
   });
 
-  it("moves to route selection only after the conversation has started", async () => {
+  it("allows an explicit skip without claiming incomplete context is ready", async () => {
     mocks.clarify.mockResolvedValueOnce({
       question: "你希望这次沟通带来什么变化？",
       ready: false,
+      followUpLimitReached: false,
       safetyDisposition: "ALLOW",
       safetyMessage: "",
     });
@@ -125,7 +129,7 @@ describe("expression discovery orchestration", () => {
     expect(state.stage.value).toBe("MODE_SELECT");
     expect(state.setNotice).toHaveBeenLastCalledWith(
       "info",
-      "现在选择表达路径。AI 会用刚才的完整对话整理卡片。 ",
+      "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ",
     );
   });
 
@@ -133,6 +137,7 @@ describe("expression discovery orchestration", () => {
     mocks.clarify.mockResolvedValueOnce({
       question: "你最在意哪一部分？",
       ready: false,
+      followUpLimitReached: false,
       safetyDisposition: "ALLOW",
       safetyMessage: "",
     });

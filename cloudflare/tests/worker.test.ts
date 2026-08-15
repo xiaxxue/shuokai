@@ -751,7 +751,7 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   assert.match(JSON.stringify(captured.input), /情感困扰本身不是阻止分享的理由/);
 });
 
-test("private discovery asks before any expression path is selected", async () => {
+test("private discovery asks about missing context before any expression path is selected", async () => {
   const captured: { input?: Record<string, unknown> } = {};
   const generated = await generateDiscoveryQuestion({
     AI: {
@@ -760,6 +760,8 @@ test("private discovery asks before any expression path is selected", async () =
         return { response: JSON.stringify({
           question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
           ready: false,
+          followUpLimitReached: false,
+          coverage: { event: "MISSING", impact: "MISSING", intention: "MISSING" },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
         }) };
@@ -772,21 +774,27 @@ test("private discovery asks before any expression path is selected", async () =
   assert.deepEqual(generated.result, {
     question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
     ready: false,
+    followUpLimitReached: false,
+    coverage: { event: "MISSING", impact: "MISSING", intention: "MISSING" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   });
   assert.equal(discoveryResultSchema.additionalProperties, false);
   assert.match(JSON.stringify(captured.input), /绝不能生成表达卡/);
   assert.match(JSON.stringify(captured.input), /不能推荐或预设非暴力沟通/);
+  assert.match(JSON.stringify(captured.input), /轮数不是理解完成的依据/);
+  assert.match(JSON.stringify(captured.input), /event、impact、intention 全部为 ENOUGH/);
 });
 
-test("private discovery can end only after at least one path-neutral follow-up", async () => {
+test("private discovery can finish without a ceremonial follow-up when context is already complete", async () => {
   const completed = await generateDiscoveryQuestion({
     AI: {
       async run() {
         return { response: JSON.stringify({
           question: "",
           ready: true,
+          followUpLimitReached: false,
+          coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
           safetyDisposition: "ALLOW",
           safetyMessage: "",
         }) };
@@ -794,18 +802,55 @@ test("private discovery can end only after at least one path-neutral follow-up",
     },
   }, {
     sourceText: "我男朋友不想提醒我睡觉，并且觉得很烦。",
-    turns: [{ question: "当时发生了什么？", answer: "我请他十一点提醒我，他说不想每天提醒。" }],
+    turns: [],
   });
   assert.equal((completed.result as { ready: boolean }).ready, true);
   assert.equal(isDiscoveryResult({
     question: "",
     ready: true,
+    followUpLimitReached: false,
+    coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
-  }, true), false);
+  }), true);
   assert.equal(isDiscoveryResult({
     question: "还发生了什么？",
     ready: true,
+    followUpLimitReached: false,
+    coverage: { event: "ENOUGH", impact: "ENOUGH", intention: "ENOUGH" },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }), false);
+});
+
+test("private discovery stops honestly at the server-controlled follow-up limit", async () => {
+  const turns = Array.from({ length: 8 }, (_, index) => ({
+    question: `问题 ${index + 1}`,
+    answer: `回答 ${index + 1}`,
+  }));
+  const result = await generateDiscoveryQuestion({
+    AI: {
+      async run() {
+        return { response: JSON.stringify({
+          question: "你还希望对方理解什么？",
+          ready: false,
+          followUpLimitReached: false,
+          coverage: { event: "ENOUGH", impact: "MISSING", intention: "ENOUGH" },
+          safetyDisposition: "ALLOW",
+          safetyMessage: "",
+        }) };
+      },
+    },
+  }, { sourceText: "我们发生了争执。", turns });
+
+  const discovery = result.result as { ready: boolean; followUpLimitReached: boolean };
+  assert.equal(discovery.ready, false);
+  assert.equal(discovery.followUpLimitReached, true);
+  assert.equal(isDiscoveryResult({
+    question: "",
+    ready: true,
+    followUpLimitReached: false,
+    coverage: { event: "ENOUGH", impact: "MISSING", intention: "ENOUGH" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   }), false);
