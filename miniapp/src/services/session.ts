@@ -33,6 +33,11 @@ export type EditorDraft = {
   clarificationTurns?: ClarificationTurn[];
   clarificationAnswer?: string;
   clarificationSkipped?: boolean;
+  discoveryStarted?: boolean;
+  discoveryQuestion?: string;
+  discoveryReady?: boolean;
+  discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
+  discoverySafetyMessage?: string;
 };
 
 export function getSession(): AuthSession | null {
@@ -130,6 +135,22 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const clarificationSkipped = typeof candidate.clarificationSkipped === "boolean"
     ? candidate.clarificationSkipped
     : undefined;
+  const discoveryStarted = typeof candidate.discoveryStarted === "boolean"
+    ? candidate.discoveryStarted
+    : undefined;
+  const discoveryQuestion = isBoundedText(candidate.discoveryQuestion, 500)
+    ? candidate.discoveryQuestion
+    : undefined;
+  const discoveryReady = typeof candidate.discoveryReady === "boolean"
+    ? candidate.discoveryReady
+    : undefined;
+  const discoverySafetyDisposition = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"]
+    .includes(String(candidate.discoverySafetyDisposition))
+    ? candidate.discoverySafetyDisposition
+    : undefined;
+  const discoverySafetyMessage = isBoundedText(candidate.discoverySafetyMessage, 1000)
+    ? candidate.discoverySafetyMessage
+    : undefined;
   return {
     roomId: candidate.roomId,
     role: candidate.role,
@@ -149,6 +170,11 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(clarificationTurns !== undefined ? { clarificationTurns } : {}),
     ...(clarificationAnswer !== undefined ? { clarificationAnswer } : {}),
     ...(clarificationSkipped !== undefined ? { clarificationSkipped } : {}),
+    ...(discoveryStarted !== undefined ? { discoveryStarted } : {}),
+    ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
+    ...(discoveryReady !== undefined ? { discoveryReady } : {}),
+    ...(discoverySafetyDisposition !== undefined ? { discoverySafetyDisposition } : {}),
+    ...(discoverySafetyMessage !== undefined ? { discoverySafetyMessage } : {}),
   };
 }
 

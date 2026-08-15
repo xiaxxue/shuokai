@@ -4,6 +4,7 @@ import type {
   RoomSession,
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
+import type { ClarificationTurn } from "../domain/clarification";
 import { parseDialogueState, type DialogueTurnKind } from "../domain/dialogue";
 import { parseInvitationContext } from "../domain/invitation";
 import { parseRoomHistoryPage, type RoomHistoryCursor } from "../domain/room-history";
@@ -354,6 +355,42 @@ export async function requestExpressionOrganization(
     throw new Error("AI 整理服务返回了无效任务，请改为手动填写。");
   }
   return { jobId: result.jobId, revision: result.revision };
+}
+
+export async function requestExpressionClarification(
+  roomId: string,
+  sourceText: string,
+  turns: ClarificationTurn[],
+) {
+  const session = await activeSession();
+  const response = await request<unknown>({
+    url: apiUrl("/ai/clarify"),
+    method: "POST",
+    header: {
+      Authorization: `Bearer ${session.accessToken}`,
+      "content-type": "application/json",
+    },
+    data: { roomId, sourceText, turns },
+    timeout: 25000,
+  });
+  if (response.statusCode !== 200 || !response.data || typeof response.data !== "object") {
+    throw new Error(errorMessage(response.data, "AI 暂时没有接住这句话，请稍后再试。"));
+  }
+  const result = response.data as Record<string, unknown>;
+  const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
+  if (typeof result.question !== "string" || result.question.length > 500 ||
+    typeof result.ready !== "boolean" ||
+    !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
+    typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
+    result.ready === Boolean(result.question.trim())) {
+    throw new Error("AI 私人对话返回了无效内容，请稍后重试。");
+  }
+  return {
+    question: result.question,
+    ready: result.ready,
+    safetyDisposition: result.safetyDisposition as typeof dispositions[number],
+    safetyMessage: result.safetyMessage,
+  };
 }
 
 async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {

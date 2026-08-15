@@ -32,6 +32,11 @@ import {
   understandingResultSchema,
   understandingReviewSchema,
 } from "../src/expression-ai.ts";
+import {
+  discoveryResultSchema,
+  generateDiscoveryQuestion,
+  isDiscoveryResult,
+} from "../src/discovery-ai.ts";
 
 function validMutualUnderstandingResult() {
   return {
@@ -420,6 +425,18 @@ test("AI expression endpoint fails honestly when the test queue is not configure
   });
 });
 
+test("AI clarification endpoint fails honestly when Workers AI is not configured", async () => {
+  const response = await handleRequest(new Request("https://shuokai.example/ai/clarify", {
+    method: "POST",
+    headers: { authorization: "Bearer signed.jwt.value" },
+  }), {});
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), {
+    message: "AI 私人对话尚未配置。",
+    code: "AI_SERVICE_NOT_CONFIGURED",
+  });
+});
+
 test("shared understanding endpoint fails honestly before any database call", async () => {
   const response = await handleRequest(new Request("https://shuokai.example/ai/understanding", {
     method: "POST",
@@ -432,10 +449,11 @@ test("shared understanding endpoint fails honestly before any database call", as
   });
 });
 
-test("test deployment routes both AI endpoints through the Worker", async () => {
+test("test deployment routes every AI endpoint through the Worker", async () => {
   const configText = await readFile(new URL("../wrangler.test.jsonc", import.meta.url), "utf8");
   assert.match(configText, /"\/ai\/expression\*"/);
   assert.match(configText, /"\/ai\/understanding\*"/);
+  assert.match(configText, /"\/ai\/clarify\*"/);
   assert.match(configText, /"\/room\/invitation-context\*"/);
   assert.match(configText, /"ai"\s*:\s*\{\s*"binding"\s*:\s*"AI"/);
   assert.match(configText, /"observability"\s*:\s*\{[\s\S]*?"enabled"\s*:\s*true/);
@@ -731,6 +749,66 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
   assert.match(JSON.stringify(captured.input), /第一次整理原话时 uncertainties 必须包含 1 个/);
   assert.match(JSON.stringify(captured.input), /不要重复已经回答的问题/);
   assert.match(JSON.stringify(captured.input), /情感困扰本身不是阻止分享的理由/);
+});
+
+test("private discovery asks before any expression path is selected", async () => {
+  const captured: { input?: Record<string, unknown> } = {};
+  const generated = await generateDiscoveryQuestion({
+    AI: {
+      async run(_model, input) {
+        captured.input = input;
+        return { response: JSON.stringify({
+          question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
+          ready: false,
+          safetyDisposition: "ALLOW",
+          safetyMessage: "",
+        }) };
+      },
+    },
+  }, {
+    sourceText: "我男朋友不想提醒我睡觉，并且觉得很烦。",
+    turns: [],
+  });
+  assert.deepEqual(generated.result, {
+    question: "他说‘觉得很烦’之前，你当时具体提醒了什么？",
+    ready: false,
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  });
+  assert.equal(discoveryResultSchema.additionalProperties, false);
+  assert.match(JSON.stringify(captured.input), /绝不能生成表达卡/);
+  assert.match(JSON.stringify(captured.input), /不能推荐或预设非暴力沟通/);
+});
+
+test("private discovery can end only after at least one path-neutral follow-up", async () => {
+  const completed = await generateDiscoveryQuestion({
+    AI: {
+      async run() {
+        return { response: JSON.stringify({
+          question: "",
+          ready: true,
+          safetyDisposition: "ALLOW",
+          safetyMessage: "",
+        }) };
+      },
+    },
+  }, {
+    sourceText: "我男朋友不想提醒我睡觉，并且觉得很烦。",
+    turns: [{ question: "当时发生了什么？", answer: "我请他十一点提醒我，他说不想每天提醒。" }],
+  });
+  assert.equal((completed.result as { ready: boolean }).ready, true);
+  assert.equal(isDiscoveryResult({
+    question: "",
+    ready: true,
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }, true), false);
+  assert.equal(isDiscoveryResult({
+    question: "还发生了什么？",
+    ready: true,
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }), false);
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {

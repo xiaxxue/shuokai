@@ -174,43 +174,29 @@
         @leave="leaveInvitation"
       />
 
-      <view v-else-if="stage === 'RECORD'" class="screen record-screen">
-        <view v-if="room?.role === 'B'" class="response-context">
-          <view class="response-context-copy">
-            <text class="response-context-label">正在回应</text>
-            <text class="response-context-topic">{{ resolvedInvitationContext.topic || "邀请方还需要补充具体背景" }}</text>
-          </view>
-          <button class="response-context-link" @tap="showInvitationIntro">查看邀请</button>
-        </view>
-        <text class="eyebrow">只说你的版本</text>
-        <text class="title">{{ recordTitle }}</text>
-        <text class="description">{{ recordDescription }}</text>
-        <button
-          class="record-button"
-          :class="{ recording }"
-          :disabled="busy && !recording"
-          @tap="toggleRecording"
-        >
-          <view class="record-core"><text class="mic">{{ recording ? "■" : "●" }}</text></view>
-          <text class="record-label">{{ recording ? "正在录音，点按结束" : "点按开始说" }}</text>
-          <text class="record-time">{{ formatDuration(recordingSeconds) }} / 02:00</text>
-        </button>
-        <view v-if="busy && !recording" class="processing-row">
-          <text class="processing-dot" />
-          <text>正在把录音转成文字，请稍候…</text>
-        </view>
-        <view class="field-heading">
-          <text>你的原话</text>
-          <text>{{ transcript.length }} / 12000</text>
-        </view>
-        <textarea
-          v-model="transcript"
-          class="transcript"
-          :maxlength="12000"
-          :placeholder="recordPlaceholder"
-        />
-        <text class="privacy-note">🔒 {{ editorPrivacyNote }}</text>
-      </view>
+      <ExpressionDiscovery
+        v-else-if="stage === 'RECORD' && room"
+        :source-text="transcript"
+        :answer="clarificationAnswer"
+        :turns="clarificationTurns"
+        :question="discoveryQuestion"
+        :started="discoveryStarted"
+        :ready="discoveryReady"
+        :busy="busy"
+        :thinking="discoveryThinking"
+        :recording="recording"
+        :recording-seconds="recordingSeconds"
+        :role="room.role"
+        :invitation-topic="resolvedInvitationContext.topic"
+        :safety-disposition="discoverySafetyDisposition"
+        :safety-message="discoverySafetyMessage"
+        @update:source-text="transcript = $event"
+        @update:answer="clarificationAnswer = $event"
+        @send="sendDiscoveryMessage"
+        @finish="finishDiscovery"
+        @record="toggleRecording"
+        @view-invitation="showInvitationIntro"
+      />
 
       <ExpressionModeChooser
         v-else-if="stage === 'MODE_SELECT'"
@@ -509,6 +495,7 @@ import H5AuthPanel from "../../components/H5AuthPanel.vue";
 import NvcReviewSummary from "../../components/NvcReviewSummary.vue";
 import NvcStepEditor from "../../components/NvcStepEditor.vue";
 import ExpressionModeChooser from "../../components/ExpressionModeChooser.vue";
+import ExpressionDiscovery from "../../components/ExpressionDiscovery.vue";
 import ExpressionClarification from "../../components/ExpressionClarification.vue";
 import ExpressionReview from "../../components/ExpressionReview.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
@@ -558,6 +545,7 @@ import {
 } from "../../services/api";
 import { useSharedUnderstanding } from "../../composables/use-shared-understanding";
 import { useRoomHistory } from "../../composables/use-room-history";
+import { useExpressionDiscovery } from "../../composables/use-expression-discovery";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
 import { startRecording, stopRecording } from "../../services/recorder";
@@ -583,7 +571,7 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
   INVITATION_INTRO: { step: 1, label: "邀请" },
   GOAL: { step: 1, label: "意图" },
-  RECORD: { step: 2, label: "表达" },
+  RECORD: { step: 2, label: "AI 对话" },
   MODE_SELECT: { step: 2, label: "路径" },
   AI_PENDING: { step: 2, label: "AI 整理" },
   CLARIFICATION_CHAT: { step: 2, label: "AI 对话" },
@@ -627,7 +615,7 @@ const resetRoomHistory = history.reset;
 const loadRoomHistory = history.load;
 const draftSaveState = ref<DraftSaveState>("empty");
 const perspective = reactive<Perspective>(createNvcPerspective());
-const selectedMode = ref<ExpressionMode | null>("NVC");
+const selectedMode = ref<ExpressionMode | null>(null);
 const editableExpression = ref<EditableExpression>(createEditableExpression("NVC"));
 const workspaceRevision = ref(0);
 const aiJobId = ref("");
@@ -642,6 +630,21 @@ const historyReadOnly = ref(false);
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
+let recordingTarget: "transcript" | "answer" = "transcript";
+const expressionDiscovery = useExpressionDiscovery({
+  room, stage, busy, recording, transcript, selectedMode,
+  turns: clarificationTurns,
+  answer: clarificationAnswer,
+  setNotice, clearNotice, formatError: message,
+});
+const discoveryStarted = expressionDiscovery.started;
+const discoveryQuestion = expressionDiscovery.question;
+const discoveryReady = expressionDiscovery.ready;
+const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
+const discoverySafetyMessage = expressionDiscovery.safetyMessage;
+const discoveryThinking = expressionDiscovery.thinking;
+const sendDiscoveryMessage = expressionDiscovery.send;
+const finishDiscovery = expressionDiscovery.finish;
 const sharedUnderstanding = useSharedUnderstanding({
   room, stage, busy, transcript, selectedMode, workspaceRevision,
   updateRoom, setNotice, clearNotice, formatError: message, confirmPause,
@@ -683,6 +686,11 @@ watch(
     () => JSON.stringify(clarificationTurns.value),
     clarificationAnswer,
     clarificationSkipped,
+    discoveryStarted,
+    discoveryQuestion,
+    discoveryReady,
+    discoverySafetyDisposition,
+    discoverySafetyMessage,
   ],
   scheduleEditorDraftSave,
   { flush: "post" },
@@ -714,7 +722,7 @@ const activeNvcIndex = computed(() => activeNvcCard.value
 const showBottomBar = computed(() => {
   if (stage.value === "COMMON" && isV2Room.value) return false;
   if (stage.value === "DIALOGUE") return false;
-  return ["GOAL", "RECORD", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON"]
+  return ["GOAL", "MODE_SELECT", "EXPRESSION_REVIEW", "REVIEW", "COMMON"]
     .includes(stage.value) || Boolean(activeNvcCard.value);
 });
 const currentClarificationQuestion = computed(() => clarificationSkipped.value
@@ -729,7 +737,6 @@ const currentExpressionField = computed(() => expressionReviewIsSummary.value
   ? null
   : currentExpressionOption.value.fields[expressionReviewStep.value]);
 const canContinue = computed(() => {
-  if (stage.value === "RECORD") return transcript.value.trim().length > 0 && !recording.value;
   if (stage.value === "MODE_SELECT") return Boolean(selectedMode.value);
   if (stage.value === "EXPRESSION_REVIEW") {
     if (!expressionReviewIsSummary.value) {
@@ -747,7 +754,6 @@ const canContinue = computed(() => {
   return true;
 });
 const nextLabel = computed(() => {
-  if (stage.value === "RECORD") return "选择表达路径";
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
   if (stage.value === "EXPRESSION_REVIEW") {
     if (expressionReviewIsSummary.value) return "确认并分享这张表达卡";
@@ -802,15 +808,6 @@ const currentInvitationClarificationMessage = computed(() => invitationClarifica
   resolvedInvitationContext.value,
   room.value?.code ?? "",
 ));
-const recordTitle = computed(() => room.value?.role === "B"
-  ? "从你的角度，当时发生了什么？"
-  : "先把事情说出来。");
-const recordDescription = computed(() => room.value?.role === "B"
-  ? "不用回应对方的结论，只说你看到、听到和理解的事情。说不完整也没关系，AI 会继续追问。"
-  : "不用组织得很完美。录音结束后会转成文字，你仍然可以删改。");
-const recordPlaceholder = computed(() => room.value?.role === "B"
-  ? "也可以直接打字。例如：当时我们正在……我看到或听到的是……我原本想表达的是……"
-  : "也可以直接打字。试着描述具体发生了什么，以及它为什么让你在意。");
 const invitationShareTitle = computed(() => resolvedInvitationContext.value.topic
   ? `我想和你说开：${resolvedInvitationContext.value.topic.slice(0, 22)}`
   : "我想和你把一件事说开");
@@ -829,11 +826,6 @@ function formatReviewDate(value: string) {
   const hour = date.getHours().toString().padStart(2, "0");
   const minute = date.getMinutes().toString().padStart(2, "0");
   return `${date.getMonth() + 1} 月 ${date.getDate()} 日 ${weekdays[date.getDay()]} ${hour}:${minute}`;
-}
-
-function formatDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
-  return `${minutes}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
 
 function message(error: unknown, fallback: string) {
@@ -901,12 +893,13 @@ function resetPrivateWorkspace() {
   transcript.value = "";
   agreementProposal.value = "";
   Object.assign(perspective, createNvcPerspective());
-  selectedMode.value = "NVC";
+  selectedMode.value = null;
   editableExpression.value = createEditableExpression("NVC");
   workspaceRevision.value = 0;
   aiJobId.value = "";
   expressionReviewStep.value = 0;
   resetClarification();
+  expressionDiscovery.reset();
   invitationContext.value = null;
   invitationClarifying.value = false;
   sharedUnderstanding.reset();
@@ -944,6 +937,11 @@ function flushEditorDraft() {
     clarificationTurns: clarificationTurns.value,
     clarificationAnswer: clarificationAnswer.value,
     clarificationSkipped: clarificationSkipped.value,
+    discoveryStarted: discoveryStarted.value,
+    discoveryQuestion: discoveryQuestion.value,
+    discoveryReady: discoveryReady.value,
+    discoverySafetyDisposition: discoverySafetyDisposition.value,
+    discoverySafetyMessage: discoverySafetyMessage.value,
   });
   draftSaveState.value = "saved";
 }
@@ -968,6 +966,13 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.clarificationTurns) clarificationTurns.value = draft.clarificationTurns;
   if (draft.clarificationAnswer !== undefined) clarificationAnswer.value = draft.clarificationAnswer;
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
+  if (draft.discoveryStarted !== undefined) discoveryStarted.value = draft.discoveryStarted;
+  if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
+  if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
+  if (draft.discoverySafetyDisposition !== undefined) {
+    discoverySafetyDisposition.value = draft.discoverySafetyDisposition;
+  }
+  if (draft.discoverySafetyMessage !== undefined) discoverySafetyMessage.value = draft.discoverySafetyMessage;
   if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
   if (stage.value === "EXPRESSION_REVIEW" && currentClarificationQuestion.value) {
     stage.value = "CLARIFICATION_CHAT";
@@ -1289,6 +1294,7 @@ async function toggleRecording() {
   clearNotice();
   try {
     if (!recording.value) {
+      recordingTarget = stage.value === "RECORD" && discoveryStarted.value ? "answer" : "transcript";
       const { completion } = await startRecording();
       const generation = workspaceGeneration;
       recording.value = true;
@@ -1299,7 +1305,8 @@ async function toggleRecording() {
           busy.value = true;
           const text = await transcribeAudio(audio);
           if (generation !== workspaceGeneration) return;
-          transcript.value = transcript.value.trim() ? `${transcript.value.trim()}\n${text}` : text;
+          const target = recordingTarget === "answer" ? clarificationAnswer : transcript;
+          target.value = target.value.trim() ? `${target.value.trim()}\n${text}` : text;
           setNotice("success", "转写完成，你可以继续修改文字。 ");
         })
         .catch((error) => {
@@ -1328,8 +1335,8 @@ function updateExpressionField(key: string, value: string) {
 
 function changeExpressionMode() {
   stopExpressionJobPolling();
-  resetClarification();
   expressionReviewStep.value = 0;
+  selectedMode.value = null;
   stage.value = "MODE_SELECT";
 }
 
@@ -1352,7 +1359,8 @@ function fallBackToManualExpression() {
   if (!selectedMode.value || selectedMode.value === "PAUSE") return;
   stopExpressionJobPolling();
   editableExpression.value = createEditableExpression(selectedMode.value);
-  resetClarification(true);
+  clarificationAnswer.value = "";
+  clarificationSkipped.value = true;
   openExpressionReview(false);
   busy.value = false;
   setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
@@ -1394,7 +1402,8 @@ async function beginManualExpression() {
     );
     workspaceRevision.value = saved.revision;
     editableExpression.value = empty;
-    resetClarification(true);
+    clarificationAnswer.value = "";
+    clarificationSkipped.value = true;
     openExpressionReview(false);
     setNotice("info", "已进入手动填写，AI 不会读取这次原话。 ");
   } catch (error) {
@@ -1506,8 +1515,6 @@ async function next() {
       const result = await roomApi.setGoal(room.value.roomId, goal.value);
       updateRoom({ ...room.value, state: result.state, phaseV2: "PRIVATE_EXPRESSION" });
       stage.value = "RECORD";
-    } else if (stage.value === "RECORD") {
-      stage.value = "MODE_SELECT";
     } else if (stage.value === "MODE_SELECT") {
       if (selectedMode.value === "PAUSE") {
         busy.value = false;
@@ -1521,11 +1528,14 @@ async function next() {
         setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
       } else if (selectedMode.value) {
         editableExpression.value = createEditableExpression(selectedMode.value);
-        resetClarification();
+        const privateSource = composeClarificationSource(
+          transcript.value,
+          clarificationTurns.value,
+        );
         const job = await requestExpressionOrganization(
           room.value.roomId,
           workspaceRevision.value,
-          transcript.value.trim(),
+          privateSource,
           selectedMode.value,
         );
         workspaceRevision.value = job.revision;

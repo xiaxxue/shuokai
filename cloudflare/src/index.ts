@@ -1,4 +1,5 @@
 import {
+  handleExpressionClarification,
   handleExpressionJob,
   handleInvitationContext,
   handleMiniappApi,
@@ -34,6 +35,8 @@ export async function handleRequest(request: Request, env: WorkerEnv): Promise<R
         response = await handleInvitationContext(request, env);
       } else if (pathname === "/ai/expression") {
         response = await handleExpressionJob(request, env, context.requestId);
+      } else if (pathname === "/ai/clarify") {
+        response = await handleExpressionClarification(request, env);
       } else if (pathname === "/ai/understanding") {
         response = await handleUnderstandingJob(request, env, context.requestId);
       } else if (pathname === "/transcribe") {

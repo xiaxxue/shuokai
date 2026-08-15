@@ -193,6 +193,11 @@ describe("private editor draft recovery", () => {
       clarificationTurns: [{ question: "当时具体说了什么？", answer: "他说另一个女生很好看。" }],
       clarificationAnswer: "还没提交的回答",
       clarificationSkipped: false,
+      discoveryStarted: true,
+      discoveryQuestion: "你当时具体说了什么？",
+      discoveryReady: false,
+      discoverySafetyDisposition: "ALLOW" as const,
+      discoverySafetyMessage: "",
     };
     saveEditorDraft(draft);
     expect(getEditorDraft(draft.roomId, "A")).toMatchObject({
@@ -203,6 +208,11 @@ describe("private editor draft recovery", () => {
       clarificationTurns: draft.clarificationTurns,
       clarificationAnswer: draft.clarificationAnswer,
       clarificationSkipped: false,
+      discoveryStarted: true,
+      discoveryQuestion: draft.discoveryQuestion,
+      discoveryReady: false,
+      discoverySafetyDisposition: "ALLOW",
+      discoverySafetyMessage: "",
     });
   });
 

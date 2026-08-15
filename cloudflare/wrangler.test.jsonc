@@ -27,6 +27,7 @@
       "/miniapp-api*",
       "/room/invitation-context*",
       "/ai/expression*",
+      "/ai/clarify*",
       "/ai/understanding*",
       "/transcribe*"
     ]

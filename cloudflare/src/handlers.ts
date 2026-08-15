@@ -12,6 +12,7 @@ import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
 import { invitationContextFromRecords } from "./invitation-context.ts";
+import { generateDiscoveryQuestion, type DiscoveryTurn } from "./discovery-ai.ts";
 
 const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
@@ -47,6 +48,71 @@ async function verifiedUserId(
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validDiscoveryTurns(value: unknown): value is DiscoveryTurn[] {
+  return Array.isArray(value) && value.length <= 8 && value.every((turn) =>
+    turn && typeof turn === "object" && !Array.isArray(turn) &&
+    Object.keys(turn).length === 2 &&
+    typeof (turn as DiscoveryTurn).question === "string" &&
+    Boolean((turn as DiscoveryTurn).question.trim()) &&
+    (turn as DiscoveryTurn).question.length <= 500 &&
+    typeof (turn as DiscoveryTurn).answer === "string" &&
+    Boolean((turn as DiscoveryTurn).answer.trim()) &&
+    (turn as DiscoveryTurn).answer.length <= 1200
+  );
+}
+
+export async function handleExpressionClarification(request: Request, env: WorkerEnv) {
+  if (request.method !== "POST") {
+    return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
+  }
+  const authorization = bearerToken(request);
+  if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
+  const config = publicSupabaseConfig(env);
+  if (!config || !env.AI) {
+    return errorJson(request, env, "AI_SERVICE_NOT_CONFIGURED", "AI 私人对话尚未配置。", 503);
+  }
+  let body: unknown;
+  try {
+    // Accommodate 12,000 Chinese characters plus eight bounded follow-up turns.
+    body = await readJson(request, 192 * 1024);
+  } catch (error) {
+    return error instanceof RangeError
+      ? errorJson(request, env, "PAYLOAD_TOO_LARGE", "请求格式无效。", 413)
+      : errorJson(request, env, "INVALID_REQUEST", "请求格式无效。", 400);
+  }
+  const input = body as { roomId?: unknown; sourceText?: unknown; turns?: unknown } | null;
+  if (!input || typeof input.roomId !== "string" || !uuidPattern.test(input.roomId) ||
+    typeof input.sourceText !== "string" || !input.sourceText.trim() || input.sourceText.length > 12000 ||
+    !validDiscoveryTurns(input.turns)) {
+    return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
+  }
+  const supabase = userClient(config, authorization);
+  if (!await verifiedUserId(supabase, authorization)) {
+    return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
+  }
+  const { error: membershipError } = await supabase.rpc("get_expression_workspace_v2", {
+    p_room_id: input.roomId,
+  });
+  if (membershipError) {
+    return errorJson(
+      request,
+      env,
+      "DATABASE_REQUEST_FAILED",
+      safeDatabaseMessages[membershipError.code] ?? "暂时无法确认沟通房间。",
+      400,
+    );
+  }
+  try {
+    const generated = await generateDiscoveryQuestion(env, {
+      sourceText: input.sourceText.trim(),
+      turns: input.turns,
+    });
+    return json(request, env, generated.result);
+  } catch {
+    return errorJson(request, env, "AI_CLARIFICATION_FAILED", "AI 暂时没有接住这句话，请稍后再试。", 502);
+  }
+}
 
 export async function handleExpressionJob(request: Request, env: WorkerEnv, correlationId: string) {
   if (request.method !== "POST") {

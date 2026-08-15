@@ -11,6 +11,7 @@ const knownRoutes = new Map([
   ["/miniapp-api", "miniapp_api"],
   ["/room/invitation-context", "invitation_context"],
   ["/ai/expression", "ai_expression"],
+  ["/ai/clarify", "ai_clarify"],
   ["/ai/understanding", "ai_understanding"],
   ["/transcribe", "transcribe"],
 ]);

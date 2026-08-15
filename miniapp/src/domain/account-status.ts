@@ -6,7 +6,7 @@ const stageLabels: Record<ClientStage, string> = {
   WELCOME: "准备开始",
   INVITATION_INTRO: "阅读对方的沟通邀请",
   GOAL: "确认沟通意图",
-  RECORD: "整理自己的表达",
+  RECORD: "与 AI 私下讲述背景",
   MODE_SELECT: "选择表达路径",
   AI_PENDING: "AI 整理处理中",
   CLARIFICATION_CHAT: "与 AI 私下补充背景",
