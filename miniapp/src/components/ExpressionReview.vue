@@ -53,6 +53,53 @@
     </view>
 
     <view v-else class="share-summary">
+      <view class="invitation-preview">
+        <view class="invitation-preview-head">
+          <view>
+            <text class="invitation-kicker">对方打开邀请时会先看到</text>
+            <text class="invitation-heading">这次想谈什么</text>
+          </view>
+          <text class="ai-badge">{{ modelValue.invitation.generatedByAi ? "AI 协助起草" : "待你确认" }}</text>
+        </view>
+        <text class="invitation-note">标题和说明不会自动发送。确认整张表达卡后，它们才会和这一版内容一起固定下来。</text>
+
+        <label class="invitation-field">
+          <view class="invitation-label-line">
+            <text>邀请标题</text>
+            <text>{{ modelValue.invitation.title.length }} / 40</text>
+          </view>
+          <input
+            class="invitation-title-input"
+            :value="modelValue.invitation.title"
+            :maxlength="40"
+            placeholder="例如：关于凌晨争吵和睡觉提醒"
+            aria-label="邀请标题"
+            @input="updateInvitation('title', $event)"
+          />
+        </label>
+
+        <label class="invitation-field">
+          <view class="invitation-label-line">
+            <text>给对方的一段说明</text>
+            <text>{{ modelValue.invitation.summary.length }} / 300</text>
+          </view>
+          <textarea
+            class="invitation-summary-input"
+            :value="modelValue.invitation.summary"
+            :maxlength="300"
+            placeholder="交代人物、时间或场景、发生的事，以及为什么邀请对方一起说说。"
+            aria-label="给对方的邀请说明"
+            @input="updateInvitation('summary', $event)"
+          />
+        </label>
+
+        <view class="invitation-source">
+          <text>说明依据</text>
+          <text>{{ invitationSource || "请先补全表达卡里的事件描述。" }}</text>
+        </view>
+        <text v-if="!invitationComplete" class="invitation-requirement">确认前需要：标题 4—40 字，说明 20—300 字。</text>
+      </view>
+
       <view class="summary-heading">
         <text>你的表达卡</text>
         <text>{{ option.fields.length }} 个部分 · 点击可修改</text>
@@ -88,6 +135,8 @@
 import { computed, ref } from "vue";
 import {
   expressionFieldIsOptional,
+  invitationDraftIsComplete,
+  invitationSourceField,
   expressionModeOption,
   type EditableExpression,
 } from "../domain/expression";
@@ -101,6 +150,7 @@ const emit = defineEmits<{
   "update-field": [key: string, value: string];
   "change-mode": [];
   "edit-step": [index: number];
+  "update-invitation": [key: "title" | "summary", value: string];
 }>();
 
 const sourceOpen = ref(false);
@@ -108,6 +158,8 @@ const option = computed(() => expressionModeOption(props.modelValue.mode));
 const isSummary = computed(() => props.currentStep >= option.value.fields.length);
 const activeField = computed(() => isSummary.value ? null : option.value.fields[props.currentStep]);
 const shareBlocked = computed(() => ["BLOCK_SHARE", "PAUSE"].includes(props.modelValue.safetyDisposition));
+const invitationComplete = computed(() => invitationDraftIsComplete(props.modelValue.invitation));
+const invitationSource = computed(() => props.modelValue.fields[invitationSourceField(props.modelValue.mode)]?.trim() ?? "");
 const safetyLabel = computed(() => ({
   WARN: "分享前请留意",
   BLOCK_SHARE: "这份内容暂时不能分享",
@@ -122,6 +174,11 @@ function isOptionalField(key: string) {
 function updateField(key: string, event: Event) {
   const value = (event as unknown as { detail: { value: string } }).detail.value;
   emit("update-field", key, value);
+}
+
+function updateInvitation(key: "title" | "summary", event: Event) {
+  const value = (event as unknown as { detail: { value: string } }).detail.value;
+  emit("update-invitation", key, value);
 }
 </script>
 
@@ -157,6 +214,24 @@ function updateField(key: string, event: Event) {
 .card-input { box-sizing: border-box; width: 100%; min-height: 300rpx; margin-top: 24rpx; padding: 24rpx; border: 1rpx solid rgba(100,112,106,.12); border-radius: 20rpx; background: #faf8f2; color: #233a32; font-size: 28rpx; line-height: 1.7; }
 .input-meta { display: flex; justify-content: space-between; gap: 20rpx; margin-top: 11rpx; color: #8c918c; font-size: 20rpx; }
 .share-summary { margin-top: 28rpx; }
+.invitation-preview { position: relative; margin-bottom: 30rpx; padding: 28rpx; overflow: hidden; border: 1rpx solid #e3bbae; border-radius: 30rpx; background: linear-gradient(145deg, #fffaf4 0%, #f9ede6 100%); box-shadow: 0 18rpx 45rpx rgba(70,48,38,.07); }
+.invitation-preview::before { position: absolute; top: 0; bottom: 0; left: 0; width: 7rpx; background: #df5b3f; content: ""; }
+.invitation-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20rpx; }
+.invitation-preview-head text { display: block; }
+.invitation-kicker { color: #bd4933; font-size: 19rpx; font-weight: 800; letter-spacing: .1em; }
+.invitation-heading { margin-top: 7rpx; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 34rpx; font-weight: 700; }
+.ai-badge { flex: none; padding: 8rpx 13rpx; border: 1rpx solid rgba(49,91,71,.2); border-radius: 999rpx; color: #315b49; font-size: 18rpx; font-weight: 800; }
+.invitation-note { display: block; margin-top: 15rpx; color: #69736e; font-size: 22rpx; line-height: 1.65; }
+.invitation-field { display: block; margin-top: 23rpx; }
+.invitation-label-line { display: flex; justify-content: space-between; gap: 16rpx; margin-bottom: 10rpx; color: #315b49; font-size: 21rpx; font-weight: 800; }
+.invitation-label-line text:last-child { color: #8a8f89; font-weight: 500; }
+.invitation-title-input, .invitation-summary-input { box-sizing: border-box; width: 100%; border: 1rpx solid #d5cec2; border-radius: 19rpx; background: rgba(255,253,248,.92); color: #20372f; font-size: 27rpx; line-height: 1.65; }
+.invitation-title-input { height: 116rpx; min-height: 48px; padding: 0 20rpx; }
+.invitation-summary-input { min-height: 210rpx; padding: 19rpx 20rpx; }
+.invitation-source { margin-top: 18rpx; padding: 17rpx 19rpx; border-left: 4rpx solid rgba(49,91,71,.35); background: rgba(226,235,227,.65); }
+.invitation-source text { display: block; color: #65716b; font-size: 21rpx; line-height: 1.6; }
+.invitation-source text:first-child { margin-bottom: 4rpx; color: #315b49; font-size: 18rpx; font-weight: 800; letter-spacing: .08em; }
+.invitation-requirement { display: block; margin-top: 13rpx; color: #69736e; font-size: 21rpx; line-height: 1.55; }
 .summary-heading { display: flex; justify-content: space-between; margin: 0 3rpx 13rpx; color: #69756f; font-size: 21rpx; }
 .summary-heading text:first-child { color: #b24733; font-weight: 800; }
 .summary-list { overflow: hidden; border: 1rpx solid #d7d2c8; border-radius: 24rpx; background: rgba(255,253,248,.78); }

@@ -11,6 +11,7 @@ import {
   type SupportedExpressionMode,
 } from "./expression-dialogue.ts";
 import type { WorkerEnv } from "./http.ts";
+import { generateInvitationDraft, pendingInvitationDraft } from "./invitation-context.ts";
 import { logQueueBatch, logQueueMessage, type LogSink } from "./observability.ts";
 
 export {
@@ -579,7 +580,7 @@ export async function generateExpressionCandidate(
       source !== "CURRENT_DRAFT" || Object.keys(currentDraft).length > 0
     ),
   };
-  return requestStructuredOutput(env, {
+  const generated = await requestStructuredOutput(env, {
     schemaName: `shuokai_${input.mode.toLowerCase()}_expression`,
     schema: expressionResultSchema(input.mode, modelContext),
     systemText: [
@@ -607,6 +608,27 @@ export async function generateExpressionCandidate(
     validate: (value) => isExpressionResult(value, input.mode, modelContext) &&
       (input.mode !== "NVC" || nvcFeelingBelongsToUser(value, modelContext, currentDraft)),
   });
+  const result = generated.result as Record<string, unknown>;
+  const conversation = isRecord(result.conversation) ? result.conversation : null;
+  const fields = isRecord(result.fields) ? result.fields : {};
+  const invitation = conversation?.state === "READY"
+    ? await generateInvitationDraft(env, { mode: input.mode, payload: fields })
+    : {
+      draft: pendingInvitationDraft(input.mode),
+      model: null,
+      providerRequestRef: null,
+      tokenInput: 0,
+      tokenOutput: 0,
+      latencyMs: 0,
+    };
+  const finalResult: Record<string, unknown> = { ...result, invitation: invitation.draft };
+  return {
+    ...generated,
+    result: finalResult,
+    tokenInput: generated.tokenInput + invitation.tokenInput,
+    tokenOutput: generated.tokenOutput + invitation.tokenOutput,
+    latencyMs: generated.latencyMs + invitation.latencyMs,
+  };
 }
 
 export function generateSharedUnderstanding(env: WorkerEnv, input: {

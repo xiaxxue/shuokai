@@ -23,10 +23,73 @@ export type ExpressionModeOption = {
 export type EditableExpression = {
   mode: ExpressionMode;
   fields: Record<string, string>;
+  invitation: EditableInvitationDraft;
   uncertainties: string[];
   safetyDisposition: SafetyDisposition;
   safetyMessage: string;
 };
+
+export type EditableInvitationDraft = {
+  ready: boolean;
+  title: string;
+  summary: string;
+  sourceHash: string;
+  generatedByAi: boolean;
+};
+
+const invitationFallbackTitles: Record<Exclude<ExpressionMode, "PAUSE">, string> = {
+  NVC: "关于这次具体经历",
+  FACT_DISPUTE: "关于一件待核实的事",
+  BOUNDARY: "关于需要被尊重的边界",
+};
+
+function compactText(value: string, maxLength: number) {
+  return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+export function invitationSourceField(mode: ExpressionMode) {
+  if (mode === "NVC") return "observation";
+  if (mode === "FACT_DISPUTE") return "claim";
+  if (mode === "BOUNDARY") return "boundary";
+  return "";
+}
+
+export function invitationDraftFromExpression(expression: Pick<EditableExpression, "mode" | "fields">) {
+  if (expression.mode === "PAUSE") {
+    return { ready: false, title: "", summary: "", sourceHash: "", generatedByAi: false };
+  }
+  const source = compactText(expression.fields[invitationSourceField(expression.mode)] ?? "", 180);
+  const event = source && !/[。！？!?]$/u.test(source) ? `${source}。` : source;
+  return {
+    ready: Boolean(source),
+    title: invitationFallbackTitles[expression.mode],
+    summary: source
+      ? `发起方确认的背景是：${event}这份邀请希望你也讲讲自己记得的情况和期待。`
+      : "",
+    sourceHash: "",
+    generatedByAi: false,
+  };
+}
+
+export function invitationDraftIsComplete(invitation: EditableInvitationDraft) {
+  const title = invitation.title.trim();
+  const summary = invitation.summary.trim();
+  return invitation.ready && title.length >= 4 && title.length <= 40 &&
+    !/[\r\n]/u.test(title) && summary.length >= 20 && summary.length <= 300;
+}
+
+export function expressionAfterFieldEdit(
+  expression: EditableExpression,
+  key: string,
+  value: string,
+): EditableExpression {
+  const next = {
+    ...expression,
+    fields: { ...expression.fields, [key]: value },
+  };
+  if (key !== invitationSourceField(expression.mode)) return next;
+  return { ...next, invitation: invitationDraftFromExpression(next) };
+}
 
 const nvcFields: readonly ExpressionField[] = [
   {
@@ -161,13 +224,15 @@ export function expressionFieldProgress(expression: EditableExpression): Express
 }
 
 export function createEditableExpression(mode: ExpressionMode): EditableExpression {
-  return {
+  const expression: EditableExpression = {
     mode,
     fields: Object.fromEntries(expressionModeOption(mode).fields.map((field) => [field.key, ""])),
+    invitation: { ready: false, title: "", summary: "", sourceHash: "", generatedByAi: false },
     uncertainties: [],
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   };
+  return expression;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,7 +266,20 @@ export function parseAiExpressionCandidate(value: unknown, expectedMode: Express
   const safetyMessage = typeof value.safetyMessage === "string"
     ? value.safetyMessage.slice(0, 1000)
     : "请在分享前再次确认这份整理准确表达了你的意思。";
-  return { mode: expectedMode, fields, uncertainties, safetyDisposition, safetyMessage };
+  const rawInvitation = isRecord(value.invitation) ? value.invitation : null;
+  const invitation: EditableInvitationDraft = rawInvitation ? {
+    ready: rawInvitation.ready === true,
+    title: typeof rawInvitation.title === "string" ? compactText(rawInvitation.title, 40) : "",
+    summary: typeof rawInvitation.summary === "string" ? compactText(rawInvitation.summary, 300) : "",
+    sourceHash: typeof rawInvitation.sourceHash === "string" && /^[a-f0-9]{64}$/.test(rawInvitation.sourceHash)
+      ? rawInvitation.sourceHash
+      : "",
+    generatedByAi: rawInvitation.generatedByAi === true,
+  } : invitationDraftFromExpression({ mode: expectedMode, fields });
+  if (invitation.ready && !invitationDraftIsComplete(invitation)) {
+    throw new Error("AI 返回的邀请说明格式无效，请修改后再确认。");
+  }
+  return { mode: expectedMode, fields, invitation, uncertainties, safetyDisposition, safetyMessage };
 }
 
 export function expressionIsComplete(expression: EditableExpression) {

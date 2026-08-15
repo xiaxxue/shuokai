@@ -665,11 +665,16 @@ button::after { border: 0; }
   text-align: left;
 }
 
+.invite-preview-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .invite-preview-label,
+.invite-preview-method,
 .invite-preview-topic,
+.invite-preview-summary,
 .invite-preview-note { display: block; }
 .invite-preview-label { color: $coral-dark; font-size: 9px; font-weight: 800; letter-spacing: 2px; }
-.invite-preview-topic { margin-top: 9px; font-family: "Songti SC", "STSong", serif; font-size: 17px; font-weight: 700; line-height: 1.65; }
+.invite-preview-method { color: $green; font-size: 9px; font-weight: 800; }
+.invite-preview-topic { margin-top: 10px; font-family: "Songti SC", "STSong", serif; font-size: 19px; font-weight: 700; line-height: 1.5; }
+.invite-preview-summary { margin-top: 7px; color: $ink; font-size: 12px; line-height: 1.7; }
 .invite-preview-note { margin-top: 9px; color: $muted; font-size: 9px; line-height: 1.55; }
 .invite-preview-edit {
   margin-top: 10px;

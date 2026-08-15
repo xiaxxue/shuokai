@@ -11,7 +11,6 @@ import {
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
-import { invitationContextFromRecords } from "./invitation-context.ts";
 import {
   generateDiscoveryQuestion,
   type DiscoveryResult,
@@ -488,49 +487,17 @@ export async function handleInvitationContext(request: Request, env: WorkerEnv) 
   if (!await verifiedUserId(supabase, authorization)) {
     return errorJson(request, env, "AUTH_SESSION_EXPIRED", "登录已失效。", 401);
   }
-  const { data: snapshot, error: snapshotError } = await supabase.rpc("get_room_snapshot", {
+  const { data: context, error: contextError } = await supabase.rpc("get_invitation_context_v3", {
     p_room_id: roomId,
   });
-  if (snapshotError || !snapshot || typeof snapshot !== "object") {
+  if (contextError || !context || typeof context !== "object") {
     return errorJson(
       request,
       env,
       "INVITATION_CONTEXT_UNAVAILABLE",
-      safeDatabaseMessages[snapshotError?.code ?? ""] ?? "暂时无法读取这次邀请，请稍后重试。",
-      snapshotError?.code === "42501" ? 403 : 502,
+      safeDatabaseMessages[contextError?.code ?? ""] ?? "暂时无法读取这次邀请，请稍后重试。",
+      contextError?.code === "42501" ? 403 : 502,
     );
-  }
-
-  const { data: inviters, error: inviterError } = await supabase
-    .from("participants")
-    .select("current_expression_id")
-    .eq("room_id", roomId)
-    .eq("role", "A")
-    .limit(1);
-  if (inviterError) {
-    return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取邀请主题。", 502);
-  }
-  const currentExpressionId = Array.isArray(inviters) && inviters[0] &&
-    typeof inviters[0].current_expression_id === "string" &&
-    uuidPattern.test(inviters[0].current_expression_id)
-    ? inviters[0].current_expression_id
-    : "";
-  let expression: unknown = null;
-  if (currentExpressionId) {
-    const { data: expressions, error: expressionError } = await supabase
-      .from("expression_versions")
-      .select("mode,payload")
-      .eq("id", currentExpressionId)
-      .eq("room_id", roomId)
-      .limit(1);
-    if (expressionError) {
-      return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取邀请主题。", 502);
-    }
-    expression = Array.isArray(expressions) ? expressions[0] : null;
-  }
-  const context = invitationContextFromRecords(snapshot, expression);
-  if (!context) {
-    return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取这次邀请。", 502);
   }
   return json(request, env, context);
 }

@@ -20,7 +20,10 @@ import {
 } from "../src/observability.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 import {
+  fallbackInvitationDraft,
+  generateInvitationDraft,
   invitationContextFromRecords,
+  invitationSourceFromExpression,
   invitationTopicFromExpression,
 } from "../src/invitation-context.ts";
 import {
@@ -73,6 +76,35 @@ function validNvcExpressionResult(state: "ASK" | "READY" = "ASK") {
     safetyDisposition: "ALLOW",
     safetyMessage: "",
   };
+}
+
+function validInvitationDraftResult(sourceField = "observation") {
+  return {
+    ready: true,
+    title: "关于周日仍未收到消息",
+    summary: "我们约好周五确认，但到周日仍没有收到消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+    context: {
+      people: ["我们"],
+      time: "周日",
+      place: null,
+      event: "到周日仍没有收到约定的消息",
+      whyInvite: "邀请对方讲讲自己记得的情况和期待",
+    },
+    missingFacts: ["place"],
+    sourceField,
+  };
+}
+
+function requestedSchemaTitle(input: unknown) {
+  const responseFormat = input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>).response_format
+    : null;
+  const jsonSchema = responseFormat && typeof responseFormat === "object" && !Array.isArray(responseFormat)
+    ? (responseFormat as Record<string, unknown>).json_schema
+    : null;
+  return jsonSchema && typeof jsonSchema === "object" && !Array.isArray(jsonSchema)
+    ? String((jsonSchema as Record<string, unknown>).title ?? "")
+    : "";
 }
 
 function validMutualUnderstandingResult() {
@@ -425,6 +457,8 @@ test("invitation context rejects unauthenticated room reads", async () => {
 test("invitation context exposes only the selected shareable topic field", () => {
   const expression = {
     mode: "NVC",
+    invitation_title: "关于视频聊天中的一句话",
+    invitation_summary: "在一次视频聊天中，对方提到另一个女生好看。这份邀请希望你也讲讲当时的情况和期待。",
     payload: {
       observation: "  视频聊天时，提到另一个女生好看。  ",
       feeling: "不应出现在邀请摘要里的难过",
@@ -441,8 +475,121 @@ test("invitation context exposes only the selected shareable topic field", () =>
   assert.deepEqual(context, {
     inviterName: "邀请你的人",
     topic: "视频聊天时，提到另一个女生好看。",
+    title: "关于视频聊天中的一句话",
+    summary: "在一次视频聊天中，对方提到另一个女生好看。这份邀请希望你也讲讲当时的情况和期待。",
+    confirmedSummary: true,
   });
   assert.doesNotMatch(JSON.stringify(context), /难过|尊重|要求|准确理解/);
+});
+
+test("invitation summary uses only the confirmed event field and keeps unknown details absent", async () => {
+  let receivedInput = "";
+  let callCount = 0;
+  const expression = {
+    mode: "NVC",
+    payload: {
+      observation: "男朋友在半夜凌晨一两点争吵后说‘你总是大晚上吵’，并说他受不了。",
+      feeling: "不得进入邀请摘要模型输入的难过",
+      need: "不得进入邀请摘要模型输入的关心",
+      request: "不得进入邀请摘要模型输入的提醒",
+    },
+  };
+  const generated = await generateInvitationDraft({
+    AI: {
+      async run(_model: string, input: Record<string, unknown>) {
+        callCount += 1;
+        receivedInput = JSON.stringify(input);
+        return {
+          response: {
+            ready: true,
+            title: "关于凌晨争吵中的一句话",
+            summary: "在凌晨一两点的一次争吵后，男朋友说‘你总是大晚上吵’，并表示自己受不了。这份邀请希望你也讲讲当时的情况和期待。",
+            context: {
+              people: ["男朋友"],
+              time: "凌晨一两点",
+              place: null,
+              event: "争吵后男朋友说‘你总是大晚上吵’，并表示自己受不了",
+              whyInvite: "邀请对方讲讲当时的情况和期待",
+            },
+            missingFacts: ["place"],
+            sourceField: "observation",
+          },
+        };
+      },
+    },
+  }, expression);
+  assert.deepEqual(generated.draft, {
+    ready: true,
+    title: "关于凌晨争吵中的一句话",
+    summary: "在凌晨一两点的一次争吵后，男朋友说‘你总是大晚上吵’，并表示自己受不了。这份邀请希望你也讲讲当时的情况和期待。",
+    context: {
+      people: ["男朋友"],
+      time: "凌晨一两点",
+      place: null,
+      event: "争吵后男朋友说‘你总是大晚上吵’，并表示自己受不了",
+      whyInvite: "邀请对方讲讲当时的情况和期待",
+    },
+    missingFacts: ["place"],
+    sourceField: "observation",
+    sourceHash: generated.draft.sourceHash,
+    generatedByAi: true,
+  });
+  assert.match(generated.draft.sourceHash, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(receivedInput, /难过|关心|提醒/);
+  assert.match(receivedInput, /凌晨一两点/);
+  assert.equal(callCount, 1);
+});
+
+test("invitation summary falls back without inventing missing time or place", async () => {
+  const source = invitationSourceFromExpression({
+    mode: "FACT_DISPUTE",
+    payload: { claim: "对方没有按约定回复", basis: "聊天记录" },
+  });
+  const draft = await fallbackInvitationDraft(source);
+  assert.deepEqual(draft, {
+    ready: true,
+    title: "关于一件待核实的事",
+    summary: "发起方确认的背景是：对方没有按约定回复。这份邀请希望你也讲讲自己记得的情况和期待。",
+    context: {
+      people: [], time: null, place: null, event: "对方没有按约定回复",
+      whyInvite: "邀请对方讲讲自己记得的情况和期待",
+    },
+    missingFacts: ["people", "time", "place"],
+    sourceField: "claim",
+    sourceHash: draft.sourceHash,
+    generatedByAi: false,
+  });
+  assert.match(draft.sourceHash, /^[a-f0-9]{64}$/);
+});
+
+test("invitation summary remains usable when the model output is invalid", async () => {
+  let callCount = 0;
+  const expression = {
+    mode: "BOUNDARY",
+    payload: { boundary: "争吵时不要查看我的手机" },
+  };
+  const generated = await generateInvitationDraft({
+    AI: {
+      async run() {
+        callCount += 1;
+        return { response: { title: "", summary: "" } };
+      },
+    },
+  }, expression);
+  assert.deepEqual(generated.draft, {
+    ready: true,
+    title: "关于需要被尊重的边界",
+    summary: "发起方确认的背景是：争吵时不要查看我的手机。这份邀请希望你也讲讲自己记得的情况和期待。",
+    context: {
+      people: [], time: null, place: null, event: "争吵时不要查看我的手机",
+      whyInvite: "邀请对方讲讲自己记得的情况和期待",
+    },
+    missingFacts: ["people", "time", "place"],
+    sourceField: "boundary",
+    sourceHash: generated.draft.sourceHash,
+    generatedByAi: false,
+  });
+  assert.equal(callCount, 2);
 });
 
 test("every Worker error response exposes a controlled application code", async () => {
@@ -610,6 +757,26 @@ test("RPC validation bounds user-confirmed expression payloads", () => {
     p_expected_revision: -1,
     p_payload: {},
   }), null);
+  assert.deepEqual(validateRpcArgs("confirm_expression_version_v3", {
+    p_room_id: roomId,
+    p_expected_revision: 2,
+    p_payload: { mode: "NVC", observation: "周日仍未收到消息" },
+    p_invitation_title: " 关于周日仍未收到消息 ",
+    p_invitation_summary: " 我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。 ",
+  }), {
+    p_room_id: roomId,
+    p_expected_revision: 2,
+    p_payload: { mode: "NVC", observation: "周日仍未收到消息" },
+    p_invitation_title: "关于周日仍未收到消息",
+    p_invitation_summary: "我们约好周五确认，但到周日仍没有消息。这份邀请希望你也讲讲自己记得的情况和期待。",
+  });
+  assert.equal(validateRpcArgs("confirm_expression_version_v3", {
+    p_room_id: roomId,
+    p_expected_revision: 2,
+    p_payload: { mode: "NVC", observation: "周日仍未收到消息" },
+    p_invitation_title: "太短",
+    p_invitation_summary: "说明也太短",
+  }), null);
 });
 
 test("Worker allowlist excludes retired demo RPCs", () => {
@@ -617,6 +784,7 @@ test("Worker allowlist excludes retired demo RPCs", () => {
   assert.equal(isAllowedRpcMethod("demo"), false);
   assert.equal(isAllowedRpcMethod("create_room"), true);
   assert.equal(isAllowedRpcMethod("get_ai_job_status_v2"), true);
+  assert.equal(isAllowedRpcMethod("confirm_expression_version_v3"), true);
 });
 
 test("AI expression endpoint fails honestly when the test queue is not configured", async () => {
@@ -1385,22 +1553,28 @@ test("initial expression generation may stop when context is already sufficient"
   let calls = 0;
   const generated = await generateExpressionCandidate({
     AI: {
-      async run() {
+      async run(_model, input) {
         calls += 1;
         return {
-          response: JSON.stringify(validNvcExpressionResult("READY")),
+          response: JSON.stringify(requestedSchemaTitle(input) === "shuokai_invitation_draft_v1"
+            ? validInvitationDraftResult()
+            : validNvcExpressionResult("READY")),
         };
       },
     },
   }, { mode: "NVC", sourceText: "周日还没有消息。" });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.deepEqual((generated.result as { uncertainties: unknown }).uncertainties, []);
+  assert.equal((generated.result as { invitation: { title: string } }).invitation.title, "关于周日仍未收到消息");
 });
 
 test("AI may finish questioning after a private clarification answer", async () => {
   const generated = await generateExpressionCandidate({
     AI: {
-      async run() {
+      async run(_model, input) {
+        if (requestedSchemaTitle(input) === "shuokai_invitation_draft_v1") {
+          return { response: JSON.stringify(validInvitationDraftResult()) };
+        }
         const result = validNvcExpressionResult("READY");
         result.grounding.need = { status: "USER_CONFIRMED", sources: ["TURN.1.ANSWER"] };
         return {

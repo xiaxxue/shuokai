@@ -31,14 +31,35 @@ function validNvcExpressionResult() {
   };
 }
 
+function isInvitationRequest(input: unknown) {
+  return JSON.stringify(input).includes("shuokai_invitation_draft_v1");
+}
+
+function validInvitationDraftResult() {
+  return {
+    ready: true,
+    title: "关于半夜争吵和睡觉提醒",
+    summary: "在半夜的一次争吵后，男朋友说自己很烦。这份邀请希望你也讲讲自己记得的情况和期待。",
+    context: {
+      people: ["男朋友"], time: "半夜", place: null,
+      event: "争吵后男朋友说自己很烦", whyInvite: "邀请对方讲讲自己记得的情况和期待",
+    },
+    missingFacts: ["place"],
+    sourceField: "observation",
+  };
+}
+
 test("NVC expression retries when the feeling belongs only to the other person", async () => {
   let calls = 0;
+  let expressionCalls = 0;
   const generated = await generateExpressionCandidate({
     AI: {
-      async run() {
+      async run(_model, input) {
         calls += 1;
+        if (isInvitationRequest(input)) return { response: JSON.stringify(validInvitationDraftResult()) };
+        expressionCalls += 1;
         const result = validNvcExpressionResult();
-        if (calls === 1) {
+        if (expressionCalls === 1) {
           result.fields.feeling = "烦";
           result.grounding.feeling = { status: "USER_STATED", sources: ["SOURCE"] };
         }
@@ -52,7 +73,8 @@ test("NVC expression retries when the feeling belongs only to the other person",
         privateClarifications: [{ question: "你当时是什么感受？", answer: "我很难过，也不舒服。" }],
       }),
   });
-  assert.equal(calls, 2);
+  assert.equal(expressionCalls, 2);
+  assert.equal(calls, 3);
   assert.equal((generated.result as { fields: { feeling: string } }).fields.feeling, "难过、不舒服");
 });
 
@@ -60,8 +82,9 @@ test("NVC expression keeps a feeling explicitly corrected in the current draft",
   let calls = 0;
   const generated = await generateExpressionCandidate({
     AI: {
-      async run() {
+      async run(_model, input) {
         calls += 1;
+        if (isInvitationRequest(input)) return { response: JSON.stringify(validInvitationDraftResult()) };
         const result = validNvcExpressionResult();
         result.fields.feeling = "烦";
         result.grounding.feeling = { status: "USER_STATED", sources: ["CURRENT_DRAFT"] };
@@ -73,7 +96,7 @@ test("NVC expression keeps a feeling explicitly corrected in the current draft",
     sourceText: "男朋友说他很烦。",
     manualPayload: { feeling: "烦" },
   });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.equal((generated.result as { fields: { feeling: string } }).fields.feeling, "烦");
 });
 
@@ -81,8 +104,9 @@ test("NVC expression accepts the user's feeling when another person caused it", 
   let calls = 0;
   const generated = await generateExpressionCandidate({
     AI: {
-      async run() {
+      async run(_model, input) {
         calls += 1;
+        if (isInvitationRequest(input)) return { response: JSON.stringify(validInvitationDraftResult()) };
         const result = validNvcExpressionResult();
         result.fields.feeling = "烦";
         result.grounding.feeling = { status: "USER_STATED", sources: ["SOURCE"] };
@@ -93,6 +117,6 @@ test("NVC expression accepts the user's feeling when another person caused it", 
     mode: "NVC",
     sourceText: "男朋友一直催我，让我很烦。",
   });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.equal((generated.result as { fields: { feeling: string } }).fields.feeling, "烦");
 });
