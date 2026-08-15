@@ -43,7 +43,7 @@ from (select public.create_room_v2('小雨') created) item;
 
 select is(
   public.save_room_relationship_context_v1(
-    room_id, 0, 0, 'DRAFT', 2,
+    room_id, 0, 0, 'DRAFT', 2::smallint,
     '{"relationshipType":"PARTNER","relationshipOther":null,"durationRange":"Y1_3","interactionMode":"MOSTLY_REMOTE","useSharedAi":true}',
     '{"communicationPace":"IMMEDIATE","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"REPAIR","observedDifference":"我想马上说清","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
   )->'shared'->>'status',
@@ -76,7 +76,7 @@ select is(public.get_room_relationship_context_v1(room_id)->'shared'->>'status',
 from relationship_context_test;
 select throws_ok(
   format(
-    $$select public.respond_room_relationship_context_v1(%L::uuid, 0, 1, 'SKIPPED', 1, 'SKIPPED', '{}'::jsonb)$$,
+    $$select public.respond_room_relationship_context_v1(%L::uuid, 0, 1, 'SKIPPED', 1::smallint, 'SKIPPED', '{}'::jsonb)$$,
     room_id
   ),
   '42501', null,
@@ -86,7 +86,7 @@ select throws_ok(
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
 select is(
   public.save_room_relationship_context_v1(
-    room_id, 1, 1, 'CONFIRMED', 4,
+    room_id, 1, 1, 'CONFIRMED', 4::smallint,
     '{"relationshipType":"PARTNER","relationshipOther":null,"durationRange":"Y1_3","interactionMode":"MOSTLY_REMOTE","useSharedAi":true}',
     '{"communicationPace":"IMMEDIATE","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"REPAIR","observedDifference":"我想马上说清","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
   )->'shared'->>'status',
@@ -107,7 +107,7 @@ select ok(
 ) from relationship_context_test;
 select is(
   public.respond_room_relationship_context_v1(
-    room_id, 0, 2, 'DRAFT', 2, 'DIFFERENT',
+    room_id, 0, 2, 'DRAFT', 2::smallint, 'DIFFERENT',
     '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":"Y3_7","interactionMode":"MIXED","communicationPace":null,"responsePreference":null,"planningStyle":null,"relationshipState":null,"observedDifference":"","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
   )->'mine'->>'status',
   'DRAFT',
@@ -119,7 +119,7 @@ from relationship_context_test;
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 select is(
   public.respond_room_relationship_context_v1(
-    room_id, 1, 2, 'DIFFERENT', 4, 'DIFFERENT',
+    room_id, 1, 2, 'DIFFERENT', 4::smallint, 'DIFFERENT',
     '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":"Y3_7","interactionMode":"MIXED","communicationPace":"PAUSE_FIRST","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"BOUNDARY","observedDifference":"我会先安静","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
   )->'mine'->>'status',
   'DIFFERENT',
@@ -133,7 +133,7 @@ select is(
 
 select is(
   public.respond_room_relationship_context_v1(
-    room_id, 2, 2, 'DIFFERENT', 4, 'DIFFERENT',
+    room_id, 2, 2, 'DIFFERENT', 4::smallint, 'DIFFERENT',
     '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":"Y3_7","interactionMode":"MIXED","communicationPace":"PAUSE_FIRST","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"BOUNDARY","observedDifference":"我会先安静","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":true}'
   )->'mine'->>'useInviterSharedAi',
   'true',
@@ -152,7 +152,7 @@ select ok(not (public.get_room_relationship_context_v1(room_id)->'recipientRespo
 from relationship_context_test;
 select is(
   public.save_room_relationship_context_v1(
-    room_id, 2, 2, 'CONFIRMED', 4,
+    room_id, 2, 2, 'CONFIRMED', 4::smallint,
     '{"relationshipType":"PARTNER","relationshipOther":null,"durationRange":"Y1_3","interactionMode":"MOSTLY_REMOTE","useSharedAi":true}',
     '{"communicationPace":"IMMEDIATE","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"REPAIR","observedDifference":"只修改我的私人观察","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
   )->'shared'->>'revision',
@@ -163,7 +163,7 @@ select is(public.get_room_relationship_context_v1(room_id)->'recipientResponse'-
 from relationship_context_test;
 select lives_ok(
   format(
-    $$select public.save_room_relationship_context_v1(%L::uuid, 2, 3, 'CONFIRMED', 4, %L::jsonb, %L::jsonb)$$,
+    $$select public.save_room_relationship_context_v1(%L::uuid, 2, 3, 'CONFIRMED', 4::smallint, %L::jsonb, %L::jsonb)$$,
     room_id,
     '{"relationshipType":"PARTNER","relationshipOther":null,"durationRange":"Y3_7","interactionMode":"MIXED","useSharedAi":true}',
     '{"communicationPace":"IMMEDIATE","responsePreference":"EMPATHY_FIRST","planningStyle":"DEPENDS","relationshipState":"REPAIR","observedDifference":"我想马上说清","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":false}'
@@ -206,5 +206,17 @@ select throws_ok(
   'atomic save rejects a first profile insert after an all-missing context read'
 ) from missing_context_test;
 
-select * from finish();
+do $$
+declare
+  v_failure_summary text;
+begin
+  select string_agg(result.line, E'\n')
+  into v_failure_summary
+  from finish() as result(line);
+
+  if v_failure_summary is not null then
+    raise exception 'pgTAP failures:%', E'\n' || v_failure_summary;
+  end if;
+end;
+$$;
 rollback;
