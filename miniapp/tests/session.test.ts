@@ -225,11 +225,38 @@ describe("private editor draft recovery", () => {
       discoveryStarted: true,
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
-      discoveryFollowUpLimitReached: false,
       discoveryUnderstanding: draft.discoveryUnderstanding,
       discoverySafetyDisposition: "ALLOW",
       discoverySafetyMessage: "",
     });
+  });
+
+  it("restarts a legacy incomplete discovery draft that stopped without a next question", () => {
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "我们还没有把事情讲清楚。",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      editorStage: "RECORD" as const,
+      clarificationTurns: Array.from({ length: 9 }, (_, index) => ({
+        question: `问题 ${index + 1}`,
+        answer: `回答 ${index + 1}`,
+      })),
+      discoveryStarted: true,
+      discoveryQuestion: "",
+      discoveryReady: false,
+      discoveryFollowUpLimitReached: true,
+      discoverySafetyDisposition: "ALLOW" as const,
+      discoverySafetyMessage: "",
+    };
+    saveEditorDraft(draft);
+
+    const restored = getEditorDraft(draft.roomId, "A");
+
+    expect(restored?.discoveryStarted).toBe(false);
+    expect(restored?.clarificationTurns).toHaveLength(9);
+    expect(restored).not.toHaveProperty("discoveryFollowUpLimitReached");
   });
 
   it("migrates a legacy clarification into the feeling card", () => {

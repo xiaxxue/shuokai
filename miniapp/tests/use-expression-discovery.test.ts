@@ -17,7 +17,6 @@ function discoveryResponse(question: string, ready = false, absorbed = false) {
   return {
     question,
     ready,
-    followUpLimitReached: false,
     understanding: {
       coverage: {
         event: { status: "ENOUGH" as const, evidence: ["男朋友不想提醒我睡觉"], missingInfo: "" },
@@ -120,6 +119,31 @@ describe("expression discovery orchestration", () => {
     expect(state.turns.value).toHaveLength(1);
     expect(state.answer.value).toBe("");
     expect(state.flow.ready.value).toBe(true);
+  });
+
+  it("continues schema-driven discovery beyond the former client and server cutoffs", async () => {
+    mocks.clarify.mockResolvedValueOnce(discoveryResponse("还有哪一点会影响对方理解？", false, true));
+    const state = useTestFlow();
+    state.flow.started.value = true;
+    state.flow.question.value = "这件事现在对你还有什么影响？";
+    const existingTurns = Array.from({ length: 8 }, (_, index) => ({
+      question: `之前的问题 ${index + 1}`,
+      answer: `之前的回答 ${index + 1}`,
+    }));
+    state.turns.value = existingTurns;
+    state.answer.value = "我还想补充这一点。";
+
+    await state.flow.send();
+
+    expect(mocks.clarify).toHaveBeenLastCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      state.transcript.value,
+      [...existingTurns, {
+        question: "这件事现在对你还有什么影响？",
+        answer: "我还想补充这一点。",
+      }],
+    );
+    expect(state.turns.value).toHaveLength(9);
   });
 
   it("allows an explicit skip without claiming incomplete context is ready", async () => {

@@ -1,6 +1,3 @@
-// A safety/rate boundary, not a product promise. The conversation ends when the
-// expression is sufficiently complete, not when a visible turn quota is met.
-export const MAX_CLARIFICATION_TURNS = 8;
 export const MAX_CLARIFICATION_ANSWER_LENGTH = 1200;
 
 const PRIVATE_CONTEXT_MARKER = "\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n";
@@ -129,7 +126,7 @@ export function isRepeatedDiscoveryQuestion(
 
 export function sanitizeClarificationTurns(value: unknown): ClarificationTurn[] {
   if (!Array.isArray(value)) return [];
-  return value.slice(0, MAX_CLARIFICATION_TURNS).flatMap((item) => {
+  return value.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const candidate = item as Partial<ClarificationTurn>;
     const question = cleanText(candidate.question, 500);
@@ -142,7 +139,6 @@ export function nextClarificationQuestion(
   uncertainties: readonly string[],
   turns: readonly ClarificationTurn[],
 ) {
-  if (turns.length >= MAX_CLARIFICATION_TURNS) return "";
   const answered = new Set(turns.map((turn) => turn.question.trim()));
   return uncertainties
     .map((item) => item.trim())
@@ -150,8 +146,8 @@ export function nextClarificationQuestion(
 }
 
 export function optionalClarificationQuestion(turns: readonly ClarificationTurn[]) {
-  if (turns.length >= MAX_CLARIFICATION_TURNS) return "";
-  return optionalClarificationPrompts[turns.length] ?? "";
+  const answered = new Set(turns.map((turn) => turn.question.trim()));
+  return optionalClarificationPrompts.find((question) => !answered.has(question)) ?? "";
 }
 
 export function expressionCandidateClarificationQuestion(
@@ -170,7 +166,7 @@ export function nextMissingFieldQuestion(
   fields: readonly ClarificationField[],
   turns: readonly ClarificationTurn[],
 ) {
-  if (!expression || turns.length >= MAX_CLARIFICATION_TURNS) return "";
+  if (!expression) return "";
   const answered = new Set(turns.map((turn) => turn.question.trim()));
   return fields.flatMap((field) => {
     if (field.optional || expression.fields[field.key]?.trim()) return [];

@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "../src/cloudflare-ai.ts";
-import { isSupportedAudio } from "../src/handlers.ts";
+import { isSupportedAudio, isValidDiscoveryTurns } from "../src/handlers.ts";
 import { appErrorCodes, bearerToken, publicSupabaseConfig } from "../src/http.ts";
 import { handleRequest } from "../src/index.ts";
 import {
@@ -597,11 +597,6 @@ test("each AI schema is strict and path-specific", () => {
   assert.equal((nvc.properties.conversation.properties.stopReason.enum as readonly string[])
     .includes("TURN_LIMIT"), false);
   assert.deepEqual(nvc.properties.grounding.required, ["observation", "feeling", "need", "request"]);
-  const atLimit = expressionResultSchema("NVC", {
-    turns: Array.from({ length: 5 }, (_, index) => ({ question: `问题${index}`, answer: `回答${index}` })),
-    sourceRefs: ["SOURCE", "CURRENT_DRAFT"],
-  });
-  assert.deepEqual(atLimit.properties.conversation.properties.state.enum, ["READY"]);
   const dispute = expressionResultSchema("FACT_DISPUTE");
   assert.deepEqual(dispute.properties.fields.required, ["claim", "basis", "verificationRequest"]);
 });
@@ -655,19 +650,23 @@ test("AI output validation rejects missing and invented expression fields", () =
   }, "BOUNDARY"), false);
 });
 
-test("private clarification envelopes become bounded model context", () => {
+test("private clarification envelopes keep all individually bounded turns", () => {
+  const turns = Array.from({ length: 12 }, (_, index) => ({
+    question: `问题 ${index + 1}`,
+    answer: `回答 ${index + 1}`,
+  }));
   const context = parseExpressionConversationSource(
     "原始表达\n\n<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>\n" + JSON.stringify({
-      privateClarifications: [{ question: "你最在意什么？", answer: "我在意是否被重视。" }],
+      privateClarifications: turns,
     }),
   );
   assert.equal(context.sourceText, "原始表达");
-  assert.deepEqual(context.turns, [{ question: "你最在意什么？", answer: "我在意是否被重视。" }]);
-  assert.deepEqual(context.sourceRefs, ["SOURCE", "CURRENT_DRAFT", "TURN.1.ANSWER"]);
+  assert.deepEqual(context.turns, turns);
+  assert.equal(context.sourceRefs.at(-1), "TURN.12.ANSWER");
 });
 
-test("reflective Agent stops asking after five private turns", () => {
-  const turns = Array.from({ length: 5 }, (_, index) => ({
+test("reflective Agent may ask a schema-relevant question after many private turns", () => {
+  const turns = Array.from({ length: 12 }, (_, index) => ({
     question: `问题 ${index + 1}`,
     answer: `回答 ${index + 1}`,
   }));
@@ -675,15 +674,17 @@ test("reflective Agent stops asking after five private turns", () => {
     turns,
     sourceRefs: ["SOURCE", "CURRENT_DRAFT", ...turns.map((_, index) => `TURN.${index + 1}.ANSWER`)],
   };
-  const result = validNvcExpressionResult("READY");
-  result.conversation.stopReason = "TURN_LIMIT";
+  const result = validNvcExpressionResult("ASK");
   assert.equal(isExpressionResult(result, "NVC", context), true);
-  result.conversation.state = "ASK";
-  result.conversation.question = "还要继续吗？";
-  result.conversation.questionIntent = "VERIFY_UNDERSTANDING";
-  result.conversation.stopReason = "NEEDS_CLARIFICATION";
-  result.uncertainties = ["还要继续吗？"];
-  assert.equal(isExpressionResult(result, "NVC", context), false);
+});
+
+test("clarification request validation has no conversation-count cutoff", () => {
+  const turns = Array.from({ length: 20 }, (_, index) => ({
+    question: `问题 ${index + 1}`,
+    answer: `回答 ${index + 1}`,
+  }));
+  assert.equal(isValidDiscoveryTurns(turns), true);
+  assert.equal(isValidDiscoveryTurns([...turns, { question: "", answer: "无效" }]), false);
 });
 
 test("shared understanding schemas are strict, traceable, and independently reviewed", () => {
@@ -855,7 +856,6 @@ test("private discovery asks about missing context before any expression path is
   const captured: { input?: Record<string, unknown> } = {};
   const response = {
     ready: false,
-    followUpLimitReached: false,
     coverage: {
       event: { status: "MISSING", evidence: [], missingInfo: "缺少当时具体发生的言行" },
       impact: { status: "ENOUGH", evidence: ["觉得很烦"], missingInfo: "" },
@@ -893,7 +893,6 @@ test("private discovery can finish without a ceremonial follow-up when context i
   const sourceText = "昨晚十一点我请男朋友提醒我睡觉，他说不想每天提醒。我很失望，希望他睡前问我一次要不要休息。";
   const response = {
     ready: true,
-    followUpLimitReached: false,
     coverage: {
       event: { status: "ENOUGH", evidence: ["昨晚十一点我请男朋友提醒我睡觉"], missingInfo: "" },
       impact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
@@ -926,7 +925,6 @@ test("private discovery stops safely without claiming incomplete context is read
   const sourceText = "他刚才威胁要伤害我，我很害怕。";
   const response = {
     ready: false,
-    followUpLimitReached: false,
     coverage: {
       event: { status: "ENOUGH", evidence: ["他刚才威胁要伤害我"], missingInfo: "" },
       impact: { status: "ENOUGH", evidence: ["我很害怕"], missingInfo: "" },
@@ -957,7 +955,6 @@ test("private discovery retries instead of repeating an answered question", asyn
         if (attempts === 2) retryInput = input;
         return { response: JSON.stringify({
           ready: false,
-          followUpLimitReached: false,
           coverage: {
             event: { status: "ENOUGH", evidence: ["昨晚他不愿意提醒我睡觉"], missingInfo: "" },
             impact: { status: "ENOUGH", evidence: ["我很难过"], missingInfo: "" },
@@ -996,8 +993,8 @@ test("private discovery retries instead of repeating an answered question", asyn
   );
 });
 
-test("private discovery stops honestly at the server-controlled follow-up limit", async () => {
-  const turns = Array.from({ length: 5 }, (_, index) => ({
+test("private discovery keeps asking for missing schema evidence after many turns", async () => {
+  const turns = Array.from({ length: 12 }, (_, index) => ({
     question: `问题 ${index + 1}`,
     answer: `回答 ${index + 1}`,
   }));
@@ -1008,7 +1005,6 @@ test("private discovery stops honestly at the server-controlled follow-up limit"
         captured.input = input;
         return { response: JSON.stringify({
           ready: false,
-          followUpLimitReached: false,
           coverage: {
             event: { status: "ENOUGH", evidence: ["我们发生了争执"], missingInfo: "" },
             impact: { status: "MISSING", evidence: [], missingInfo: "缺少造成的影响" },
@@ -1027,14 +1023,10 @@ test("private discovery stops honestly at the server-controlled follow-up limit"
     },
   }, { sourceText: "我们发生了争执。", turns });
 
-  const discovery = result.result as { ready: boolean; followUpLimitReached: boolean };
+  const discovery = result.result as { ready: boolean; nextQuestion: { text: string } };
   assert.equal(discovery.ready, false);
-  assert.equal(discovery.followUpLimitReached, true);
-  assert.deepEqual(
-    (result.result as { nextQuestion: unknown }).nextQuestion,
-    { focusDimension: "none", text: "", purpose: "" },
-  );
-  assert.match(JSON.stringify(captured.input), /现已达到上限/);
+  assert.equal(discovery.nextQuestion.text, "这次争执对你造成了什么影响？");
+  assert.doesNotMatch(JSON.stringify(captured.input), /达到上限|最多.*轮/);
 });
 
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {

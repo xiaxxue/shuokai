@@ -28,7 +28,6 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   const started = ref(false);
   const question = ref("");
   const ready = ref(false);
-  const followUpLimitReached = ref(false);
   const understanding = ref<DiscoveryUnderstandingState | null>(null);
   const safetyDisposition = ref<SafetyDisposition>("ALLOW");
   const safetyMessage = ref("");
@@ -38,7 +37,6 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     started.value = false;
     question.value = "";
     ready.value = false;
-    followUpLimitReached.value = false;
     understanding.value = null;
     safetyDisposition.value = "ALLOW";
     safetyMessage.value = "";
@@ -54,7 +52,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     const currentAnswer = options.answer.value.trim();
     const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value);
     if (!isInitialMessage && (
-      !currentQuestion || !currentAnswer || ready.value || followUpLimitReached.value || safetyStopped
+      !currentQuestion || !currentAnswer || ready.value || safetyStopped
     )) return;
 
     options.clearNotice();
@@ -76,7 +74,6 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       }
       question.value = result.question;
       ready.value = result.ready;
-      followUpLimitReached.value = result.followUpLimitReached;
       understanding.value = result.understanding;
       safetyDisposition.value = result.safetyDisposition;
       safetyMessage.value = result.safetyMessage;
@@ -109,7 +106,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   }
 
   return {
-    started, question, ready, followUpLimitReached, understanding,
+    started, question, ready, understanding,
     safetyDisposition, safetyMessage, thinking, reset, send, finish,
   };
 }
