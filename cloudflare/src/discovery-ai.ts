@@ -88,7 +88,6 @@ export const discoveryResultSchema = {
         absorbed: { type: "boolean" },
         updatedDimensions: {
           type: "array",
-          uniqueItems: true,
           maxItems: 3,
           items: discoveryDimensionSchema,
         },
