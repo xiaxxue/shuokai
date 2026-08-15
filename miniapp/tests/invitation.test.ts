@@ -67,15 +67,18 @@ describe("receiver invitation guidance", () => {
     expect(message).toContain("发生时间、场景或具体行为");
   });
 
-  it("uses distinct loading and error copy for both summary levels", () => {
-    expect(invitationTitleCopy("loading", "")).toContain("正在理解");
-    expect(invitationSummaryCopy("loading", "")).toContain("时间、地点或场景、人物和事件");
+  it("labels only an explicit retry as loading and never pretends AI is still generating", () => {
+    expect(invitationTitleCopy("idle", "")).toBe("关于这次沟通");
+    expect(invitationTitleCopy("loading", "")).toContain("重新读取");
+    expect(invitationSummaryCopy("loading", "")).toContain("已经确认");
+    expect(invitationSummaryCopy("loading", "")).not.toContain("AI 正在");
     expect(invitationTitleCopy("error", "")).toBe("暂时没读到邀请说明");
     expect(invitationSummaryCopy("error", "")).not.toContain("邀请方要补充");
   });
 
-  it("distinguishes loading, empty and failed invitation topics without blaming the inviter", () => {
-    expect(invitationTopicCopy("loading", "")).toBe("正在读取这次沟通的主题…");
+  it("uses a stable legacy fallback before data arrives and a real loading state only for retry", () => {
+    expect(invitationTopicCopy("idle", "")).toBe("这次邀请暂未显示具体主题");
+    expect(invitationTopicCopy("loading", "")).toBe("正在重新读取邀请说明…");
     expect(invitationTopicCopy("ready", "视频聊天时提到另一个女生好看"))
       .toBe("视频聊天时提到另一个女生好看");
     expect(invitationTopicCopy("ready", "")).toBe("这次邀请暂未显示具体主题");
