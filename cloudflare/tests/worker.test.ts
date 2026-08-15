@@ -20,7 +20,10 @@ import {
 } from "../src/observability.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "../src/rpc-validation.ts";
 import {
+  fallbackInvitationSummary,
+  generateInvitationSummary,
   invitationContextFromRecords,
+  invitationSourceFromExpression,
   invitationTopicFromExpression,
 } from "../src/invitation-context.ts";
 import {
@@ -424,6 +427,85 @@ test("invitation context exposes only the selected shareable topic field", () =>
     topic: "视频聊天时，提到另一个女生好看。",
   });
   assert.doesNotMatch(JSON.stringify(context), /难过|尊重|要求|准确理解/);
+});
+
+test("invitation summary uses only the confirmed event field and keeps unknown details absent", async () => {
+  let receivedInput = "";
+  let callCount = 0;
+  const expression = {
+    mode: "NVC",
+    payload: {
+      observation: "男朋友在半夜凌晨一两点争吵后说‘你总是大晚上吵’，并说他受不了。",
+      feeling: "不得进入邀请摘要模型输入的难过",
+      need: "不得进入邀请摘要模型输入的关心",
+      request: "不得进入邀请摘要模型输入的提醒",
+    },
+  };
+  const summary = await generateInvitationSummary({
+    AI: {
+      async run(_model, input) {
+        callCount += 1;
+        receivedInput = JSON.stringify(input);
+        return {
+          response: {
+            title: "关于凌晨争吵中的一句话",
+            summary: "在凌晨一两点的一次争吵后，男朋友说‘你总是大晚上吵’，并表示自己受不了。",
+          },
+        };
+      },
+    },
+  }, expression);
+  assert.deepEqual(summary, {
+    title: "关于凌晨争吵中的一句话",
+    summary: "在凌晨一两点的一次争吵后，男朋友说‘你总是大晚上吵’，并表示自己受不了。",
+    generatedByAi: true,
+  });
+  assert.doesNotMatch(receivedInput, /难过|关心|提醒/);
+  assert.match(receivedInput, /凌晨一两点/);
+  const cachedSummary = await generateInvitationSummary({
+    AI: {
+      async run() {
+        callCount += 1;
+        throw new Error("cached summaries must not call the model twice");
+      },
+    },
+  }, expression);
+  assert.deepEqual(cachedSummary, summary);
+  assert.equal(callCount, 1);
+});
+
+test("invitation summary falls back without inventing missing time or place", () => {
+  const source = invitationSourceFromExpression({
+    mode: "FACT_DISPUTE",
+    payload: { claim: "对方没有按约定回复", basis: "聊天记录" },
+  });
+  assert.deepEqual(fallbackInvitationSummary(source), {
+    title: "关于一件待核实的事",
+    summary: "发起方确认的背景是：对方没有按约定回复。你可以先核对自己记得的时间、地点或场景、人物和经过，再讲你的版本。",
+    generatedByAi: false,
+  });
+});
+
+test("invitation summary remains usable when the model output is invalid", async () => {
+  let callCount = 0;
+  const expression = {
+    mode: "BOUNDARY",
+    payload: { boundary: "争吵时不要查看我的手机" },
+  };
+  const summary = await generateInvitationSummary({
+    AI: {
+      async run() {
+        callCount += 1;
+        return { response: { title: "", summary: "" } };
+      },
+    },
+  }, expression);
+  assert.deepEqual(summary, {
+    title: "关于需要被尊重的边界",
+    summary: "发起方确认的背景是：争吵时不要查看我的手机。你可以先核对自己记得的时间、地点或场景、人物和经过，再讲你的版本。",
+    generatedByAi: false,
+  });
+  assert.equal(callCount, 2);
 });
 
 test("every Worker error response exposes a controlled application code", async () => {

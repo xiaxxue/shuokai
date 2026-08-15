@@ -200,7 +200,7 @@
         :recording="recording"
         :recording-seconds="recordingSeconds"
         :role="room.role"
-        :invitation-topic="resolvedInvitationContext.topic"
+        :invitation-topic="resolvedInvitationContext.title"
         :invitation-status="invitationContextStatus"
         :safety-disposition="discoverySafetyDisposition"
         :safety-message="discoverySafetyMessage"
@@ -328,9 +328,13 @@
         <text class="title">现在，邀请对方讲自己的版本。</text>
         <text class="description centered">对方会先看见一段你确认过的主题说明，再在自己的私人空间表达。不会提前看到其余表达内容或私人草稿。</text>
         <view class="invite-preview">
-          <text class="invite-preview-label">对方将先看到</text>
-          <text class="invite-preview-topic">{{ resolvedInvitationContext.topic || "请先确认一件具体发生的事" }}</text>
-          <text class="invite-preview-note">这是从你已确认表达卡的第一部分提取的主题说明。请确认它足够具体，也没有遗漏你在意的边界。</text>
+          <view class="invite-preview-meta">
+            <text class="invite-preview-label">对方将先看到</text>
+            <text class="invite-preview-method">{{ resolvedInvitationContext.generatedByAi ? "AI 已整理" : invitationContextStatus === "loading" ? "AI 正在整理" : "根据确认内容整理" }}</text>
+          </view>
+          <text class="invite-preview-topic">{{ resolvedInvitationContext.title }}</text>
+          <text class="invite-preview-summary">{{ resolvedInvitationContext.summary }}</text>
+          <text class="invite-preview-note">摘要只使用表达卡里已经确认的事件背景。对方仍会从自己的视角讲述，不会先看到你的其余表达或私人对话。</text>
           <button class="invite-preview-edit" :disabled="busy" @tap="editOwnExpression">这段说明不准确，返回修改</button>
         </view>
         <view class="room-card">
@@ -561,9 +565,9 @@ import {
   expressionReviewSummaryStep,
 } from "../../domain/expression-review";
 import {
+  invitationContextFromEditableExpression,
   invitationClarificationMessage,
   type InvitationContextStatus,
-  topicFromEditableExpression,
   type InvitationContext,
 } from "../../domain/invitation";
 import {
@@ -844,17 +848,17 @@ const editorPrivacyNote = computed(() => {
 const resolvedInvitationContext = computed<InvitationContext>(() => {
   if (invitationContext.value) return invitationContext.value;
   const inviter = snapshot.value?.participants.find((item) => item.role === "A")?.display_name;
-  return {
-    inviterName: !inviter || ["我", "Lin"].includes(inviter) ? "邀请你的人" : inviter,
-    topic: room.value?.role === "A" ? topicFromEditableExpression(editableExpression.value) : "",
-  };
+  return invitationContextFromEditableExpression(
+    room.value?.role === "A" ? editableExpression.value : createEditableExpression("NVC"),
+    !inviter || ["我", "Lin"].includes(inviter) ? "邀请你的人" : inviter,
+  );
 });
 const currentInvitationClarificationMessage = computed(() => invitationClarificationMessage(
   resolvedInvitationContext.value,
   room.value?.code ?? "",
 ));
-const invitationShareTitle = computed(() => resolvedInvitationContext.value.topic
-  ? `我想和你说开：${resolvedInvitationContext.value.topic.slice(0, 22)}`
+const invitationShareTitle = computed(() => resolvedInvitationContext.value.title
+  ? `我想和你说开：${resolvedInvitationContext.value.title.slice(0, 22)}`
   : "我想和你把一件事说开");
 
 function defaultReviewAt() {
@@ -1767,11 +1771,9 @@ async function next() {
         stage.value = "DIALOGUE";
         setNotice("success", "双方表达卡已确认。先互相确认听懂，再进入共同理解。 ");
       } else {
-        invitationContext.value = {
-          inviterName: "邀请你的人",
-          topic: topicFromEditableExpression(editableExpression.value),
-        };
+        invitationContext.value = invitationContextFromEditableExpression(editableExpression.value);
         stage.value = "INVITE";
+        void refreshInvitationContext(room.value.roomId);
         try {
           await requestSharedUnderstanding(room.value.roomId);
           updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
@@ -1812,6 +1814,9 @@ async function next() {
         invitationContext.value = {
           inviterName: "邀请你的人",
           topic: perspective.fact.trim().slice(0, 180),
+          title: "关于这次具体经历",
+          summary: `发起方确认的背景是：${perspective.fact.trim().slice(0, 180)} 你可以先讲讲自己记得的情况。`,
+          generatedByAi: false,
         };
         stage.value = "INVITE";
         setNotice("success", "你的版本已确认，不会再分享草稿内容。 ");

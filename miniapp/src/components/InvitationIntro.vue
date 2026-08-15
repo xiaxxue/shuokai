@@ -5,11 +5,26 @@
       <text class="invitation-title">{{ context.inviterName }}想和你把一件事说开。</text>
       <text class="invitation-lead">先不用回应任何结论。你可以先确认对方想谈什么，以及这里接下来会发生什么。</text>
 
-      <view class="topic-letter" :class="{ 'topic-letter-error': status === 'error' }" role="status" aria-live="polite">
+      <view class="topic-letter" :class="{ 'topic-letter-error': status === 'error' }">
         <view class="topic-letter-fold" />
-        <text class="topic-label">这次想谈的是</text>
-        <text class="topic-copy">{{ topicCopy }}</text>
-        <text v-if="status === 'error'" class="topic-help">可能是网络或同步问题，不代表邀请方没有填写。</text>
+        <view role="status" aria-live="polite">
+          <view class="topic-meta">
+            <text class="topic-label">这次想谈的是</text>
+            <text v-if="status === 'ready'" class="topic-source">{{ context.generatedByAi ? "AI 根据已确认内容整理" : "根据已确认内容整理" }}</text>
+          </view>
+          <text class="topic-title">{{ titleCopy }}</text>
+          <text class="topic-summary">{{ summaryCopy }}</text>
+        </view>
+        <button
+          v-if="status === 'ready' && context.topic"
+          class="topic-source-action"
+          :aria-expanded="sourceOpen"
+          @tap="sourceOpen = !sourceOpen"
+        >{{ sourceOpen ? "收起发起方确认的原话" : "查看发起方确认的原话" }}</button>
+        <view v-if="status === 'ready' && sourceOpen && context.topic" class="topic-source-copy">
+          <text>发起方确认的原话</text>
+          <text>{{ context.topic }}</text>
+        </view>
         <button v-if="status === 'error'" class="topic-retry" :disabled="busy" @tap="$emit('retry')">重新读取邀请说明</button>
       </view>
 
@@ -53,9 +68,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import {
-  invitationTopicCopy,
+  invitationSummaryCopy,
+  invitationTitleCopy,
   type InvitationContext,
   type InvitationContextStatus,
 } from "../domain/invitation";
@@ -77,7 +93,9 @@ defineEmits<{
   "copy-request": [];
 }>();
 
-const topicCopy = computed(() => invitationTopicCopy(props.status, props.context.topic));
+const sourceOpen = ref(false);
+const titleCopy = computed(() => invitationTitleCopy(props.status, props.context.title));
+const summaryCopy = computed(() => invitationSummaryCopy(props.status, props.context.summary));
 const startActionCopy = computed(() => props.status === "ready" && props.context.topic
   ? "我知道是哪件事，开始表达"
   : "先说说我的理解");
@@ -172,22 +190,60 @@ $green: #315b47;
   letter-spacing: 2px;
 }
 
-.topic-copy {
-  display: block;
-  margin-top: 11px;
-  font-family: "Songti SC", "STSong", serif;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.65;
+.topic-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.topic-help {
-  display: block;
-  margin-top: 8px;
-  color: $muted;
-  font-size: 11px;
-  line-height: 1.65;
+.topic-source {
+  color: $green;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-align: right;
 }
+
+.topic-title {
+  display: block;
+  margin-top: 13px;
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.topic-summary {
+  display: block;
+  margin-top: 9px;
+  color: $muted;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.topic-source-action {
+  min-height: 48px;
+  margin: 12px 0 0;
+  padding: 0;
+  background: transparent;
+  color: $coral-dark;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 48px;
+  text-align: left;
+}
+
+.topic-source-action::after { border: 0; }
+
+.topic-source-copy {
+  padding: 13px 14px;
+  border-left: 3px solid rgba(49, 91, 71, .32);
+  background: rgba(223, 233, 220, .45);
+}
+
+.topic-source-copy text { display: block; color: $muted; font-size: 11px; line-height: 1.7; }
+.topic-source-copy text:first-child { margin-bottom: 4px; color: $green; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
 
 .topic-letter-error { border-color: rgba(190, 68, 46, .34); }
 
@@ -272,7 +328,7 @@ $green: #315b47;
 
 .invitation-link {
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   margin-top: 3px;
   background: transparent;
   color: $muted;
@@ -304,6 +360,8 @@ $green: #315b47;
 @media (max-width: 360px) {
   .invitation-intro { padding-right: 18px; padding-left: 18px; }
   .invitation-title { font-size: 27px; }
-  .topic-copy { font-size: 18px; }
+  .topic-title { font-size: 20px; }
+  .topic-meta { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .topic-source { text-align: left; }
 }
 </style>

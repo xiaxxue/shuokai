@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   invitationClarificationMessage,
+  invitationContextFromEditableExpression,
+  invitationSummaryCopy,
+  invitationTitleCopy,
   invitationTopicCopy,
   parseInvitationContext,
   topicFromEditableExpression,
@@ -12,13 +15,30 @@ describe("receiver invitation guidance", () => {
     expect(parseInvitationContext({
       inviterName: "邀请你的人",
       topic: "  视频聊天时提到另一个女生好看。  ",
+      title: "关于视频聊天中的一句话",
+      summary: "在一次视频聊天中，发起方想谈谈对方称赞另一个女生这件事。",
+      generatedByAi: true,
       hiddenDraft: "不得进入客户端状态",
     })).toEqual({
       inviterName: "邀请你的人",
       topic: "视频聊天时提到另一个女生好看。",
+      title: "关于视频聊天中的一句话",
+      summary: "在一次视频聊天中，发起方想谈谈对方称赞另一个女生这件事。",
+      generatedByAi: true,
     });
     expect(() => parseInvitationContext({ inviterName: "", topic: "某件事" }))
       .toThrow("邀请说明格式无效");
+  });
+
+  it("keeps old invitation responses readable without pretending AI generated them", () => {
+    expect(parseInvitationContext({ inviterName: "邀请你的人", topic: "周日仍未收到消息" }))
+      .toEqual({
+        inviterName: "邀请你的人",
+        topic: "周日仍未收到消息",
+        title: "关于这次沟通",
+        summary: "发起方确认的背景是：周日仍未收到消息",
+        generatedByAi: false,
+      });
   });
 
   it("previews only the event-like field from a confirmed expression card", () => {
@@ -28,15 +48,29 @@ describe("receiver invitation guidance", () => {
     expression.fields.need = "尊重";
     expression.fields.request = "希望先听我说完";
     expect(topicFromEditableExpression(expression)).toBe("视频聊天时提到另一个女生好看");
+    expect(invitationContextFromEditableExpression(expression)).toMatchObject({
+      title: "关于这次具体经历",
+      generatedByAi: false,
+    });
   });
 
   it("creates an honest clarification message instead of pretending it was delivered", () => {
     const message = invitationClarificationMessage({
       inviterName: "邀请你的人",
       topic: "视频聊天时提到另一个女生好看",
+      title: "关于视频聊天中的一句话",
+      summary: "发起方想谈谈视频聊天时发生的一件事。",
+      generatedByAi: true,
     }, "SAY2026");
     expect(message).toContain("房间 SAY2026");
     expect(message).toContain("发生时间、场景或具体行为");
+  });
+
+  it("uses distinct loading and error copy for both summary levels", () => {
+    expect(invitationTitleCopy("loading", "")).toContain("正在理解");
+    expect(invitationSummaryCopy("loading", "")).toContain("时间、地点或场景、人物和事件");
+    expect(invitationTitleCopy("error", "")).toBe("暂时没读到邀请说明");
+    expect(invitationSummaryCopy("error", "")).not.toContain("邀请方要补充");
   });
 
   it("distinguishes loading, empty and failed invitation topics without blaming the inviter", () => {

@@ -11,7 +11,7 @@ import {
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
-import { invitationContextFromRecords } from "./invitation-context.ts";
+import { generateInvitationSummary, invitationContextFromRecords } from "./invitation-context.ts";
 import {
   generateDiscoveryQuestion,
   type DiscoveryResult,
@@ -532,7 +532,8 @@ export async function handleInvitationContext(request: Request, env: WorkerEnv) 
   if (!context) {
     return errorJson(request, env, "INVITATION_CONTEXT_UNAVAILABLE", "暂时无法读取这次邀请。", 502);
   }
-  return json(request, env, context);
+  const summary = await generateInvitationSummary(env, expression);
+  return json(request, env, { ...context, ...summary });
 }
 
 async function digest(value: string) {
