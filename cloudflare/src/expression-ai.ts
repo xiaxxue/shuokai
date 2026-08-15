@@ -4,7 +4,7 @@ import {
   expressionResultSchema,
   fieldSchemas,
   isExpressionResult,
-  maxAgentConversationTurns,
+  maxReflectiveConversationTurns,
   parseExpressionConversationSource,
   sanitizedManualPayload,
   supportedExpressionModes,
@@ -574,7 +574,7 @@ export async function generateExpressionCandidate(
       source !== "CURRENT_DRAFT" || Object.keys(currentDraft).length > 0
     ),
   };
-  const atTurnLimit = modelContext.turns.length >= maxAgentConversationTurns;
+  const atTurnLimit = modelContext.turns.length >= maxReflectiveConversationTurns;
   return requestStructuredOutput(env, {
     schemaName: `shuokai_${input.mode.toLowerCase()}_expression`,
     schema: expressionResultSchema(input.mode, modelContext),
@@ -588,7 +588,7 @@ export async function generateExpressionCandidate(
       "ASK 时 uncertainties 必须只包含 conversation.question；READY 时 question 为空、questionIntent 为 NONE、uncertainties 为空。",
       "grounding 逐字段说明依据。只允许 USER_STATED、USER_CONFIRMED 或 MISSING：用户在原话、currentDraft 或回答中直接说出的内容是 USER_STATED；用户明确确认 AI 的暂定理解时才是 USER_CONFIRMED；AI 的猜测必须留在 tentativeUnderstanding，字段保持空并标为 MISSING。",
       "CURRENT_DRAFT 是用户已经手动修改的当前草稿，优先保留；只有后续回答明确纠正时才能改写。不要因为重新生成而抹掉用户写过的内容。",
-      `本次最多允许 ${maxAgentConversationTurns} 轮澄清。${atTurnLimit ? "已经达到上限，必须进入 READY，stopReason 使用 TURN_LIMIT（安全停止除外）。" : "尚未达到上限，但仍应在信息足够时提前停止。"}`,
+      `前置倾听和本阶段合计最多允许 ${maxReflectiveConversationTurns} 轮澄清。${atTurnLimit ? "已经达到上限，必须进入 READY，stopReason 使用 TURN_LIMIT（安全停止除外）。" : "尚未达到上限，但只应补充所选表达路径特有的关键信息，并在信息足够时提前停止。"}`,
       "不要索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。发现胁迫、自伤、伤人或明显危险时，用安全字段真实标记；不要把安全提醒塞进分享字段。",
       "普通的难过、嫉妒、失望、争吵、关系不安、分手或情感困扰本身不是阻止分享的理由，通常应为 ALLOW。只有分享本身可能带来现实危险时才使用 WARN；只有明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。",
       "输出中文。字段不足时留空，让用户本人补充和确认。",

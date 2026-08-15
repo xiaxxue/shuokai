@@ -6,13 +6,19 @@
 ## 后端编排
 
 ```text
-用户原话 / 私密回答 / 当前草稿
+用户原话
+    │
+    ▼
+前置 Discovery Agent（路径选择前，只澄清背景）
+    │ 私密回答沿用同一轮次预算
+    ▼
+用户选择表达路径 / 当前草稿
               │
               ▼
 request_understanding_job_v2（版本与输入 hash）
               │  队列里只放 jobId
               ▼
-反思式表达 Agent（ASK 或 READY）
+反思式表达 Agent（只补路径特有信息，ASK 或 READY）
               │
               ▼
 严格结构、停止策略、grounding 与安全校验
@@ -21,8 +27,8 @@ request_understanding_job_v2（版本与输入 hash）
 私人候选草稿 ── 用户编辑确认 ── public.expression_versions
 ```
 
-本次只替换表达澄清 Agent。双方表达确认之后的共识 Agent、独立 Review Agent
-及引导对话流程保持原有编排，避免同时改动两个阶段。
+前置 Discovery Agent 和表达 Agent 职责不同，但共用五轮总上限与重复问题识别。
+双方表达确认之后的共识 Agent、独立 Review Agent及引导对话流程保持原有编排。
 
 ## 职责边界
 

@@ -909,6 +909,41 @@ test("private discovery can end only after at least one path-neutral follow-up",
   }), false);
 });
 
+test("private discovery shares the five-turn stop and repeat policy", async () => {
+  const turns = Array.from({ length: 5 }, (_, index) => ({
+    question: `第 ${index + 1} 个问题？`,
+    answer: `第 ${index + 1} 个回答。`,
+  }));
+  const captured: { input?: Record<string, unknown> } = {};
+  const completed = await generateDiscoveryQuestion({
+    AI: {
+      async run(_model, input) {
+        captured.input = input;
+        return { response: JSON.stringify({
+          question: "",
+          ready: true,
+          safetyDisposition: "ALLOW",
+          safetyMessage: "",
+        }) };
+      },
+    },
+  }, { sourceText: "我想把这件事说清楚。", turns });
+  assert.equal((completed.result as { ready: boolean }).ready, true);
+  assert.match(JSON.stringify(captured.input), /现已达到五轮/);
+  assert.equal(isDiscoveryResult({
+    question: "还想补充什么？",
+    ready: false,
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }, false, turns), false);
+  assert.equal(isDiscoveryResult({
+    question: "第 1 个问题? ",
+    ready: false,
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+  }, false, turns.slice(0, 1)), false);
+});
+
 test("consensus Agent sends only confirmed cards to Workers AI", async () => {
   const captured: { input?: Record<string, unknown> } = {};
   const baseResult = validMutualUnderstandingResult();

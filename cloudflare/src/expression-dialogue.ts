@@ -2,7 +2,7 @@ export const supportedExpressionModes = ["NVC", "FACT_DISPUTE", "BOUNDARY"] as c
 export type SupportedExpressionMode = typeof supportedExpressionModes[number];
 
 const privateClarificationMarker = "<<<SHUOKAI_PRIVATE_CLARIFICATION_V1>>>";
-export const maxAgentConversationTurns = 5;
+export const maxReflectiveConversationTurns = 5;
 
 type PrivateConversationTurn = {
   question: string;
@@ -57,6 +57,14 @@ function normalizedQuestionIdentity(value: string) {
   return value.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
+export function isRepeatedConversationQuestion(
+  question: string,
+  turns: readonly { question: string }[],
+) {
+  const identity = normalizedQuestionIdentity(question);
+  return Boolean(identity) && turns.some((turn) => normalizedQuestionIdentity(turn.question) === identity);
+}
+
 export function parseExpressionConversationSource(value: string): ExpressionConversationContext {
   const markerIndex = value.lastIndexOf(privateClarificationMarker);
   const sourceText = (markerIndex < 0 ? value : value.slice(0, markerIndex)).trim();
@@ -102,7 +110,7 @@ export function expressionResultSchema(
   },
 ) {
   const fields = fieldSchemas[mode];
-  const atTurnLimit = context.turns.length >= maxAgentConversationTurns;
+  const atTurnLimit = context.turns.length >= maxReflectiveConversationTurns;
   const groundingProperties = Object.fromEntries(Object.keys(fields).map((key) => [key, {
     type: "object",
     additionalProperties: false,
@@ -212,16 +220,15 @@ export function isExpressionResult(
   } else if (conversation.stopReason === "SAFETY") return false;
 
   const questions = candidate.uncertainties as unknown[];
-  const previousQuestions = new Set(context.turns.map((turn) => normalizedQuestionIdentity(turn.question)));
   if (conversation.state === "ASK") {
-    if (context.turns.length >= maxAgentConversationTurns || !conversation.question.trim() ||
+    if (context.turns.length >= maxReflectiveConversationTurns || !conversation.question.trim() ||
       conversation.questionIntent === "NONE" || conversation.stopReason !== "NEEDS_CLARIFICATION" ||
       questions.length !== 1 || questions[0] !== conversation.question ||
-      previousQuestions.has(normalizedQuestionIdentity(conversation.question))) return false;
+      isRepeatedConversationQuestion(conversation.question, context.turns)) return false;
   } else if (conversation.question !== "" || conversation.questionIntent !== "NONE" ||
     conversation.stopReason === "NEEDS_CLARIFICATION" || questions.length !== 0 ||
-    (context.turns.length < maxAgentConversationTurns && conversation.stopReason === "TURN_LIMIT") ||
-    (context.turns.length >= maxAgentConversationTurns &&
+    (context.turns.length < maxReflectiveConversationTurns && conversation.stopReason === "TURN_LIMIT") ||
+    (context.turns.length >= maxReflectiveConversationTurns &&
       !["TURN_LIMIT", "SAFETY"].includes(String(conversation.stopReason)))) return false;
 
   if (Object.keys(grounding).length !== expectedFields.length) return false;
