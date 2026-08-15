@@ -21,6 +21,7 @@ describe("room state machine", () => {
     expect(previousStage("MODE_SELECT")).toBe("RECORD");
     expect(previousStage("CLARIFICATION_CHAT")).toBe("MODE_SELECT");
     expect(previousStage("EXPRESSION_REVIEW")).toBe("MODE_SELECT");
+    expect(previousStage("RELATIONSHIP_SETUP")).toBe("WELCOME");
   });
 
   it("only allows local back navigation before a server transition", () => {
@@ -31,6 +32,7 @@ describe("room state machine", () => {
     expect(canNavigateBack("MODE_SELECT")).toBe(true);
     expect(canNavigateBack("CLARIFICATION_CHAT")).toBe(true);
     expect(canNavigateBack("EXPRESSION_REVIEW")).toBe(true);
+    expect(canNavigateBack("RELATIONSHIP_CONFIRMATION")).toBe(true);
   });
 
   it("routes each participant from the authoritative room state", () => {

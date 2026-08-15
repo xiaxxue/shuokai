@@ -32,6 +32,7 @@
     </view>
 
     <AccountSpace
+      ref="accountSpaceRef"
       :open="accountOpen"
       :platform-label="accountPlatform.platformLabel"
       :identity="accountPlatform.identity"
@@ -53,7 +54,9 @@
       :ai-archive-loading="aiArchiveLoading"
       :ai-archive-error="aiArchiveError"
       :busy="busy"
+      :display-name="profile.displayName"
       @close="accountOpen = false"
+      @edit-profile="openProfileEditor"
       @signout="requestH5Logout"
       @refresh-history="loadRoomHistory(true)"
       @load-more-history="loadRoomHistory(false)"
@@ -64,6 +67,18 @@
       @edit-memory="editPersonalMemory"
       @forget-memory="confirmForgetPersonalMemory"
       @decide-relationship-memory="decideRelationshipMemory"
+    />
+
+    <ProfileOnboarding
+      :open="profileOpen"
+      :profile="profile"
+      :saved-draft="profileDraft"
+      :busy="profileBusy"
+      :error="profileError"
+      @close="closeProfileEditor"
+      @save="saveProfile"
+      @clear="clearProfilePreferences"
+      @draft-change="persistProfileDraft"
     />
 
     <view
@@ -150,6 +165,20 @@
           <view class="trust-item"><text class="trust-icon">✓</text><text>只有本人确认的内容才进入共同空间</text></view>
         </view>
       </view>
+
+      <RelationshipOnboarding
+        v-else-if="(stage === 'RELATIONSHIP_SETUP' || stage === 'RELATIONSHIP_CONFIRMATION') && relationshipContext"
+        class="screen"
+        :role="stage === 'RELATIONSHIP_SETUP' ? 'A' : 'B'"
+        :context="relationshipContext"
+        :saved-draft="relationshipDraft"
+        :busy="busy"
+        :error="relationshipError"
+        @draft-change="persistRelationshipDraft"
+        @checkpoint="saveRelationshipCheckpoint"
+        @save="saveRelationshipOnboarding"
+        @leave="returnToWelcome"
+      />
 
       <view v-else-if="stage === 'GOAL'" class="screen">
         <text class="eyebrow">先确认意图</text>
@@ -495,7 +524,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
 import { onHide, onLoad, onShareAppMessage, onUnload } from "@dcloudio/uni-app";
 import type { ClientStage } from "../../domain/room-state";
 import {
@@ -531,6 +560,18 @@ import ExpressionReview from "../../components/ExpressionReview.vue";
 import SharedUnderstanding from "../../components/SharedUnderstanding.vue";
 import GuidedDialogue from "../../components/GuidedDialogue.vue";
 import InvitationIntro from "../../components/InvitationIntro.vue";
+import ProfileOnboarding from "../../components/ProfileOnboarding.vue";
+import RelationshipOnboarding from "../../components/RelationshipOnboarding.vue";
+import {
+  emptyParticipantContextDraft,
+  emptyProfileDraft,
+  emptySharedContextDraft,
+  type ParticipantContextDraft,
+  type ProfileDraft,
+  type RoomRelationshipContext,
+  type SharedContextDraft,
+  type UserProfile,
+} from "../../domain/profile-context";
 import {
   createEditableExpression,
   expressionFieldProgress,
@@ -575,10 +616,12 @@ import {
   type InvitationContext,
 } from "../../domain/invitation";
 import {
+  ApiError,
   loginForPlatform,
   requestExpressionOrganization,
   requestSharedUnderstanding,
   roomApi,
+  profileApi,
   transcribeAudio,
 } from "../../services/api";
 import { useSharedUnderstanding } from "../../composables/use-shared-understanding";
@@ -598,6 +641,19 @@ import {
   saveActiveRoom,
   saveEditorDraft,
 } from "../../services/session";
+import {
+  clearProfileContextDraftsForUser,
+  clearProfileDraft,
+  clearRelationshipDraft,
+  discardForeignProfileContextDrafts,
+  getProfileDraft,
+  getRelationshipDraft,
+  rebaseRelationshipDraft,
+  saveProfileDraft,
+  saveRelationshipDraft,
+  type RelationshipDraft,
+} from "../../services/profile-context-session";
+import { runCommittedRoomEntry } from "../../services/room-entry";
 
 const goals = [
   { title: "让我被准确理解", description: "把观察、感受和真正的需要说清楚" },
@@ -608,6 +664,8 @@ const participantRoles = ["A", "B"] as const;
 const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   WELCOME: { step: 0, label: "开始" },
+  RELATIONSHIP_SETUP: { step: 1, label: "关系背景" },
+  RELATIONSHIP_CONFIRMATION: { step: 1, label: "确认背景" },
   INVITATION_INTRO: { step: 1, label: "邀请" },
   GOAL: { step: 1, label: "意图" },
   RECORD: { step: 2, label: "AI 对话" },
@@ -645,6 +703,27 @@ const noticeController = createNoticeController((nextNotice) => { notice.value =
 const authEmail = ref("");
 const authUserId = ref("");
 const accountOpen = ref(false);
+const accountSpaceRef = ref<{ focusProfileEntry: () => void } | null>(null);
+const profileReturnToAccount = ref(false);
+const profile = ref<UserProfile>({
+  status: "MISSING",
+  displayName: "",
+  responseLength: null,
+  language: null,
+  useResponseLengthAi: true,
+  useLanguageAi: true,
+  revision: 0,
+  consentRevision: 0,
+  updatedAt: null,
+});
+const profileOpen = ref(false);
+const profileBusy = ref(false);
+const profileError = ref("");
+const profileDraft = ref<ProfileDraft | null>(null);
+const pendingProfileAction = ref<"CREATE" | "JOIN" | null>(null);
+const relationshipContext = ref<RoomRelationshipContext | null>(null);
+const relationshipDraft = ref<RelationshipDraft | null>(null);
+const relationshipError = ref("");
 const history = useRoomHistory(authUserId, roomApi.history);
 const roomHistory = history.items;
 const roomHistoryCursor = history.cursor;
@@ -886,12 +965,265 @@ function message(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function isWorkspaceConflict(error: unknown) {
+  return error instanceof ApiError && error.code === "WORKSPACE_CONFLICT";
+}
+
 function setNotice(kind: Notice["kind"], text: string) {
   noticeController.show(kind, text);
 }
 
 function clearNotice() {
   noticeController.clear();
+}
+
+async function loadProfile(openWhenMissing = true) {
+  if (!authUserId.value) return;
+  discardForeignProfileContextDrafts(authUserId.value);
+  try {
+    profile.value = await profileApi.get();
+    profileDraft.value = getProfileDraft(authUserId.value);
+    profileError.value = "";
+    if (openWhenMissing && profile.value.status === "MISSING") profileOpen.value = true;
+  } catch (error) {
+    profileDraft.value = getProfileDraft(authUserId.value);
+    profileError.value = message(error, "暂时无法读取个人资料，请检查网络后重试。");
+    if (openWhenMissing) profileOpen.value = true;
+  }
+}
+
+function openProfileEditor() {
+  profileReturnToAccount.value = true;
+  accountOpen.value = false;
+  profileDraft.value = getProfileDraft(authUserId.value);
+  profileError.value = "";
+  profileOpen.value = true;
+}
+
+function persistProfileDraft(draft: ProfileDraft) {
+  if (!authUserId.value) return;
+  profileDraft.value = { ...draft };
+  saveProfileDraft(authUserId.value, draft);
+}
+
+function closeProfileEditor(draft: ProfileDraft) {
+  persistProfileDraft(draft);
+  profileOpen.value = false;
+  pendingProfileAction.value = null;
+  restoreAccountProfileFocus();
+}
+
+function restoreAccountProfileFocus() {
+  if (!profileReturnToAccount.value) return;
+  profileReturnToAccount.value = false;
+  accountOpen.value = true;
+  void nextTick(() => nextTick(() => accountSpaceRef.value?.focusProfileEntry()));
+}
+
+async function saveProfile(draft: ProfileDraft) {
+  if (!authUserId.value || profileBusy.value) return;
+  profileBusy.value = true;
+  profileError.value = "";
+  try {
+    profile.value = await profileApi.save(profile.value.revision, draft);
+    clearProfileDraft(authUserId.value);
+    profileDraft.value = null;
+    profileOpen.value = false;
+    restoreAccountProfileFocus();
+    setNotice("success", "个人资料已保存。");
+    const action = pendingProfileAction.value;
+    pendingProfileAction.value = null;
+    if (action === "CREATE") await createRoom();
+    else if (action === "JOIN") await joinRoom();
+  } catch (error) {
+    if (isWorkspaceConflict(error)) {
+      persistProfileDraft(draft);
+      try {
+        profile.value = await profileApi.get();
+        profileError.value = "资料已在另一处更新。已重新读取账号版本；你刚才的输入仍保留，请确认后再次保存。";
+      } catch {
+        profileError.value = "资料已在另一处更新。你的输入仍保留；请联网后重新打开资料再保存。";
+      }
+    } else {
+      profileError.value = message(error, "资料没有保存，请检查网络后重新保存。");
+    }
+  } finally {
+    profileBusy.value = false;
+  }
+}
+
+async function clearProfilePreferences() {
+  if (profile.value.status !== "ACTIVE" || profileBusy.value) return;
+  profileBusy.value = true;
+  profileError.value = "";
+  try {
+    profile.value = await profileApi.clearPreferences(profile.value.revision);
+    clearProfileDraft(authUserId.value);
+    profileDraft.value = null;
+    setNotice("success", "可选偏好已清空，称呼和历史沟通没有改变。");
+  } catch (error) {
+    if (isWorkspaceConflict(error)) {
+      try {
+        profile.value = await profileApi.get();
+        profileError.value = "资料已在另一处更新。已重新读取账号版本；请再次确认要清空的内容。";
+      } catch {
+        profileError.value = "资料已在另一处更新。请联网后重新打开个人资料，再确认清空。";
+      }
+    } else {
+      profileError.value = message(error, "没有清空，请重试。");
+    }
+  } finally {
+    profileBusy.value = false;
+  }
+}
+
+function persistRelationshipDraft(draft: RelationshipDraft) {
+  if (!authUserId.value || !room.value) return;
+  relationshipDraft.value = draft;
+  saveRelationshipDraft(authUserId.value, room.value.roomId, room.value.role, draft);
+}
+
+async function routeRelationshipOnboarding(roomSession: RoomSession): Promise<ClientStage> {
+  if (roomSession.workflowVersion !== 2 || ![
+    "GOAL_SETTING", "B_DRAFTING", "B_REVIEWING",
+  ].includes(roomSession.state)) return stageForCurrentRoom(roomSession);
+  const context = await roomApi.relationshipContext(roomSession.roomId);
+  relationshipContext.value = context;
+  const stored = getRelationshipDraft(authUserId.value, roomSession.roomId, roomSession.role);
+  relationshipDraft.value = stored &&
+    stored.sharedRevision === context.shared.revision && stored.privateRevision === context.mine.revision
+    ? stored : null;
+  if (roomSession.role === "A" && roomSession.state === "GOAL_SETTING") {
+    return ["CONFIRMED", "SKIPPED"].includes(context.shared.status) ? "GOAL" : "RELATIONSHIP_SETUP";
+  }
+  if (roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(roomSession.state)) {
+    const confirmed = ["CONFIRMED", "DIFFERENT", "SKIPPED"].includes(context.mine.status) &&
+      context.mine.seenSharedRevision === context.shared.revision;
+    if (!confirmed) return "RELATIONSHIP_CONFIRMATION";
+    return hasAcknowledgedInvitation(roomSession.roomId) ? "RECORD" : "INVITATION_INTRO";
+  }
+  return stageForCurrentRoom(roomSession);
+}
+
+async function saveRelationshipOnboarding(payload: {
+  status: "CONFIRMED" | "DIFFERENT" | "SKIPPED";
+  shared: SharedContextDraft;
+  mine: ParticipantContextDraft;
+}) {
+  if (!room.value || !relationshipContext.value || busy.value) return;
+  busy.value = true;
+  relationshipError.value = "";
+  try {
+    const latest = room.value.role === "A"
+      ? await roomApi.saveRelationshipContext(
+        room.value.roomId,
+        relationshipContext.value.shared.revision,
+        relationshipContext.value.mine.revision,
+        payload.status === "SKIPPED" ? "SKIPPED" : "CONFIRMED",
+        4,
+        payload.shared,
+        payload.mine,
+      )
+      : await roomApi.respondRelationshipContext(
+        room.value.roomId,
+        relationshipContext.value.mine.revision,
+        relationshipContext.value.shared.revision,
+        payload.status,
+        4,
+        payload.status,
+        payload.mine,
+      );
+    relationshipContext.value = latest;
+    clearRelationshipDraft(authUserId.value, room.value.roomId, room.value.role);
+    relationshipDraft.value = null;
+    if (room.value.role === "A") {
+      stage.value = "GOAL";
+      setNotice("success", payload.status === "SKIPPED" ? "已跳过关系背景，可以继续沟通。" : "关系背景已保存，接下来确认这次的意图。");
+    } else {
+      stage.value = "INVITATION_INTRO";
+      await refreshInvitationContext(room.value.roomId);
+      setNotice("success", "你的选择已保存。私人视角不会展示给邀请方。");
+    }
+  } catch (error) {
+    if (isWorkspaceConflict(error)) await recoverRelationshipConflict();
+    else relationshipError.value = message(error, "关系背景没有保存，请检查网络后重试。你的本机草稿仍然保留。");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function saveRelationshipCheckpoint(payload: {
+  step: number;
+  decision: "CONFIRMED" | "DIFFERENT" | "SKIPPED" | null;
+  shared: SharedContextDraft;
+  mine: ParticipantContextDraft;
+}) {
+  if (!room.value || !relationshipContext.value || busy.value) return;
+  busy.value = true;
+  relationshipError.value = "";
+  try {
+    const latest = room.value.role === "A"
+      ? await roomApi.saveRelationshipContext(
+        room.value.roomId,
+        relationshipContext.value.shared.revision,
+        relationshipContext.value.mine.revision,
+        "DRAFT",
+        payload.step,
+        payload.shared,
+        payload.mine,
+      )
+      : await roomApi.respondRelationshipContext(
+        room.value.roomId,
+        relationshipContext.value.mine.revision,
+        relationshipContext.value.shared.revision,
+        "DRAFT",
+        payload.step,
+        payload.decision,
+        payload.mine,
+      );
+    if (relationshipDraft.value) {
+      relationshipDraft.value = {
+        ...relationshipDraft.value,
+        step: payload.step,
+        ...(payload.decision ? { decision: payload.decision } : {}),
+        sharedRevision: latest.shared.revision,
+        privateRevision: latest.mine.revision,
+      };
+      saveRelationshipDraft(
+        authUserId.value,
+        room.value.roomId,
+        room.value.role,
+        relationshipDraft.value,
+      );
+    }
+    relationshipContext.value = latest;
+  } catch (error) {
+    if (isWorkspaceConflict(error)) await recoverRelationshipConflict();
+    else relationshipError.value = message(error, "草稿没有同步到其他设备，本机内容仍然保留。");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function recoverRelationshipConflict() {
+  if (!room.value) return;
+  const local = relationshipDraft.value;
+  try {
+    const latest = await roomApi.relationshipContext(room.value.roomId);
+    relationshipContext.value = latest;
+    if (local) {
+      relationshipDraft.value = rebaseRelationshipDraft(local, latest);
+      saveRelationshipDraft(
+        authUserId.value,
+        room.value.roomId,
+        room.value.role,
+        relationshipDraft.value,
+      );
+    }
+    relationshipError.value = "资料已在另一处更新。已重新读取服务端版本；你的本机内容仍保留，请确认后再次保存。";
+  } catch {
+    relationshipError.value = "资料已在另一处更新。你的本机内容仍保留；请联网后重新打开这间房再保存。";
+  }
 }
 
 function updateRoom(nextRoom: RoomSession) {
@@ -969,6 +1301,9 @@ function resetPrivateWorkspace() {
   dialogueState.value = null;
   historyReadOnly.value = false;
   aiConversationArchiveReadOnly.value = false;
+  relationshipContext.value = null;
+  relationshipDraft.value = null;
+  relationshipError.value = "";
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
   reviewAt.value = defaultReviewAt();
@@ -1086,7 +1421,8 @@ async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot)
   historyReadOnly.value = false;
   const latest = prefetched ?? await roomApi.snapshot(roomSession.roomId);
   applySnapshot(latest);
-  stage.value = stageForCurrentRoom(roomSession, latest.room.state);
+  const currentSession = { ...roomSession, state: latest.room.state };
+  stage.value = await routeRelationshipOnboarding(currentSession);
   if ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
     (roomSession.role === "A" && stage.value === "INVITE")) {
     await refreshInvitationContext(roomSession.roomId);
@@ -1204,7 +1540,7 @@ async function initializePage(options: Record<string, unknown> | undefined) {
     } finally {
       busy.value = false;
     }
-    if (!authUserId.value || incomingRoom) return;
+    if (!authUserId.value) return;
   } else {
     busy.value = true;
     try {
@@ -1216,9 +1552,10 @@ async function initializePage(options: Record<string, unknown> | undefined) {
     } finally {
       busy.value = false;
     }
-    if (incomingRoom) return;
   }
 
+  await loadProfile(true);
+  if (incomingRoom) return;
   await restoreSavedRoom();
 }
 
@@ -1237,16 +1574,34 @@ function normalizeJoinCode(event: Event) {
 }
 
 async function createRoom() {
+  if (profile.value.status !== "ACTIVE") {
+    pendingProfileAction.value = "CREATE";
+    profileDraft.value = getProfileDraft(authUserId.value) ?? emptyProfileDraft();
+    profileOpen.value = true;
+    return;
+  }
   clearNotice();
   busy.value = true;
   try {
     const session = await loginForPlatform();
     authUserId.value = session.userId;
-    const created = await roomApi.create();
-    resetPrivateWorkspace();
-    updateRoom(created);
-    stage.value = stageForCurrentRoom(created);
-    setNotice("success", "私人沟通空间已创建。先确认这次的意图。 ");
+    const outcome = await runCommittedRoomEntry(
+      () => roomApi.create(profile.value.displayName),
+      (created) => {
+        resetPrivateWorkspace();
+        updateRoom(created);
+        stage.value = "WELCOME";
+      },
+      routeRelationshipOnboarding,
+    );
+    if (outcome.followup) stage.value = outcome.followup;
+    if (outcome.rememberError) {
+      setNotice("info", "房间已经在服务器创建，但本机入口没有保存成功。当前可以继续；请不要重复创建，重新登录后可从历史沟通找回。");
+    } else if (outcome.followupError) {
+      setNotice("info", "房间已经创建并保存在“继续上次的沟通”中，但关系背景暂时没有读取成功。请从首页继续，不要重复创建。");
+    } else {
+      setNotice("success", "私人沟通空间已创建。先补充一点关系背景，也可以全部跳过。 ");
+    }
   } catch (error) {
     setNotice("error", message(error, "创建失败，请稍后重试。"));
   } finally {
@@ -1259,26 +1614,44 @@ async function joinRoom() {
     setNotice("error", "请输入完整的 7 位房间码。 ");
     return;
   }
+  if (profile.value.status !== "ACTIVE") {
+    pendingProfileAction.value = "JOIN";
+    profileDraft.value = getProfileDraft(authUserId.value) ?? emptyProfileDraft();
+    profileOpen.value = true;
+    return;
+  }
   clearNotice();
   busy.value = true;
   try {
     const session = await loginForPlatform();
     authUserId.value = session.userId;
-    const joined = await roomApi.join(joinCode.value);
-    resetPrivateWorkspace();
-    updateRoom(joined);
-    const joinedStage = stageForCurrentRoom(joined);
-    if (shouldLoadSnapshotAfterJoin(joinedStage)) {
-      await loadSnapshot(joined);
+    const outcome = await runCommittedRoomEntry(
+      () => roomApi.join(joinCode.value, profile.value.displayName),
+      (joined) => {
+        resetPrivateWorkspace();
+        updateRoom(joined);
+        stage.value = "WELCOME";
+      },
+      async (joined) => {
+        const joinedStage = await routeRelationshipOnboarding(joined);
+        if (shouldLoadSnapshotAfterJoin(joinedStage)) {
+          await loadSnapshot(joined);
+        } else {
+          stage.value = joinedStage;
+          if (joinedStage === "INVITATION_INTRO") await refreshInvitationContext(joined.roomId);
+        }
+        return joinedStage;
+      },
+    );
+    if (outcome.rememberError) {
+      setNotice("info", "你已经在服务器加入房间，但本机入口没有保存成功。当前可以继续；请不要重复加入，重新登录后可从历史沟通找回。");
+    } else if (outcome.followupError) {
+      setNotice("info", "你已经加入房间并保存在“继续上次的沟通”中，但后续内容暂时没有读取成功。请从首页继续，不要重复加入。");
     } else {
-      stage.value = joinedStage;
-      if (joinedStage === "INVITATION_INTRO") {
-        await refreshInvitationContext(joined.roomId);
-      }
+      setNotice("success", outcome.followup === "INVITATION_INTRO"
+        ? "已进入沟通房间。先看看对方为什么邀请你。 "
+        : "已进入沟通房间。你的草稿不会直接分享给对方。 ");
     }
-    setNotice("success", joinedStage === "INVITATION_INTRO"
-      ? "已进入沟通房间。先看看对方为什么邀请你。 "
-      : "已进入沟通房间。你的草稿不会直接分享给对方。 ");
   } catch (error) {
     setNotice("error", message(error, "加入失败，请检查房间码后重试。"));
   } finally {
@@ -1292,6 +1665,7 @@ async function handleH5Authenticated(result: H5AuthResult) {
   authUserId.value = result.session.userId;
   authEmail.value = result.email;
   setNotice("success", "登录成功。");
+  await loadProfile(true);
   await restoreSavedRoom();
 }
 
@@ -1495,11 +1869,18 @@ async function logoutH5Account() {
   clearNotice();
   busy.value = true;
   try {
+    const signingOutUserId = authUserId.value;
     await signOutH5();
     clearPrivateDeviceData();
+    clearProfileContextDraftsForUser(signingOutUserId);
     resetPrivateWorkspace();
     authUserId.value = "";
     authEmail.value = "";
+    profile.value = {
+      status: "MISSING", displayName: "", responseLength: null, language: null,
+      useResponseLengthAi: true, useLanguageAi: true, revision: 0, consentRevision: 0, updatedAt: null,
+    };
+    profileOpen.value = false;
     resetRoomHistory();
     aiConversationHistory.value = [];
     aiMemories.value = { personal: [], relationship: [] };

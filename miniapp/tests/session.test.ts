@@ -8,6 +8,7 @@ vi.stubGlobal("uni", {
   getStorageSync: (key: string) => storage.get(key),
   setStorageSync: (key: string, value: unknown) => storage.set(key, value),
   removeStorageSync: (key: string) => storage.delete(key),
+  getStorageInfoSync: () => ({ keys: [...storage.keys()] }),
   login,
   request,
 });
@@ -24,6 +25,14 @@ import {
   saveActiveRoom,
   saveEditorDraft,
 } from "../src/services/session";
+import {
+  clearProfileContextDraftsForUser,
+  discardForeignProfileContextDrafts,
+  getProfileDraft,
+  getRelationshipDraft,
+  saveProfileDraft,
+  saveRelationshipDraft,
+} from "../src/services/profile-context-session";
 
 const sessionKey = "shuokai.session.v2";
 const freshSession = {
@@ -132,6 +141,48 @@ describe("active room recovery", () => {
     expect(hasAcknowledgedInvitation(roomId)).toBe(true);
     clearPrivateDeviceData();
     expect(hasAcknowledgedInvitation(roomId)).toBe(false);
+  });
+});
+
+describe("profile context draft isolation", () => {
+  beforeEach(() => storage.clear());
+
+  it("never restores a profile draft for another account", () => {
+    const otherUser = "00000000-0000-4000-8000-000000000099";
+    const draft = {
+      displayName: "小雨", responseLength: "SHORT" as const, language: "简体中文",
+      useResponseLengthAi: true, useLanguageAi: false,
+    };
+    saveProfileDraft(freshSession.userId, draft);
+    expect(getProfileDraft(freshSession.userId)).toEqual(draft);
+    expect(getProfileDraft(otherUser)).toBeNull();
+    discardForeignProfileContextDrafts(otherUser);
+    expect(getProfileDraft(freshSession.userId)).toBeNull();
+  });
+
+  it("binds a relationship draft to user, room, and role", () => {
+    const roomId = "11111111-1111-4111-8111-111111111111";
+    const draft = {
+      step: 2,
+      sharedRevision: 1,
+      privateRevision: 0,
+      shared: {
+        relationshipType: "PARTNER" as const, relationshipOther: null,
+        durationRange: "Y1_3" as const, interactionMode: "MIXED" as const, useSharedAi: true,
+      },
+      mine: {
+        relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null,
+        communicationPace: "PAUSE_FIRST" as const, responsePreference: null, planningStyle: null,
+        relationshipState: null, observedDifference: "", culturalContext: "",
+        useCommunicationAi: true, useRelationshipStateAi: true, useDifferenceAi: true,
+        useCultureAi: false, useInviterSharedAi: false,
+      },
+    };
+    saveRelationshipDraft(freshSession.userId, roomId, "A", draft);
+    expect(getRelationshipDraft(freshSession.userId, roomId, "A")).toEqual(draft);
+    expect(getRelationshipDraft(freshSession.userId, roomId, "B")).toBeNull();
+    clearProfileContextDraftsForUser(freshSession.userId);
+    expect(getRelationshipDraft(freshSession.userId, roomId, "A")).toBeNull();
   });
 });
 

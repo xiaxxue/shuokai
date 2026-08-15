@@ -13,6 +13,7 @@ import { isSupportedExpressionMode } from "./expression-ai.ts";
 import { transcribeAudio } from "./cloudflare-ai.ts";
 import {
   generateDiscoveryQuestion,
+  type DiscoveryMemoryContext,
   type DiscoveryResult,
   type DiscoveryTurn,
 } from "./discovery-ai.ts";
@@ -51,6 +52,73 @@ async function verifiedUserId(
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const emptyDiscoveryContextVersion = {
+  profileRevision: 0,
+  participantRevision: 0,
+  sharedRevision: 0,
+  consentRevision: 0,
+  seenSharedRevision: 0,
+};
+
+function discoveryContextVersionObject(value: unknown) {
+  if (!value || typeof value !== "object" || !("onboarding" in value)) return { ...emptyDiscoveryContextVersion };
+  const onboarding = (value as { onboarding?: unknown }).onboarding;
+  if (!onboarding || typeof onboarding !== "object" || !("version" in onboarding)) return { ...emptyDiscoveryContextVersion };
+  const version = (onboarding as { version?: unknown }).version;
+  if (!version || typeof version !== "object") return { ...emptyDiscoveryContextVersion };
+  const item = version as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(emptyDiscoveryContextVersion).map((key) => [
+    key,
+    typeof item[key] === "number" && Number.isSafeInteger(item[key]) && Number(item[key]) >= 0 ? item[key] : 0,
+  ])) as typeof emptyDiscoveryContextVersion;
+}
+
+function discoveryContextVersion(value: unknown) {
+  return Object.values(discoveryContextVersionObject(value)).join(":");
+}
+
+function boundedMemoryItems(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    return typeof record.kind === "string" && record.kind.length <= 40 &&
+      typeof record.content === "string" && record.content.length <= 600
+      ? [{ kind: record.kind, content: record.content }]
+      : [];
+  });
+}
+
+function boundedStringRecord(value: unknown, allowed: readonly string[], maxLength: number) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+    allowed.includes(key) && typeof item === "string" && item.length <= maxLength ? [[key, item]] : []));
+}
+
+function parseDiscoveryMemoryContext(value: unknown): DiscoveryMemoryContext {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const onboarding = record.onboarding && typeof record.onboarding === "object" && !Array.isArray(record.onboarding)
+    ? record.onboarding as Record<string, unknown>
+    : null;
+  return {
+    personal: boundedMemoryItems(record.personal),
+    relationship: boundedMemoryItems(record.relationship),
+    ...(onboarding ? { onboarding: {
+      version: discoveryContextVersionObject(value),
+      profile: boundedStringRecord(onboarding.profile, ["responseLength", "language"], 30),
+      myContext: boundedStringRecord(onboarding.myContext, [
+        "communicationPace", "responsePreference", "planningStyle", "relationshipState",
+        "observedDifference", "culturalContext",
+      ], 300),
+      sharedContext: boundedStringRecord(onboarding.sharedContext, [
+        "source", "relationshipType", "durationRange", "interactionMode",
+      ], 40),
+    } } : {}),
+  };
+}
 
 export type ClarificationDependencies = {
   userClient: typeof userClient;
@@ -135,22 +203,34 @@ export async function handleExpressionClarification(
       p_room_id: input.roomId,
     });
     if (memoryError) throw memoryError;
+    const boundedMemoryContext = parseDiscoveryMemoryContext(memoryContext);
+    const contextVersionObject = discoveryContextVersionObject(boundedMemoryContext);
+    const contextVersion = Object.values(contextVersionObject).join(":");
     const generated = await dependencies.generateDiscoveryQuestion(env, {
       sourceText: input.sourceText.trim(),
       turns: input.turns,
-      memoryContext: memoryContext && typeof memoryContext === "object"
-        ? memoryContext as {
-          personal: Array<{ kind: string; content: string }>;
-          relationship: Array<{ kind: string; content: string }>;
-        }
-        : { personal: [], relationship: [] },
+      memoryContext: boundedMemoryContext,
     });
     const discoveryResult = generated.result as DiscoveryResult;
+    const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v1", {
+      p_room_id: input.roomId,
+    });
+    if (latestContextError) throw latestContextError;
+    if (discoveryContextVersion(latestContext) !== contextVersion) {
+      return errorJson(
+        request,
+        env,
+        "CONTEXT_STALE",
+        "你刚刚更新了 AI 可以参考的资料，请用最新设置重新继续。",
+        409,
+      );
+    }
     const admin = dependencies.adminClient({ SUPABASE_URL: env.SUPABASE_URL!, SUPABASE_SECRET_KEY: env.SUPABASE_SECRET_KEY });
-    const { data: saved, error: saveError } = await admin.rpc("internal_save_ai_private_conversation_v1", {
+    const { data: saved, error: saveError } = await admin.rpc("internal_save_ai_private_conversation_v2", {
       p_room_id: input.roomId,
       p_owner_user_id: userId,
       p_expected_revision: input.expectedRevision,
+      p_expected_context_version: contextVersionObject,
       p_source_text: input.sourceText.trim(),
       p_turns: input.turns,
       p_result: {
@@ -168,6 +248,15 @@ export async function handleExpressionClarification(
       },
     });
     if (saveError) {
+      if (saveError.code === "P0C01") {
+        return errorJson(
+          request,
+          env,
+          "CONTEXT_STALE",
+          "你刚刚更新了 AI 可以参考的资料，请用最新设置重新继续。",
+          409,
+        );
+      }
       const conflict = saveError.code === "40001";
       return errorJson(
         request,
@@ -452,7 +541,13 @@ export async function handleMiniappApi(request: Request, env: WorkerEnv) {
   const { data, error } = await supabase.rpc(method, validatedArgs);
   if (error) {
     const message = safeDatabaseMessages[error.code] ?? "操作没有完成，请稍后重试。";
-    return errorJson(request, env, "DATABASE_REQUEST_FAILED", message, 400);
+    return errorJson(
+      request,
+      env,
+      error.code === "40001" ? "WORKSPACE_CONFLICT" : "DATABASE_REQUEST_FAILED",
+      message,
+      error.code === "40001" ? 409 : 400,
+    );
   }
   return json(request, env, data);
 }

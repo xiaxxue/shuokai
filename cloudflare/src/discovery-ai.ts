@@ -41,6 +41,18 @@ export type DiscoveryResult = {
 export type DiscoveryMemoryContext = {
   personal: Array<{ kind: string; content: string }>;
   relationship: Array<{ kind: string; content: string }>;
+  onboarding?: {
+    version: {
+      profileRevision: number;
+      participantRevision: number;
+      sharedRevision: number;
+      consentRevision: number;
+      seenSharedRevision: number;
+    };
+    profile: Record<string, string>;
+    myContext: Record<string, string>;
+    sharedContext: Record<string, string>;
+  };
 };
 
 const discoveryDimensions = ["event", "impact", "intention"] as const;
@@ -248,6 +260,7 @@ export function generateDiscoveryQuestion(
       "不要为了显得深入而追问；已经回答过的问题不得换标点后重复。ready 或安全停止时，nextQuestion 必须为 {focusDimension:'none',text:'',purpose:''}。",
       "conversationSummary 用不超过 600 字概括这次私人对话已经讲清的事件、影响和沟通意图，不能添加用户没说过的事实。",
       "confirmedMemory 只包含用户亲自确认的个人记忆和双方共同确认的关系记忆。仅在与本次明显相关时用它避免重复追问；不要向用户宣称你知道未在当前对话出现的隐私，也不要把记忆当成永远正确的事实。",
+      "onboardingContext 只包含当前用户主动允许私人 AI 参考的资料。profile 用来调整表达方式；myContext 是用户对自己的描述；sharedContext 若 source=INVITER，表示邀请方尚未成为共同事实的版本，只能帮助理解语境，绝不能据此定义用户、推断对方动机或判断谁对谁错。不得依据年龄、性别、地域、关系类型或沟通风格套用刻板印象。",
       "只有 ready=true 且安全状态为 ALLOW 或 WARN 时，才可给出最多 3 条 memoryCandidates。候选必须是用户关于自己的、跨对象和跨沟通仍可能有用的需要、触发情境、沟通偏好、边界或有效修复方式；不得把只针对当前对方的评价、姓名、身份、一次性事件细节或对第三方的推断保存成个人记忆。content 是可编辑的简短表述，reason 说明以后何时有用，evidence 必须逐字摘录用户原话。其他情况输出空数组。",
       "你的职责只到帮助用户说清背景为止。用户选择表达路径后，另一个整理 Agent 只补充该路径特有的信息；不要提前替它生成或填写表达字段。",
       "不要评价谁对谁错，不诊断人格或关系，不推断动机，不把用户的感受改写成事实，不索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。",
@@ -257,7 +270,13 @@ export function generateDiscoveryQuestion(
     userData: {
       sourceText: input.sourceText,
       privateConversation: input.turns,
-      confirmedMemory: input.memoryContext ?? { personal: [], relationship: [] },
+      confirmedMemory: {
+        personal: input.memoryContext?.personal ?? [],
+        relationship: input.memoryContext?.relationship ?? [],
+      },
+      onboardingContext: input.memoryContext?.onboarding ?? {
+        profile: {}, myContext: {}, sharedContext: {},
+      },
     },
     maxTokens: 1100,
     validationRetryText: "如果上一次问题与 privateConversation 中的问题重复，必须改问仍为 MISSING 的另一项具体信息。",

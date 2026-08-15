@@ -223,6 +223,7 @@ function clarificationEnv() {
 function clarificationHarness(options: {
   membershipError?: { code: string };
   memoryError?: { code: string };
+  latestMemoryContext?: unknown;
   saveError?: { code: string };
   restoreError?: { code: string };
 } = {}) {
@@ -250,8 +251,10 @@ function clarificationHarness(options: {
           return { data: options.membershipError ? null : {}, error: options.membershipError ?? null };
         }
         if (name === "get_ai_memory_context_v1") {
+          const memoryCallCount = userRpcCalls.filter((call) => call.name === name).length;
           return {
-            data: options.memoryError ? null : {
+            data: options.memoryError ? null : memoryCallCount > 1 && options.latestMemoryContext
+              ? options.latestMemoryContext : {
               personal: [{ kind: "NEED", content: "被关心" }],
               relationship: [],
             },
@@ -660,6 +663,66 @@ test("RPC validation normalizes safe inputs and rejects extra fields", () => {
   );
 });
 
+test("profile and relationship context RPCs require bounded explicit consent fields", () => {
+  const roomId = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(validateRpcArgs("save_my_profile_v1", {
+    p_expected_revision: 0,
+    p_display_name: "  小　雨 ",
+    p_response_length: "SHORT",
+    p_language: "简体中文",
+    p_use_response_length_ai: true,
+    p_use_language_ai: false,
+  }), {
+    p_expected_revision: 0,
+    p_display_name: "小 雨",
+    p_response_length: "SHORT",
+    p_language: "简体中文",
+    p_use_response_length_ai: true,
+    p_use_language_ai: false,
+  });
+  assert.equal(validateRpcArgs("save_my_profile_v1", {
+    p_expected_revision: 0,
+    p_display_name: "小雨",
+    p_response_length: "SHORT",
+    p_language: null,
+    p_use_response_length_ai: "yes",
+    p_use_language_ai: false,
+  }), null);
+  const payload = {
+    relationshipType: "PARTNER",
+    relationshipOther: null,
+    durationRange: "Y1_3",
+    interactionMode: "MIXED",
+    useInviterSharedAi: false,
+  };
+  assert.deepEqual(validateRpcArgs("respond_room_relationship_context_v1", {
+    p_room_id: roomId,
+    p_expected_private_revision: 0,
+    p_seen_shared_revision: 1,
+    p_status: "DIFFERENT",
+    p_step: 4,
+    p_decision: "DIFFERENT",
+    p_payload: payload,
+  }), {
+    p_room_id: roomId,
+    p_expected_private_revision: 0,
+    p_seen_shared_revision: 1,
+    p_status: "DIFFERENT",
+    p_step: 4,
+    p_decision: "DIFFERENT",
+    p_payload: payload,
+  });
+  assert.equal(validateRpcArgs("respond_room_relationship_context_v1", {
+    p_room_id: roomId,
+    p_expected_private_revision: 0,
+    p_seen_shared_revision: 1,
+    p_status: "DIFFERENT",
+    p_step: 4,
+    p_decision: "DIFFERENT",
+    p_payload: { ...payload, relationshipType: "DIAGNOSED_PERSONALITY" },
+  }), null);
+});
+
 test("room history RPC requires a bounded limit and complete cursor", () => {
   const historyRoomId = "11111111-1111-4111-8111-111111111111";
   const cursor = {
@@ -823,9 +886,17 @@ test("AI clarification verifies membership, scopes memory context, and restores 
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
     "get_expression_workspace_v2",
     "get_ai_memory_context_v1",
+    "get_ai_memory_context_v1",
     "get_ai_private_conversation_v1",
   ]);
-  assert.equal(harness.adminRpcCalls[0]?.name, "internal_save_ai_private_conversation_v1");
+  assert.equal(harness.adminRpcCalls[0]?.name, "internal_save_ai_private_conversation_v2");
+  assert.deepEqual((harness.adminRpcCalls[0]?.args as Record<string, unknown>).p_expected_context_version, {
+    profileRevision: 0,
+    participantRevision: 0,
+    sharedRevision: 0,
+    consentRevision: 0,
+    seenSharedRevision: 0,
+  });
   assert.deepEqual(harness.generatedInput(), {
     sourceText: "昨晚他说不想每天提醒，我很失望。",
     turns: [],
@@ -845,6 +916,47 @@ test("AI clarification rejects a non-member before memory or model access", asyn
   assert.equal(harness.generatedInput(), null);
 });
 
+test("AI clarification discards a result when profile consent changes during inference", async () => {
+  const harness = clarificationHarness({
+    latestMemoryContext: {
+      personal: [{ kind: "NEED", content: "被关心" }],
+      relationship: [],
+      onboarding: {
+        version: { profileRevision: 2, participantRevision: 1, sharedRevision: 1, consentRevision: 4, seenSharedRevision: 1 },
+        profile: {}, myContext: {}, sharedContext: {},
+      },
+    },
+  });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    message: "你刚刚更新了 AI 可以参考的资料，请用最新设置重新继续。",
+    code: "CONTEXT_STALE",
+  });
+  assert.equal(harness.adminRpcCalls.length, 0);
+});
+
+test("AI clarification discards a result when inviter shared context changes during inference", async () => {
+  const harness = clarificationHarness({
+    latestMemoryContext: {
+      personal: [{ kind: "NEED", content: "被关心" }],
+      relationship: [],
+      onboarding: {
+        version: { profileRevision: 0, participantRevision: 0, sharedRevision: 2, consentRevision: 0, seenSharedRevision: 1 },
+        profile: {}, myContext: {}, sharedContext: {},
+      },
+    },
+  });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await response.json() as { code: string }).code, "CONTEXT_STALE");
+  assert.equal(harness.adminRpcCalls.length, 0);
+});
+
 test("AI clarification reports optimistic revision conflicts without returning generated content", async () => {
   const harness = clarificationHarness({ saveError: { code: "40001" } });
   const response = await handleExpressionClarification(
@@ -856,8 +968,21 @@ test("AI clarification reports optimistic revision conflicts without returning g
     code: "PRIVATE_CONVERSATION_CONFLICT",
   });
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
-    "get_expression_workspace_v2", "get_ai_memory_context_v1",
+    "get_expression_workspace_v2", "get_ai_memory_context_v1", "get_ai_memory_context_v1",
   ]);
+});
+
+test("AI clarification rejects an atomic context conflict between final read and save", async () => {
+  const harness = clarificationHarness({ saveError: { code: "P0C01" } });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 409);
+  assert.equal((await response.json() as { code: string }).code, "CONTEXT_STALE");
+  assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
+    "get_expression_workspace_v2", "get_ai_memory_context_v1", "get_ai_memory_context_v1",
+  ]);
+  assert.equal(harness.adminRpcCalls.length, 1);
 });
 
 test("AI clarification reports persistence and restoration failures honestly", async () => {

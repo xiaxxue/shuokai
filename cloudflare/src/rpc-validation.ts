@@ -33,6 +33,12 @@ const specs = {
   list_my_ai_memories_v1: {},
   decide_ai_personal_memory_v1: {},
   decide_ai_relationship_memory_v1: {},
+  get_my_profile_v1: {},
+  save_my_profile_v1: {},
+  clear_my_profile_preferences_v1: {},
+  get_room_relationship_context_v1: { required: { p_room_id: 36 } },
+  save_room_relationship_context_v1: {},
+  respond_room_relationship_context_v1: {},
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
@@ -58,8 +64,112 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isRevision(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function validContextPayload(value: unknown) {
+  if (!isRecord(value) || JSON.stringify(value).length > 10000 || !hasOnlyKeys(value, [
+    "relationshipType", "relationshipOther", "durationRange", "interactionMode", "useSharedAi",
+    "communicationPace", "responsePreference", "planningStyle", "relationshipState",
+    "observedDifference", "culturalContext", "useCommunicationAi", "useRelationshipStateAi",
+    "useDifferenceAi", "useCultureAi", "useInviterSharedAi",
+  ])) return false;
+  const enums: Record<string, readonly string[]> = {
+    relationshipType: ["PARTNER", "MARRIED", "FAMILY", "FRIEND", "COLLEAGUE", "OTHER"],
+    durationRange: ["LT_3M", "M3_12", "Y1_3", "Y3_7", "Y7_PLUS", "NA"],
+    interactionMode: ["MOSTLY_IN_PERSON", "MOSTLY_REMOTE", "MIXED", "RECENTLY_CHANGED", "NA"],
+    communicationPace: ["IMMEDIATE", "PAUSE_FIRST", "DEPENDS"],
+    responsePreference: ["EMPATHY_FIRST", "SOLUTIONS_FIRST", "BOTH"],
+    planningStyle: ["PLAN_AHEAD", "ADAPTIVE", "DEPENDS"],
+    relationshipState: ["REPAIR", "REPEATING", "DECISION", "BOUNDARY", "UNCERTAIN", "PAUSE_END"],
+  };
+  for (const [key, allowed] of Object.entries(enums)) {
+    if (value[key] !== null && value[key] !== undefined && !allowed.includes(String(value[key]))) return false;
+  }
+  for (const [key, max] of [["relationshipOther", 30], ["observedDifference", 300], ["culturalContext", 300]] as const) {
+    if (value[key] !== null && value[key] !== undefined &&
+      (typeof value[key] !== "string" || String(value[key]).length > max)) return false;
+  }
+  for (const key of [
+    "useSharedAi", "useCommunicationAi", "useRelationshipStateAi", "useDifferenceAi",
+    "useCultureAi", "useInviterSharedAi",
+  ]) {
+    if (value[key] !== undefined && typeof value[key] !== "boolean") return false;
+  }
+  return true;
+}
+
 export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcArgs | null {
   if (!isRecord(input)) return null;
+  if (method === "get_my_profile_v1") return Object.keys(input).length === 0 ? {} : null;
+  if (method === "save_my_profile_v1") {
+    const {
+      p_expected_revision: revision,
+      p_display_name: displayName,
+      p_response_length: responseLength,
+      p_language: language,
+      p_use_response_length_ai: useResponseLengthAi,
+      p_use_language_ai: useLanguageAi,
+    } = input;
+    if (Object.keys(input).length !== 6 || !isRevision(revision) ||
+      typeof displayName !== "string" || !displayName.trim() || displayName.length > 30 ||
+      ![null, "SHORT", "BALANCED", "DETAILED"].includes(responseLength as null | string) ||
+      !(language === null || typeof language === "string" && language.trim().length > 0 && language.length <= 30) ||
+      typeof useResponseLengthAi !== "boolean" || typeof useLanguageAi !== "boolean") return null;
+    return {
+      p_expected_revision: revision,
+      p_display_name: displayName.normalize("NFKC").trim().replace(/\s+/g, " "),
+      p_response_length: responseLength,
+      p_language: typeof language === "string" ? language.normalize("NFKC").trim().replace(/\s+/g, " ") : null,
+      p_use_response_length_ai: useResponseLengthAi,
+      p_use_language_ai: useLanguageAi,
+    };
+  }
+  if (method === "clear_my_profile_preferences_v1") {
+    return Object.keys(input).length === 1 && isRevision(input.p_expected_revision)
+      ? { p_expected_revision: input.p_expected_revision }
+      : null;
+  }
+  if (method === "save_room_relationship_context_v1") {
+    const {
+      p_room_id: roomId,
+      p_expected_shared_revision: sharedRevision,
+      p_expected_private_revision: privateRevision,
+      p_status: status,
+      p_step: step,
+      p_shared: shared,
+      p_private: privateContext,
+    } = input;
+    if (Object.keys(input).length !== 7 || typeof roomId !== "string" || !uuidPattern.test(roomId) ||
+      !isRevision(sharedRevision) || !isRevision(privateRevision) ||
+      typeof step !== "number" || !Number.isSafeInteger(step) || step < 1 || step > 4 ||
+      !["DRAFT", "CONFIRMED", "SKIPPED"].includes(String(status)) ||
+      !validContextPayload(shared) || !validContextPayload(privateContext)) return null;
+    return input;
+  }
+  if (method === "respond_room_relationship_context_v1") {
+    const {
+      p_room_id: roomId,
+      p_expected_private_revision: privateRevision,
+      p_seen_shared_revision: sharedRevision,
+      p_status: status,
+      p_step: step,
+      p_decision: decision,
+      p_payload: payload,
+    } = input;
+    if (Object.keys(input).length !== 7 || typeof roomId !== "string" || !uuidPattern.test(roomId) ||
+      !isRevision(privateRevision) || !isRevision(sharedRevision) ||
+      typeof step !== "number" || !Number.isSafeInteger(step) || step < 1 || step > 4 ||
+      !["DRAFT", "CONFIRMED", "DIFFERENT", "SKIPPED"].includes(String(status)) ||
+      !(decision === null || ["CONFIRMED", "DIFFERENT", "SKIPPED"].includes(String(decision))) ||
+      !validContextPayload(payload)) return null;
+    return input;
+  }
   if (method === "list_my_ai_private_conversations_v1") {
     const limit = input.p_limit;
     if (Object.keys(input).length !== 1 || typeof limit !== "number" ||

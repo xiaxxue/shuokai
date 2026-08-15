@@ -30,6 +30,8 @@ export function canTransition(from: RoomState, to: RoomState) {
 
 export type ClientStage =
   | "WELCOME"
+  | "RELATIONSHIP_SETUP"
+  | "RELATIONSHIP_CONFIRMATION"
   | "INVITATION_INTRO"
   | "GOAL"
   | "RECORD"
@@ -51,6 +53,8 @@ export type ClientStage =
 
 export const clientStageOrder: readonly ClientStage[] = [
   "WELCOME",
+  "RELATIONSHIP_SETUP",
+  "RELATIONSHIP_CONFIRMATION",
   "INVITATION_INTRO",
   "GOAL",
   "RECORD",
@@ -72,6 +76,7 @@ export const clientStageOrder: readonly ClientStage[] = [
 ];
 
 export function previousStage(stage: ClientStage): ClientStage {
+  if (stage === "RELATIONSHIP_SETUP" || stage === "RELATIONSHIP_CONFIRMATION") return "WELCOME";
   if (stage === "MODE_SELECT") return "RECORD";
   if (
     stage === "AI_PENDING" ||
@@ -94,6 +99,8 @@ export function canNavigateBack(stage: ClientStage) {
     "MODE_SELECT",
     "CLARIFICATION_CHAT",
     "EXPRESSION_REVIEW",
+    "RELATIONSHIP_SETUP",
+    "RELATIONSHIP_CONFIRMATION",
   ].includes(stage);
 }
 
