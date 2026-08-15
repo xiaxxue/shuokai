@@ -10,6 +10,26 @@ export type ClarificationTurn = {
   answer: string;
 };
 
+export const discoveryDimensions = ["event", "impact", "intention"] as const;
+export type DiscoveryDimension = typeof discoveryDimensions[number];
+
+export type DiscoveryUnderstandingState = {
+  coverage: Record<DiscoveryDimension, {
+    status: "ENOUGH" | "MISSING";
+    evidence: string[];
+    missingInfo: string;
+  }>;
+  latestAnswerUpdate: {
+    absorbed: boolean;
+    updatedDimensions: DiscoveryDimension[];
+  };
+  nextQuestion: {
+    focusDimension: DiscoveryDimension | "none";
+    text: string;
+    purpose: string;
+  };
+};
+
 export type ClarificationMessage = {
   role: "assistant" | "user";
   kind: "message" | "typing";
@@ -35,6 +55,76 @@ const optionalClarificationPrompts = [
 
 function cleanText(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
+  return Object.keys(value).length === keys.length && keys.every((key) => key in value);
+}
+
+export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnderstandingState | null {
+  if (!isRecord(value) || !isRecord(value.coverage) ||
+    !hasExactKeys(value.coverage, discoveryDimensions) ||
+    !isRecord(value.latestAnswerUpdate) ||
+    !hasExactKeys(value.latestAnswerUpdate, ["absorbed", "updatedDimensions"]) ||
+    typeof value.latestAnswerUpdate.absorbed !== "boolean" ||
+    !Array.isArray(value.latestAnswerUpdate.updatedDimensions) ||
+    value.latestAnswerUpdate.updatedDimensions.length > 3 ||
+    new Set(value.latestAnswerUpdate.updatedDimensions).size !==
+      value.latestAnswerUpdate.updatedDimensions.length ||
+    !value.latestAnswerUpdate.updatedDimensions.every((item) =>
+      discoveryDimensions.includes(item as DiscoveryDimension)) ||
+    !isRecord(value.nextQuestion) ||
+    !hasExactKeys(value.nextQuestion, ["focusDimension", "text", "purpose"]) ||
+    ![...discoveryDimensions, "none"].includes(String(value.nextQuestion.focusDimension)) ||
+    typeof value.nextQuestion.text !== "string" || value.nextQuestion.text.length > 500 ||
+    typeof value.nextQuestion.purpose !== "string" || value.nextQuestion.purpose.length > 300) return null;
+
+  const coverage = {} as DiscoveryUnderstandingState["coverage"];
+  for (const dimension of discoveryDimensions) {
+    const item = value.coverage[dimension];
+    if (!isRecord(item) || !hasExactKeys(item, ["status", "evidence", "missingInfo"]) ||
+      (item.status !== "ENOUGH" && item.status !== "MISSING") ||
+      !Array.isArray(item.evidence) || item.evidence.length > 3 ||
+      !item.evidence.every((evidence) =>
+        typeof evidence === "string" && Boolean(evidence.trim()) && evidence.length <= 240) ||
+      typeof item.missingInfo !== "string" || item.missingInfo.length > 300 ||
+      (item.status === "ENOUGH" && (!item.evidence.length || item.missingInfo.trim())) ||
+      (item.status === "MISSING" && !item.missingInfo.trim())) return null;
+    coverage[dimension] = {
+      status: item.status,
+      evidence: item.evidence,
+      missingInfo: item.missingInfo,
+    };
+  }
+
+  return {
+    coverage,
+    latestAnswerUpdate: {
+      absorbed: value.latestAnswerUpdate.absorbed,
+      updatedDimensions: value.latestAnswerUpdate.updatedDimensions as DiscoveryDimension[],
+    },
+    nextQuestion: {
+      focusDimension: value.nextQuestion.focusDimension as DiscoveryDimension | "none",
+      text: value.nextQuestion.text,
+      purpose: value.nextQuestion.purpose,
+    },
+  };
+}
+
+function normalizedQuestion(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/[\p{P}\p{S}\s]/gu, "");
+}
+
+export function isRepeatedDiscoveryQuestion(
+  question: string,
+  turns: readonly ClarificationTurn[],
+) {
+  const candidate = normalizedQuestion(question);
+  return Boolean(candidate) && turns.some((turn) => normalizedQuestion(turn.question) === candidate);
 }
 
 export function sanitizeClarificationTurns(value: unknown): ClarificationTurn[] {

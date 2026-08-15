@@ -3,10 +3,12 @@ import {
   clarificationConversationMessages,
   composeClarificationSource,
   expressionCandidateClarificationQuestion,
+  isRepeatedDiscoveryQuestion,
   nextClarificationQuestion,
   nextMissingFieldQuestion,
   optionalClarificationQuestion,
   parseClarificationSource,
+  parseDiscoveryUnderstandingState,
   sanitizeClarificationTurns,
   shouldPreserveDraftOnAiExit,
 } from "../src/domain/clarification";
@@ -86,6 +88,36 @@ describe("private AI clarification", () => {
       { question: "没有回答", answer: "" },
       null,
     ])).toEqual([{ question: "发生在什么时候？", answer: "昨晚" }]);
+  });
+
+  it("normalizes punctuation and spacing before comparing discovery questions", () => {
+    const turns = [{ question: "你希望他具体怎么提醒你？", answer: "睡前提醒我一次。" }];
+    expect(isRepeatedDiscoveryQuestion(" 你希望他具体怎么提醒你  ", turns)).toBe(true);
+    expect(isRepeatedDiscoveryQuestion("你希望他怎样表达关心？", turns)).toBe(false);
+  });
+
+  it("accepts only a complete and internally consistent discovery state", () => {
+    const state = {
+      coverage: {
+        event: { status: "ENOUGH", evidence: ["昨晚发生争执"], missingInfo: "" },
+        impact: { status: "MISSING", evidence: [], missingInfo: "缺少具体影响" },
+        intention: { status: "MISSING", evidence: [], missingInfo: "缺少沟通意图" },
+      },
+      latestAnswerUpdate: { absorbed: true, updatedDimensions: ["event"] },
+      nextQuestion: {
+        focusDimension: "impact",
+        text: "这件事对你有什么影响？",
+        purpose: "补充具体影响",
+      },
+    };
+    expect(parseDiscoveryUnderstandingState(state)).toEqual(state);
+    expect(parseDiscoveryUnderstandingState({
+      ...state,
+      coverage: {
+        ...state.coverage,
+        impact: { status: "ENOUGH", evidence: [], missingInfo: "" },
+      },
+    })).toBeNull();
   });
 
   it("preserves a prior draft when a follow-up job is canceled or fails", () => {

@@ -7,8 +7,10 @@ import {
 } from "../domain/expression";
 import { isEditorClientStage, roomStates, type ClientStage } from "../domain/room-state";
 import {
+  parseDiscoveryUnderstandingState,
   sanitizeClarificationTurns,
   type ClarificationTurn,
+  type DiscoveryUnderstandingState,
 } from "../domain/clarification";
 
 const SESSION_KEY = "shuokai.session.v2";
@@ -36,6 +38,8 @@ export type EditorDraft = {
   discoveryStarted?: boolean;
   discoveryQuestion?: string;
   discoveryReady?: boolean;
+  discoveryFollowUpLimitReached?: boolean;
+  discoveryUnderstanding?: DiscoveryUnderstandingState;
   discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
   discoverySafetyMessage?: string;
 };
@@ -144,6 +148,12 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoveryReady = typeof candidate.discoveryReady === "boolean"
     ? candidate.discoveryReady
     : undefined;
+  const discoveryFollowUpLimitReached = typeof candidate.discoveryFollowUpLimitReached === "boolean"
+    ? candidate.discoveryFollowUpLimitReached
+    : undefined;
+  const discoveryUnderstanding = candidate.discoveryUnderstanding === undefined
+    ? undefined
+    : parseDiscoveryUnderstandingState(candidate.discoveryUnderstanding) ?? undefined;
   const discoverySafetyDisposition = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"]
     .includes(String(candidate.discoverySafetyDisposition))
     ? candidate.discoverySafetyDisposition
@@ -173,6 +183,8 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(discoveryStarted !== undefined ? { discoveryStarted } : {}),
     ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
     ...(discoveryReady !== undefined ? { discoveryReady } : {}),
+    ...(discoveryFollowUpLimitReached !== undefined ? { discoveryFollowUpLimitReached } : {}),
+    ...(discoveryUnderstanding !== undefined ? { discoveryUnderstanding } : {}),
     ...(discoverySafetyDisposition !== undefined ? { discoverySafetyDisposition } : {}),
     ...(discoverySafetyMessage !== undefined ? { discoverySafetyMessage } : {}),
   };

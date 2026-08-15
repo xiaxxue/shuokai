@@ -10,7 +10,7 @@
     <view class="discovery-heading">
       <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
       <text class="title">先说给我听。</text>
-      <text class="description">不用一次讲完整。我会一次只追问一个关键背景；等你觉得讲清楚了，再由你选择用哪条路径整理表达卡。</text>
+      <text class="description">不用一次讲完整。我会一次只追问一个关键背景；等我确认已经听清关键内容，再由你选择用哪条路径整理表达卡。</text>
     </view>
 
     <view v-if="safetyDisposition !== 'ALLOW'" class="safety-note">
@@ -46,20 +46,21 @@
         <view v-if="thinking && started && answer.trim()" class="message-row user">
           <view class="message-bubble user-bubble"><text>{{ answer }}</text></view>
         </view>
-        <view v-if="thinking || ready" class="message-row assistant">
+        <view v-if="thinking || ready || followUpLimitReached" class="message-row assistant">
           <view class="ai-avatar">AI</view>
           <view class="message-bubble assistant-bubble">
             <view v-if="thinking" class="typing" aria-label="AI 正在思考"><text /><text /><text /></view>
-            <text v-else>{{ readyMessage }}</text>
+            <text v-else>{{ ready ? readyMessage : limitMessage }}</text>
           </view>
         </view>
       </template>
     </view>
 
     <view class="composer-dock">
-      <view v-if="started && !busy" class="finish-row">
+      <view v-if="ready && !busy && !safetyStopped" class="finish-row">
         <button class="finish-action" @tap="$emit('finish')">
-          <text>我的情况讲清楚了</text><text>选择表达路径 →</text>
+          <text>可以开始整理了</text>
+          <text>选择表达路径 →</text>
         </button>
       </view>
       <view class="composer-heading">
@@ -78,7 +79,7 @@
           class="answer"
           :value="currentValue"
           :maxlength="started ? 1200 : 12000"
-          :disabled="busy || recording || ready"
+          :disabled="busy || recording || ready || followUpLimitReached || safetyStopped"
           :auto-height="true"
           :aria-label="started ? '回复 AI' : '告诉 AI 发生了什么'"
           :placeholder="started ? '想到哪说到哪，不完整也没关系……' : '例如：刚才发生了一件事，我在意的是……'"
@@ -86,7 +87,7 @@
         />
         <button
           class="send"
-          :disabled="busy || recording || !currentValue.trim() || (started && ready)"
+          :disabled="busy || recording || !currentValue.trim() || (started && (ready || followUpLimitReached || safetyStopped))"
           :aria-label="busy ? 'AI 正在思考' : '发送给 AI'"
           @tap="$emit('send')"
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
@@ -97,6 +98,11 @@
         <text v-else-if="thinking" class="busy-hint">AI 正在理解…</text>
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
       </view>
+      <button
+        v-if="started && !busy && !ready && !safetyStopped"
+        class="skip-action"
+        @tap="$emit('finish')"
+      >{{ followUpLimitReached ? '先按现有内容选择表达路径' : '先不继续追问，直接选择表达路径' }}</button>
     </view>
   </view>
 </template>
@@ -113,6 +119,7 @@ const props = defineProps<{
   question: string;
   started: boolean;
   ready: boolean;
+  followUpLimitReached: boolean;
   busy: boolean;
   thinking: boolean;
   recording: boolean;
@@ -133,10 +140,12 @@ const emit = defineEmits<{
 }>();
 
 const currentValue = computed(() => props.started ? props.answer : props.sourceText);
+const safetyStopped = computed(() => ["BLOCK_SHARE", "PAUSE"].includes(props.safetyDisposition));
 const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
   : "我在这里。先用你自己的话告诉我发生了什么，不需要组织得很完整。");
 const readyMessage = "我已经理解到足够开始整理的程度了。现在由你选择表达路径，我再把这段对话整理成卡片。";
+const limitMessage = "我还有没完全弄清楚的地方，但这轮追问先到这里。我不会假装已经理解完整；你可以先按现有内容整理，之后继续修改。";
 const durationLabel = computed(() => {
   const minutes = Math.floor(props.recordingSeconds / 60).toString().padStart(2, "0");
   const seconds = (props.recordingSeconds % 60).toString().padStart(2, "0");
@@ -197,5 +206,7 @@ function updateCurrentValue(event: Event) {
 .composer-meta { min-height: 40rpx; margin: 9rpx 4rpx 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14rpx; }
 .private-hint { color: #7b8580; font-size: 19rpx; line-height: 1.5; }
 .recording-hint, .busy-hint { flex: none; color: #4f6e5f; font-size: 19rpx; font-weight: 700; }
+.skip-action { min-height: 58rpx; margin: 8rpx auto 0; padding: 4rpx 12rpx; background: transparent; color: #7a817d; font-size: 20rpx; text-decoration: underline; text-underline-offset: 6rpx; }
+.skip-action::after { border: 0; }
 @media (max-width: 360px) { .discovery-screen { padding-right: 34rpx; padding-left: 34rpx; } .title { font-size: 48rpx; } }
 </style>

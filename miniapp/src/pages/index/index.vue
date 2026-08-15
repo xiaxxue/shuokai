@@ -182,6 +182,7 @@
         :question="discoveryQuestion"
         :started="discoveryStarted"
         :ready="discoveryReady"
+        :follow-up-limit-reached="discoveryFollowUpLimitReached"
         :busy="busy"
         :thinking="discoveryThinking"
         :recording="recording"
@@ -640,6 +641,8 @@ const expressionDiscovery = useExpressionDiscovery({
 const discoveryStarted = expressionDiscovery.started;
 const discoveryQuestion = expressionDiscovery.question;
 const discoveryReady = expressionDiscovery.ready;
+const discoveryFollowUpLimitReached = expressionDiscovery.followUpLimitReached;
+const discoveryUnderstanding = expressionDiscovery.understanding;
 const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
@@ -689,6 +692,8 @@ watch(
     discoveryStarted,
     discoveryQuestion,
     discoveryReady,
+    discoveryFollowUpLimitReached,
+    () => JSON.stringify(discoveryUnderstanding.value),
     discoverySafetyDisposition,
     discoverySafetyMessage,
   ],
@@ -940,6 +945,8 @@ function flushEditorDraft() {
     discoveryStarted: discoveryStarted.value,
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
+    discoveryFollowUpLimitReached: discoveryFollowUpLimitReached.value,
+    discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
     discoverySafetyDisposition: discoverySafetyDisposition.value,
     discoverySafetyMessage: discoverySafetyMessage.value,
   });
@@ -969,6 +976,12 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.discoveryStarted !== undefined) discoveryStarted.value = draft.discoveryStarted;
   if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
+  if (draft.discoveryFollowUpLimitReached !== undefined) {
+    discoveryFollowUpLimitReached.value = draft.discoveryFollowUpLimitReached;
+  }
+  if (draft.discoveryUnderstanding !== undefined) {
+    discoveryUnderstanding.value = draft.discoveryUnderstanding;
+  }
   if (draft.discoverySafetyDisposition !== undefined) {
     discoverySafetyDisposition.value = draft.discoverySafetyDisposition;
   }

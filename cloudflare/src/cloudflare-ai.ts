@@ -12,6 +12,7 @@ type StructuredOutputOptions = {
   userData: unknown;
   maxTokens: number;
   model?: string;
+  validationRetryText?: string;
   normalize?(value: unknown): unknown;
   validate(value: unknown): boolean;
 };
@@ -82,7 +83,10 @@ export async function requestStructuredOutput(env: WorkerEnv, options: Structure
           { role: "system", content: options.systemText },
           ...(attempt === 0 ? [] : [{
             role: "system",
-            content: "上一次输出未通过格式校验。只输出符合给定 JSON Schema 的 JSON，不要添加解释或 Markdown。",
+            content: [
+              "上一次输出未通过校验。只输出符合给定 JSON Schema 的 JSON，不要添加解释或 Markdown。",
+              options.validationRetryText,
+            ].filter(Boolean).join("\n"),
           }]),
           {
             role: "user",
