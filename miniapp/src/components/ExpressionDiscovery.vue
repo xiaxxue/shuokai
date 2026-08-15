@@ -3,9 +3,9 @@
     <view v-if="role === 'B' && !readOnly" class="invitation-context">
       <view class="invitation-copy">
         <text class="invitation-label">正在回应这次沟通</text>
-        <text class="invitation-topic">{{ invitationTopic || "邀请方还需要补充具体背景" }}</text>
+        <text class="invitation-topic" role="status" aria-live="polite">{{ invitationTopicStatusCopy }}</text>
       </view>
-      <button class="invitation-link" @tap="$emit('viewInvitation')">查看邀请</button>
+      <button class="invitation-link" :disabled="invitationStatus === 'loading'" @tap="handleInvitationAction">{{ invitationActionCopy }}</button>
     </view>
     <view class="discovery-heading">
       <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
@@ -149,6 +149,10 @@ import {
   type DetachedDiscoveryDraft,
   type PersonalMemoryItem,
 } from "../domain/ai-memory";
+import {
+  invitationTopicCopy,
+  type InvitationContextStatus,
+} from "../domain/invitation";
 
 const props = defineProps<{
   sourceText: string;
@@ -163,6 +167,7 @@ const props = defineProps<{
   recordingSeconds: number;
   role: "A" | "B";
   invitationTopic: string;
+  invitationStatus: InvitationContextStatus;
   safetyDisposition: SafetyDisposition;
   safetyMessage: string;
   restored: boolean;
@@ -179,6 +184,7 @@ const emit = defineEmits<{
   finish: [];
   record: [];
   viewInvitation: [];
+  retryInvitation: [];
   decideMemory: [item: PersonalMemoryItem, decision: "CONFIRM" | "REJECT"];
   editMemory: [item: PersonalMemoryItem];
   localChange: [];
@@ -187,6 +193,12 @@ const emit = defineEmits<{
 }>();
 
 const currentValue = computed(() => props.started ? props.answer : props.sourceText);
+const invitationTopicStatusCopy = computed(() => invitationTopicCopy(props.invitationStatus, props.invitationTopic));
+const invitationActionCopy = computed(() => {
+  if (props.invitationStatus === "loading") return "读取中";
+  if (props.invitationStatus === "error") return "重新读取";
+  return "查看邀请";
+});
 const safetyStopped = computed(() => ["BLOCK_SHARE", "PAUSE"].includes(props.safetyDisposition));
 const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
@@ -205,6 +217,11 @@ const durationLabel = computed(() => {
   return `${minutes}:${seconds}`;
 });
 
+function handleInvitationAction() {
+  if (props.invitationStatus === "error") emit("retryInvitation");
+  else emit("viewInvitation");
+}
+
 function updateCurrentValue(event: Event) {
   const value = (event as unknown as { detail: { value: string } }).detail.value;
   if (props.started) emit("update:answer", value);
@@ -219,8 +236,9 @@ function updateCurrentValue(event: Event) {
 .invitation-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 7rpx; }
 .invitation-label { color: #6b7c73; font-size: 19rpx; font-weight: 700; letter-spacing: .08em; }
 .invitation-topic { overflow: hidden; color: #29483b; font-size: 24rpx; font-weight: 800; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.invitation-link { flex: none; min-height: 66rpx; margin: 0; padding: 0 18rpx; border-radius: 999rpx; background: #fffdf8; color: #bd4933; font-size: 21rpx; font-weight: 800; }
+.invitation-link { flex: none; min-height: 48px; margin: 0; padding: 0 18rpx; border-radius: 999rpx; background: #fffdf8; color: #bd4933; font-size: 21rpx; font-weight: 800; }
 .invitation-link::after { border-color: rgba(189,73,51,.18); }
+.invitation-link[disabled] { opacity: .55; }
 .heading-meta { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; }
 .eyebrow { color: #bd4933; font-size: 22rpx; font-weight: 800; letter-spacing: .14em; }
 .privacy-pill { padding: 8rpx 14rpx; border: 1rpx solid rgba(49,91,71,.18); border-radius: 999rpx; color: #526c60; font-size: 19rpx; font-weight: 700; }

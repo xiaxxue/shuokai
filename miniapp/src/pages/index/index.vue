@@ -175,12 +175,14 @@
       <InvitationIntro
         v-else-if="stage === 'INVITATION_INTRO'"
         :context="resolvedInvitationContext"
+        :status="invitationContextStatus"
         :clarification-message="currentInvitationClarificationMessage"
         :clarifying="invitationClarifying"
         :busy="busy"
         @start="startInvitedExpression"
         @clarify="invitationClarifying = true"
         @back="invitationClarifying = false"
+        @retry="refreshInvitationContext()"
         @copy-request="copyInvitationClarification"
         @leave="leaveInvitation"
       />
@@ -199,6 +201,7 @@
         :recording-seconds="recordingSeconds"
         :role="room.role"
         :invitation-topic="resolvedInvitationContext.topic"
+        :invitation-status="invitationContextStatus"
         :safety-disposition="discoverySafetyDisposition"
         :safety-message="discoverySafetyMessage"
         :restored="discoveryRestored"
@@ -212,6 +215,7 @@
         @finish="finishDiscovery"
         @record="toggleRecording"
         @view-invitation="showInvitationIntro"
+        @retry-invitation="refreshInvitationContext()"
         @decide-memory="decidePersonalMemory"
         @edit-memory="editPersonalMemory"
         @local-change="expressionDiscovery.markLocalDraft"
@@ -558,6 +562,7 @@ import {
 } from "../../domain/expression-review";
 import {
   invitationClarificationMessage,
+  type InvitationContextStatus,
   topicFromEditableExpression,
   type InvitationContext,
 } from "../../domain/invitation";
@@ -649,6 +654,7 @@ const clarificationTurns = ref<ClarificationTurn[]>([]);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
 const invitationContext = ref<InvitationContext | null>(null);
+const invitationContextStatus = ref<InvitationContextStatus>("idle");
 const invitationClarifying = ref(false);
 const expressionReviewStep = ref(0);
 const dialogueState = ref<DialogueState | null>(null);
@@ -661,6 +667,7 @@ const aiArchiveError = ref("");
 let recordingTimer: ReturnType<typeof setInterval> | null = null;
 let editorSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
+let invitationContextRequest = 0;
 let recordingTarget: "transcript" | "answer" = "transcript";
 const expressionDiscovery = useExpressionDiscovery({
   room, stage, busy, recording, transcript, selectedMode,
@@ -922,6 +929,7 @@ function openExpressionCandidate() {
 
 function resetPrivateWorkspace() {
   workspaceGeneration += 1;
+  invitationContextRequest += 1;
   if (recording.value) stopRecording();
   recording.value = false;
   if (editorSaveTimer) clearTimeout(editorSaveTimer);
@@ -939,6 +947,7 @@ function resetPrivateWorkspace() {
   resetClarification();
   expressionDiscovery.reset();
   invitationContext.value = null;
+  invitationContextStatus.value = "idle";
   invitationClarifying.value = false;
   sharedUnderstanding.reset();
   dialogueState.value = null;
@@ -1064,11 +1073,7 @@ async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot)
   stage.value = stageForCurrentRoom(roomSession, latest.room.state);
   if ((roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(latest.room.state)) ||
     (roomSession.role === "A" && stage.value === "INVITE")) {
-    try {
-      invitationContext.value = await roomApi.invitationContext(roomSession.roomId);
-    } catch {
-      invitationContext.value = null;
-    }
+    await refreshInvitationContext(roomSession.roomId);
   }
   if (roomSession.workflowVersion === 2 && latest.room.state === "COMMON_VIEW_READY") {
     if (["UNDERSTANDING_GENERATING", "UNDERSTANDING_CONFIRMING", "ACTION_GENERATING", "ACTION_CONFIRMING"]
@@ -1252,11 +1257,7 @@ async function joinRoom() {
     } else {
       stage.value = joinedStage;
       if (joinedStage === "INVITATION_INTRO") {
-        try {
-          invitationContext.value = await roomApi.invitationContext(joined.roomId);
-        } catch {
-          invitationContext.value = null;
-        }
+        await refreshInvitationContext(joined.roomId);
       }
     }
     setNotice("success", joinedStage === "INVITATION_INTRO"
@@ -1905,6 +1906,25 @@ async function startInvitedExpression() {
 function showInvitationIntro() {
   invitationClarifying.value = false;
   stage.value = "INVITATION_INTRO";
+}
+
+async function refreshInvitationContext(roomId = room.value?.roomId) {
+  if (!roomId) return;
+  const requestVersion = ++invitationContextRequest;
+  invitationContextStatus.value = "loading";
+  try {
+    const nextContext = await roomApi.invitationContext(roomId);
+    if (room.value?.roomId !== roomId || requestVersion !== invitationContextRequest) return;
+    invitationContext.value = nextContext;
+    invitationContextStatus.value = "ready";
+  } catch {
+    if (room.value?.roomId !== roomId || requestVersion !== invitationContextRequest) return;
+    if (invitationContext.value) {
+      invitationContextStatus.value = "ready";
+      return;
+    }
+    invitationContextStatus.value = "error";
+  }
 }
 
 function copyInvitationClarification() {

@@ -5,10 +5,12 @@
       <text class="invitation-title">{{ context.inviterName }}想和你把一件事说开。</text>
       <text class="invitation-lead">先不用回应任何结论。你可以先确认对方想谈什么，以及这里接下来会发生什么。</text>
 
-      <view class="topic-letter">
+      <view class="topic-letter" :class="{ 'topic-letter-error': status === 'error' }" role="status" aria-live="polite">
         <view class="topic-letter-fold" />
         <text class="topic-label">这次想谈的是</text>
         <text class="topic-copy">{{ topicCopy }}</text>
+        <text v-if="status === 'error'" class="topic-help">可能是网络或同步问题，不代表邀请方没有填写。</text>
+        <button v-if="status === 'error'" class="topic-retry" :disabled="busy" @tap="$emit('retry')">重新读取邀请说明</button>
       </view>
 
       <view class="process-note">
@@ -27,8 +29,8 @@
         </view>
       </view>
 
-      <button class="invitation-primary" :disabled="busy" @tap="$emit('start')">我知道是哪件事，开始表达</button>
-      <button class="invitation-link strong" :disabled="busy" @tap="$emit('clarify')">我不确定对方指什么</button>
+      <button class="invitation-primary" :disabled="busy" @tap="$emit('start')">{{ startActionCopy }}</button>
+      <button v-if="status === 'ready'" class="invitation-link strong" :disabled="busy" @tap="$emit('clarify')">我不确定对方指什么</button>
       <button class="invitation-link" :disabled="busy" @tap="$emit('leave')">暂时不参与，先离开</button>
     </template>
 
@@ -52,10 +54,15 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import type { InvitationContext } from "../domain/invitation";
+import {
+  invitationTopicCopy,
+  type InvitationContext,
+  type InvitationContextStatus,
+} from "../domain/invitation";
 
 const props = defineProps<{
   context: InvitationContext;
+  status: InvitationContextStatus;
   clarificationMessage: string;
   clarifying: boolean;
   busy: boolean;
@@ -66,10 +73,14 @@ defineEmits<{
   clarify: [];
   leave: [];
   back: [];
+  retry: [];
   "copy-request": [];
 }>();
 
-const topicCopy = computed(() => props.context.topic || "邀请方还没有留下足够清楚的事件说明。你可以先请对方补充背景。 ");
+const topicCopy = computed(() => invitationTopicCopy(props.status, props.context.topic));
+const startActionCopy = computed(() => props.status === "ready" && props.context.topic
+  ? "我知道是哪件事，开始表达"
+  : "先说说我的理解");
 const processItems = [
   "先讲你的版本，不必迎合对方",
   "AI 追问缺少的背景，并整理成表达卡",
@@ -168,6 +179,28 @@ $green: #315b47;
   font-size: 20px;
   font-weight: 700;
   line-height: 1.65;
+}
+
+.topic-help {
+  display: block;
+  margin-top: 8px;
+  color: $muted;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.topic-letter-error { border-color: rgba(190, 68, 46, .34); }
+
+.topic-retry {
+  min-height: 48px;
+  margin: 14px 0 0;
+  padding: 0 18px;
+  border: 1px solid rgba(190, 68, 46, .28);
+  border-radius: 999px;
+  background: transparent;
+  color: $coral-dark;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .process-note {

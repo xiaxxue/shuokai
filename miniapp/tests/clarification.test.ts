@@ -72,7 +72,7 @@ describe("private AI clarification", () => {
     ]);
     const thinkingMessages = clarificationConversationMessages(turns, "不会提前显示的下一问", true);
     expect(thinkingMessages).toHaveLength(3);
-    expect(thinkingMessages.at(-1)).toEqual({
+    expect(thinkingMessages[thinkingMessages.length - 1]).toEqual({
       role: "assistant",
       kind: "typing",
       content: "",

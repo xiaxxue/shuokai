@@ -5,6 +5,8 @@ export type InvitationContext = {
   topic: string;
 };
 
+export type InvitationContextStatus = "idle" | "loading" | "ready" | "error";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -30,6 +32,15 @@ export function topicFromEditableExpression(expression: EditableExpression) {
         ? "boundary"
         : "";
   return key ? boundedText(expression.fields[key], 180) : "";
+}
+
+export function invitationTopicCopy(status: InvitationContextStatus, topic: string) {
+  const normalizedTopic = boundedText(topic, 180);
+  if (status === "loading") return "正在读取这次沟通的主题…";
+  if (status === "error") return "暂时没读到邀请说明";
+  if (status === "ready" && normalizedTopic) return normalizedTopic;
+  if (status === "ready") return "这次邀请暂未显示具体主题";
+  return "正在准备这次沟通的主题…";
 }
 
 export function invitationClarificationMessage(context: InvitationContext | null, roomCode: string) {
