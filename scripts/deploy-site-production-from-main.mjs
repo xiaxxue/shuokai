@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const PRODUCTION_HOSTNAME = "shuokai.me";
-const PRODUCTION_APP_HOSTNAME = "app.shuokai.me";
 const SITE_WORKER_NAME = "shuokai-official-site";
 const OUTPUT_WRANGLER_CONFIG = "dist/server/wrangler.json";
 const ALLOWED_ORIGIN_URLS = new Set([
@@ -26,7 +25,6 @@ function git(args) {
 
 export function validateProductionSiteDeploySource({
   approval,
-  appApproval,
   branch,
   head,
   originMain,
@@ -35,9 +33,6 @@ export function validateProductionSiteDeploySource({
 }) {
   if (approval !== PRODUCTION_HOSTNAME) {
     throw new Error(`生产官网部署需要显式设置 SHUOKAI_PRODUCTION_DEPLOY_APPROVED=${PRODUCTION_HOSTNAME}。`);
-  }
-  if (appApproval !== PRODUCTION_APP_HOSTNAME) {
-    throw new Error(`带体验入口的官网部署需要先确认 SHUOKAI_APP_RELEASE_APPROVED=${PRODUCTION_APP_HOSTNAME}。`);
   }
   if (branch !== "main") {
     throw new Error(`生产官网只能从 main 部署；当前分支是 ${branch || "detached HEAD"}。`);
@@ -73,7 +68,6 @@ export function deployProductionSiteFromMain() {
   const status = git(["status", "--porcelain", "--untracked-files=all"]);
   validateProductionSiteDeploySource({
     approval: process.env.SHUOKAI_PRODUCTION_DEPLOY_APPROVED,
-    appApproval: process.env.SHUOKAI_APP_RELEASE_APPROVED,
     branch,
     head,
     originMain,
