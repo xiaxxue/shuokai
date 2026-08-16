@@ -48,6 +48,12 @@ import {
   isDiscoveryResult,
 } from "../src/discovery-ai.ts";
 
+test("missing inviter relationship context has an actionable public error", async () => {
+  const handlers = await readFile(new URL("../src/handlers.ts", import.meta.url), "utf8");
+
+  assert.match(handlers, /P0004: "邀请方还没有提供可确认的关系版本。请选择“填写我的版本”或“暂不回答”。"/);
+});
+
 function validNvcExpressionResult(state: "ASK" | "READY" = "ASK") {
   const ask = state === "ASK";
   const question = ask ? "这次没有消息时，你最希望对方理解哪一种影响？" : "";

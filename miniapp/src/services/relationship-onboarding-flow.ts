@@ -1,13 +1,50 @@
-import type { RoomRelationshipContext } from "../domain/profile-context";
+import {
+  optionLabel,
+  relationshipTypeOptions,
+  type RoomRelationshipContext,
+} from "../domain/profile-context";
 import type { ClientStage } from "../domain/room-state";
 import type { RoomSession } from "../domain/types";
 
 export type RelationshipOnboardingSubmitOutcome = "saved" | "failed" | "ignored" | "stale";
 
+export type InviteRelationshipSummary = {
+  ready: boolean;
+  state: string;
+  title: string;
+  note: string;
+};
+
+export function summarizeInviteRelationship(
+  context: RoomRelationshipContext | null,
+): InviteRelationshipSummary {
+  const shared = context?.shared;
+  if (!shared || shared.status === "MISSING" || shared.status === "DRAFT") return {
+    ready: false,
+    state: "尚未保存",
+    title: "先说明你准备邀请谁",
+    note: "补充关系说明，或明确选择暂不说明后，再分享邀请链接。",
+  };
+  if (shared.status === "SKIPPED") return {
+    ready: true,
+    state: "已选择暂不说明",
+    title: "这次暂不说明关系",
+    note: "对方仍可以填写自己的版本，也可以暂不回答。",
+  };
+  return {
+    ready: true,
+    state: "你的版本",
+    title: shared.relationshipType === "OTHER"
+      ? shared.relationshipOther || "其他关系"
+      : optionLabel(relationshipTypeOptions, shared.relationshipType),
+    note: "对方会看到这是你的理解，并可以确认、填写自己的版本或暂不回答。",
+  };
+}
+
 type RelationshipOnboardingSuccess<TContext> = {
   context: TContext;
   role: RoomSession["role"];
-  stage: "GOAL" | "INVITATION_INTRO" | "RECORD";
+  stage: "GOAL" | "INVITE" | "INVITATION_INTRO" | "RECORD";
 };
 
 type RelationshipOnboardingSubmitterOptions<TContext> = {
@@ -20,6 +57,7 @@ type RelationshipOnboardingSubmitterOptions<TContext> = {
 
 type RelationshipOnboardingSubmission<TContext> = {
   role: RoomSession["role"];
+  roomState: RoomSession["state"];
   invitationAcknowledged: boolean;
   save: () => Promise<TContext>;
   isCurrent: () => boolean;
@@ -28,9 +66,10 @@ type RelationshipOnboardingSubmission<TContext> = {
 
 function stageAfterRelationshipOnboarding(
   role: RoomSession["role"],
+  roomState: RoomSession["state"],
   invitationAcknowledged: boolean,
-): "GOAL" | "INVITATION_INTRO" | "RECORD" {
-  if (role === "A") return "GOAL";
+): "GOAL" | "INVITE" | "INVITATION_INTRO" | "RECORD" {
+  if (role === "A") return roomState === "GOAL_SETTING" ? "GOAL" : "INVITE";
   return invitationAcknowledged ? "RECORD" : "INVITATION_INTRO";
 }
 
@@ -64,7 +103,11 @@ export function createRelationshipOnboardingSubmitter<TContext>(
         options.applySuccess({
           context,
           role: submission.role,
-          stage: stageAfterRelationshipOnboarding(submission.role, submission.invitationAcknowledged),
+          stage: stageAfterRelationshipOnboarding(
+            submission.role,
+            submission.roomState,
+            submission.invitationAcknowledged,
+          ),
         });
         return "saved";
       } finally {
@@ -82,9 +125,10 @@ export function relationshipOnboardingStage(
   invitationAcknowledged: boolean,
 ): ClientStage | null {
   if (room.workflowVersion !== 2) return null;
-  if (room.role === "A" && room.state === "GOAL_SETTING") {
+  if (room.role === "A" && (room.state === "GOAL_SETTING" || room.state === "WAITING_FOR_B")) {
+    const nextStage = room.state === "GOAL_SETTING" ? "GOAL" : "INVITE";
     return context.shared.status === "CONFIRMED" || context.shared.status === "SKIPPED"
-      ? "GOAL"
+      ? nextStage
       : "RELATIONSHIP_SETUP";
   }
   if (room.role === "B" && (room.state === "B_DRAFTING" || room.state === "B_REVIEWING")) {

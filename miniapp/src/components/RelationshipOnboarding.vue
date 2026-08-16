@@ -11,8 +11,8 @@
 
     <template v-if="role === 'B' && step === 1">
       <view class="inviter-version">
-        <text class="version-label">邀请方版本 · 尚未由你确认</text>
-        <view v-if="shared.status === 'SKIPPED' || shared.status === 'MISSING'" class="empty-copy">对方没有补充关系背景。你仍然可以正常继续。</view>
+        <text class="version-label">{{ hasInviterVersion ? '邀请方版本 · 尚未由你确认' : '邀请方暂未说明关系' }}</text>
+        <view v-if="!hasInviterVersion" class="empty-copy">你可以填写自己的版本，也可以暂不回答。</view>
         <view v-else class="summary-list">
           <view><text>关系</text><text>{{ relationshipLabel(shared) }}</text></view>
           <view><text>相处时间</text><text>{{ optionLabel(durationOptions, shared.durationRange) }}</text></view>
@@ -20,14 +20,14 @@
         </view>
       </view>
       <view class="decision-list" role="radiogroup" aria-label="邀请背景是否符合我的理解">
-        <button v-for="item in decisions" :key="item.value" class="decision" :class="{ selected: decision === item.value }" role="radio" tabindex="0" :aria-checked="decision === item.value" @tap="decision = item.value" @keydown.enter.prevent="decision = item.value" @keydown.space.prevent="decision = item.value">
+        <button v-for="item in availableDecisions" :key="item.value" class="decision" :class="{ selected: decision === item.value }" role="radio" tabindex="0" :aria-checked="decision === item.value" @tap="decision = item.value" @keydown.enter.prevent="decision = item.value" @keydown.space.prevent="decision = item.value">
           <text class="decision-title">{{ item.label }}</text><text class="decision-copy">{{ item.description }}</text>
         </button>
       </view>
     </template>
 
     <template v-else-if="isSharedStep">
-      <button v-if="role === 'A'" class="skip-top" role="button" tabindex="0" @tap="saveSkipped" @keydown.enter.prevent="saveSkipped" @keydown.space.prevent="saveSkipped">暂不补充关系背景</button>
+      <button v-if="role === 'A'" class="skip-top" role="button" tabindex="0" @tap="saveSkipped" @keydown.enter.prevent="saveSkipped" @keydown.space.prevent="saveSkipped">暂不说明关系，继续沟通</button>
       <ChoiceGroup label="你们是什么关系？" :items="relationshipTypeOptions" :model-value="mineShared.relationshipType" @update:model-value="mineShared.relationshipType = $event" />
       <view v-if="mineShared.relationshipType === 'OTHER'" class="custom-field">
         <label for="relationship-other">其他关系类型</label>
@@ -36,7 +36,7 @@
       </view>
       <ChoiceGroup label="大约相处多久了？" :items="durationOptions" :model-value="mineShared.durationRange" @update:model-value="mineShared.durationRange = $event" />
       <ChoiceGroup label="现在通常怎样相处？" :items="interactionOptions" :model-value="mineShared.interactionMode" @update:model-value="mineShared.interactionMode = $event" />
-      <text class="optional-note">以上都可以暂不选择。受邀者可以确认，也可以保留自己的版本。</text>
+      <text class="optional-note">这是你的版本，不是系统认定的事实。对方可以确认、填写自己的版本或暂不回答。</text>
     </template>
 
     <template v-else-if="step === 2 && role === 'A' || step === 3 && role === 'B'">
@@ -162,6 +162,10 @@ const decisions = [
   { value: "DIFFERENT", label: "填写我的版本", description: "两种版本会并列，不由 AI 判断对错。" },
   { value: "SKIPPED", label: "暂不回答", description: "邀请方只会看到你暂未确认。" },
 ] as const;
+const decisionsWithoutInviterVersion = [
+  { value: "DIFFERENT", label: "填写我的版本", description: "只会分享你主动填写的关系版本，不由 AI 判断对错。" },
+  { value: "SKIPPED", label: "暂不回答", description: "邀请方只会看到你暂未说明。" },
+] as const;
 const step = ref(1);
 const decision = ref<"CONFIRMED" | "DIFFERENT" | "SKIPPED" | null>(null);
 const shared = reactive({ ...props.context.shared });
@@ -191,9 +195,18 @@ async function focusError() {
 
 defineExpose({ focusError });
 
+const hasInviterVersion = computed(() => shared.status === "CONFIRMED");
+const availableDecisions = computed(() => hasInviterVersion.value ? decisions : decisionsWithoutInviterVersion);
+
 const heading = computed(() => {
-  if (props.role === "B" && step.value === 1) return { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" };
-  if (step.value === 1 || props.role === "B" && step.value === 2) return { title: props.role === "A" ? "先介绍一下你们" : "填写我的版本", description: "只选你愿意说明的部分，所有题都可以跳过。" };
+  if (props.role === "B" && step.value === 1) return hasInviterVersion.value
+    ? { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" }
+    : { title: "邀请方没有说明你们的关系", description: "你仍然可以填写自己的版本，或暂不回答。" };
+  if (step.value === 1 || props.role === "B" && step.value === 2) {
+    return props.role === "A"
+      ? { title: "你准备邀请谁来沟通？", description: "先选择你理解的关系。对方可以确认、填写自己的版本或暂不回答。" }
+      : { title: "填写我的版本", description: "只选你愿意说明的部分，所有题都可以跳过。" };
+  }
   if (step.value === 2 || props.role === "B" && step.value === 3) return { title: "发生分歧时，你通常怎样沟通？", description: "这里只描述你自己，不评价对方。" };
   if (step.value === 3) return { title: "你眼中的关系现在怎样？", description: "这是你的私人视角，不会展示给对方。" };
   return { title: "确认这次会怎样使用", description: "提交前，逐项看清谁能看到、AI 会不会参考。" };
@@ -229,6 +242,7 @@ function load() {
     else Object.assign(mineShared, toSharedContextDraft(props.context.mine));
     Object.assign(mine, toParticipantContextDraft(props.context.mine));
   }
+  if (!hasInviterVersion.value && decision.value === "CONFIRMED") decision.value = null;
   relationshipOther.value = mineShared.relationshipOther ?? "";
 }
 
