@@ -36,6 +36,7 @@ import {
   isExpressionResult,
   isUnderstandingResult,
   isUnderstandingReview,
+  normalizeExpressionResult,
   normalizeUnderstandingResult,
   parseExpressionConversationSource,
   parseQueueMessage,
@@ -1499,6 +1500,32 @@ test("AI output validation rejects missing and invented expression fields", () =
   }, "BOUNDARY"), false);
 });
 
+test("expression output normalization reconciles duplicated dialogue control fields", () => {
+  const ready = validNvcExpressionResult("READY");
+  ready.conversation.question = "还需要补充你的请求吗？";
+  ready.conversation.questionIntent = "CLARIFY_REQUEST";
+  ready.uncertainties = [];
+  const normalizedReady = normalizeExpressionResult(ready) as typeof ready;
+  assert.equal(normalizedReady.conversation.state, "READY");
+  assert.equal(normalizedReady.conversation.question, "");
+  assert.equal(normalizedReady.conversation.questionIntent, "NONE");
+  assert.deepEqual(normalizedReady.uncertainties, []);
+  assert.equal(isExpressionResult(normalizedReady, "NVC"), true);
+
+  const ask = validNvcExpressionResult("ASK");
+  ask.uncertainties = [];
+  const normalizedAsk = normalizeExpressionResult(ask) as typeof ask;
+  assert.equal(normalizedAsk.conversation.state, "ASK");
+  assert.deepEqual(normalizedAsk.uncertainties, [ask.conversation.question]);
+  assert.equal(isExpressionResult(normalizedAsk, "NVC"), true);
+
+  const conflicting = validNvcExpressionResult("ASK");
+  conflicting.conversation.state = "READY";
+  const untouchedConflict = normalizeExpressionResult(conflicting) as typeof conflicting;
+  assert.equal(untouchedConflict.conversation.state, "READY");
+  assert.equal(isExpressionResult(untouchedConflict, "NVC"), false);
+});
+
 test("private clarification envelopes keep all individually bounded turns", () => {
   const turns = Array.from({ length: 12 }, (_, index) => ({
     question: `问题 ${index + 1}`,
@@ -2062,6 +2089,30 @@ test("initial expression generation may stop when context is already sufficient"
   assert.equal(calls, 2);
   assert.deepEqual((generated.result as { uncertainties: unknown }).uncertainties, []);
   assert.equal((generated.result as { invitation: { title: string } }).invitation.title, "关于周日仍未收到消息");
+});
+
+test("expression generation accepts READY output with stale question metadata", async () => {
+  let calls = 0;
+  const generated = await generateExpressionCandidate({
+    AI: {
+      async run(_model, input) {
+        calls += 1;
+        if (requestedSchemaTitle(input) === "shuokai_invitation_draft_v1") {
+          return { response: JSON.stringify(validInvitationDraftResult()) };
+        }
+        const result = validNvcExpressionResult("READY");
+        result.conversation.stopReason = "NO_NEW_INFORMATION";
+        result.conversation.question = "还需要补充你的请求吗？";
+        result.conversation.questionIntent = "CLARIFY_REQUEST";
+        return { response: JSON.stringify(result) };
+      },
+    },
+  }, { mode: "NVC", sourceText: "周日还没有消息。" });
+  assert.equal(calls, 2);
+  const conversation = (generated.result as { conversation: Record<string, unknown> }).conversation;
+  assert.equal(conversation.state, "READY");
+  assert.equal(conversation.question, "");
+  assert.equal(conversation.questionIntent, "NONE");
 });
 
 test("AI may finish questioning after a private clarification answer", async () => {

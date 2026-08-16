@@ -257,6 +257,46 @@ export function expressionResultSchema(
   };
 }
 
+/**
+ * Reconcile duplicated conversation-control fields before semantic validation.
+ * The model sometimes emits a valid JSON object whose stop reason says the
+ * dialogue is complete while stale question fields still describe an ASK turn.
+ * Only protocol metadata is normalized here; user-facing expression fields,
+ * grounding, reflections, and tentative understanding are left untouched.
+ */
+export function normalizeExpressionResult(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const candidate = value as Record<string, unknown>;
+  if (!candidate.conversation || typeof candidate.conversation !== "object" ||
+    Array.isArray(candidate.conversation)) return value;
+  const conversation = candidate.conversation as Record<string, unknown>;
+  const state = conversation.state;
+  const stopReason = conversation.stopReason;
+  const question = typeof conversation.question === "string" ? conversation.question : "";
+
+  if (state === "ASK" && stopReason === "NEEDS_CLARIFICATION") {
+    return {
+      ...candidate,
+      uncertainties: question.trim() ? [question] : candidate.uncertainties,
+    };
+  }
+
+  if (state === "READY" &&
+    ["SUFFICIENT_CONTEXT", "NO_NEW_INFORMATION", "SAFETY"].includes(String(stopReason))) {
+    return {
+      ...candidate,
+      uncertainties: [],
+      conversation: {
+        ...conversation,
+        question: "",
+        questionIntent: "NONE",
+      },
+    };
+  }
+
+  return value;
+}
+
 export function isExpressionResult(
   value: unknown,
   mode: SupportedExpressionMode,

@@ -5,6 +5,7 @@ import {
   fieldSchemas,
   isExpressionResult,
   nvcFeelingBelongsToUser,
+  normalizeExpressionResult,
   parseExpressionConversationSource,
   sanitizedManualPayload,
   supportedExpressionModes,
@@ -17,6 +18,7 @@ import { logQueueBatch, logQueueMessage, type LogSink } from "./observability.ts
 export {
   expressionResultSchema,
   isExpressionResult,
+  normalizeExpressionResult,
   parseExpressionConversationSource,
   supportedExpressionModes,
   type SupportedExpressionMode,
@@ -611,6 +613,11 @@ export async function generateExpressionCandidate(
       allowedSourceRefs: modelContext.sourceRefs,
     },
     maxTokens: 2200,
+    normalize: normalizeExpressionResult,
+    validationRetryText: [
+      "conversation.stopReason=NEEDS_CLARIFICATION 时必须输出 ASK、一个非空 question 和对应 questionIntent。",
+      "其他 stopReason 必须输出 READY、空 question、questionIntent=NONE、空 uncertainties。",
+    ].join("\n"),
     validate: (value) => isExpressionResult(value, input.mode, modelContext) &&
       (input.mode !== "NVC" || nvcFeelingBelongsToUser(value, modelContext, currentDraft)),
   });
