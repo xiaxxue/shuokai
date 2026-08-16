@@ -7,7 +7,7 @@
       <text class="description">{{ heading.description }}</text>
     </view>
 
-    <view v-if="error" class="flow-error" role="alert">{{ error }}</view>
+    <view v-if="error" ref="errorRef" class="flow-error" role="alert" tabindex="-1">{{ error }}</view>
 
     <template v-if="role === 'B' && step === 1">
       <view class="inviter-version">
@@ -169,9 +169,9 @@ const mineShared = reactive<SharedContextDraft>(emptySharedContextDraft());
 const mine = reactive<ParticipantContextDraft>(emptyParticipantContextDraft());
 const relationshipOther = ref("");
 const headingRef = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
+const errorRef = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
 
-function headingElement() {
-  const value = headingRef.value;
+function element(value: HTMLElement | { $el?: HTMLElement } | null) {
   if (!value) return null;
   if (typeof HTMLElement !== "undefined" && value instanceof HTMLElement) return value;
   return "$el" in value ? value.$el ?? null : null;
@@ -180,8 +180,16 @@ function headingElement() {
 async function focusHeading() {
   if (typeof document === "undefined") return;
   await nextTick();
-  headingElement()?.focus();
+  element(headingRef.value)?.focus();
 }
+
+async function focusError() {
+  if (typeof document === "undefined") return;
+  await nextTick();
+  element(errorRef.value)?.focus();
+}
+
+defineExpose({ focusError });
 
 const heading = computed(() => {
   if (props.role === "B" && step.value === 1) return { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" };

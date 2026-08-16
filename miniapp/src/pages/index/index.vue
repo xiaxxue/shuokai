@@ -168,6 +168,7 @@
 
       <RelationshipOnboarding
         v-else-if="(stage === 'RELATIONSHIP_SETUP' || stage === 'RELATIONSHIP_CONFIRMATION') && relationshipContext"
+        ref="relationshipOnboardingRef"
         class="screen"
         :role="stage === 'RELATIONSHIP_SETUP' ? 'A' : 'B'"
         :context="relationshipContext"
@@ -654,6 +655,10 @@ import {
   type RelationshipDraft,
 } from "../../services/profile-context-session";
 import { runCommittedRoomEntry } from "../../services/room-entry";
+import {
+  createRelationshipOnboardingSubmitter,
+  relationshipOnboardingStage,
+} from "../../services/relationship-onboarding-flow";
 
 const goals = [
   { title: "让我被准确理解", description: "把观察、感受和真正的需要说清楚" },
@@ -724,6 +729,29 @@ const pendingProfileAction = ref<"CREATE" | "JOIN" | null>(null);
 const relationshipContext = ref<RoomRelationshipContext | null>(null);
 const relationshipDraft = ref<RelationshipDraft | null>(null);
 const relationshipError = ref("");
+const relationshipOnboardingRef = ref<{ focusError: () => Promise<void> } | null>(null);
+const relationshipSubmitter = createRelationshipOnboardingSubmitter<RoomRelationshipContext>({
+  setPending: (pending) => { busy.value = pending; },
+  clearError: () => { relationshipError.value = ""; },
+  applySuccess: ({ context, role, stage: nextStage }) => {
+    if (!room.value) return;
+    relationshipContext.value = context;
+    relationshipDraft.value = null;
+    stage.value = nextStage;
+    try {
+      clearRelationshipDraft(authUserId.value, room.value.roomId, role);
+    } catch {
+      // The server commit is authoritative; stale local data is revision-gated on the next restore.
+    }
+    if (role === "B" && nextStage === "INVITATION_INTRO") void refreshInvitationContext(room.value.roomId);
+  },
+  applyError: (error) => { relationshipError.value = error; },
+  focusError: async () => {
+    contentScrollTop.value = 0;
+    await nextTick();
+    await relationshipOnboardingRef.value?.focusError();
+  },
+});
 const history = useRoomHistory(authUserId, roomApi.history);
 const roomHistory = history.items;
 const roomHistoryCursor = history.cursor;
@@ -1093,16 +1121,11 @@ async function routeRelationshipOnboarding(roomSession: RoomSession): Promise<Cl
   relationshipDraft.value = stored &&
     stored.sharedRevision === context.shared.revision && stored.privateRevision === context.mine.revision
     ? stored : null;
-  if (roomSession.role === "A" && roomSession.state === "GOAL_SETTING") {
-    return ["CONFIRMED", "SKIPPED"].includes(context.shared.status) ? "GOAL" : "RELATIONSHIP_SETUP";
-  }
-  if (roomSession.role === "B" && ["B_DRAFTING", "B_REVIEWING"].includes(roomSession.state)) {
-    const confirmed = ["CONFIRMED", "DIFFERENT", "SKIPPED"].includes(context.mine.status) &&
-      context.mine.seenSharedRevision === context.shared.revision;
-    if (!confirmed) return "RELATIONSHIP_CONFIRMATION";
-    return hasAcknowledgedInvitation(roomSession.roomId) ? "RECORD" : "INVITATION_INTRO";
-  }
-  return stageForCurrentRoom(roomSession);
+  return relationshipOnboardingStage(
+    roomSession,
+    context,
+    hasAcknowledgedInvitation(roomSession.roomId),
+  ) ?? stageForCurrentRoom(roomSession);
 }
 
 async function saveRelationshipOnboarding(payload: {
@@ -1111,44 +1134,45 @@ async function saveRelationshipOnboarding(payload: {
   mine: ParticipantContextDraft;
 }) {
   if (!room.value || !relationshipContext.value || busy.value) return;
-  busy.value = true;
-  relationshipError.value = "";
-  try {
-    const latest = room.value.role === "A"
-      ? await roomApi.saveRelationshipContext(
-        room.value.roomId,
-        relationshipContext.value.shared.revision,
-        relationshipContext.value.mine.revision,
+  const currentRoom = room.value;
+  const currentContext = relationshipContext.value;
+  const currentUserId = authUserId.value;
+  const outcome = await relationshipSubmitter.submit({
+    role: currentRoom.role,
+    invitationAcknowledged: hasAcknowledgedInvitation(currentRoom.roomId),
+    isCurrent: () => authUserId.value === currentUserId &&
+      room.value?.roomId === currentRoom.roomId && room.value.role === currentRoom.role,
+    save: () => currentRoom.role === "A"
+      ? roomApi.saveRelationshipContext(
+        currentRoom.roomId,
+        currentContext.shared.revision,
+        currentContext.mine.revision,
         payload.status === "SKIPPED" ? "SKIPPED" : "CONFIRMED",
         4,
         payload.shared,
         payload.mine,
       )
-      : await roomApi.respondRelationshipContext(
-        room.value.roomId,
-        relationshipContext.value.mine.revision,
-        relationshipContext.value.shared.revision,
+      : roomApi.respondRelationshipContext(
+        currentRoom.roomId,
+        currentContext.mine.revision,
+        currentContext.shared.revision,
         payload.status,
         4,
         payload.status,
         payload.mine,
-      );
-    relationshipContext.value = latest;
-    clearRelationshipDraft(authUserId.value, room.value.roomId, room.value.role);
-    relationshipDraft.value = null;
-    if (room.value.role === "A") {
-      stage.value = "GOAL";
-      setNotice("success", payload.status === "SKIPPED" ? "已跳过关系背景，可以继续沟通。" : "关系背景已保存，接下来确认这次的意图。");
-    } else {
-      stage.value = "INVITATION_INTRO";
-      await refreshInvitationContext(room.value.roomId);
-      setNotice("success", "你的选择已保存。私人视角不会展示给邀请方。");
-    }
-  } catch (error) {
-    if (isWorkspaceConflict(error)) await recoverRelationshipConflict();
-    else relationshipError.value = message(error, "关系背景没有保存，请检查网络后重试。你的本机草稿仍然保留。");
-  } finally {
-    busy.value = false;
+      ),
+    recoverError: async (error) => {
+      if (isWorkspaceConflict(error)) {
+        return recoverRelationshipConflict(currentRoom, currentUserId);
+      }
+      return "关系背景没有保存。请重新保存；如果仍然失败，请检查网络连接。刚才的输入仍保留。";
+    },
+  });
+  if (outcome !== "saved") return;
+  if (currentRoom.role === "A") {
+    setNotice("success", payload.status === "SKIPPED" ? "已跳过关系背景，可以继续沟通。" : "关系背景已保存，接下来确认这次的意图。");
+  } else {
+    setNotice("success", "你的选择已保存。私人视角不会展示给邀请方。");
   }
 }
 
@@ -1198,31 +1222,38 @@ async function saveRelationshipCheckpoint(payload: {
     }
     relationshipContext.value = latest;
   } catch (error) {
-    if (isWorkspaceConflict(error)) await recoverRelationshipConflict();
+    if (isWorkspaceConflict(error)) relationshipError.value = await recoverRelationshipConflict();
     else relationshipError.value = message(error, "草稿没有同步到其他设备，本机内容仍然保留。");
   } finally {
     busy.value = false;
   }
 }
 
-async function recoverRelationshipConflict() {
-  if (!room.value) return;
+async function recoverRelationshipConflict(
+  expectedRoom = room.value,
+  expectedUserId = authUserId.value,
+): Promise<string> {
+  if (!expectedRoom) return "资料已在另一处更新。你的本机内容仍保留；请重新打开这间房再保存。";
   const local = relationshipDraft.value;
   try {
-    const latest = await roomApi.relationshipContext(room.value.roomId);
+    const latest = await roomApi.relationshipContext(expectedRoom.roomId);
+    if (authUserId.value !== expectedUserId ||
+      room.value?.roomId !== expectedRoom.roomId || room.value.role !== expectedRoom.role) return "";
     relationshipContext.value = latest;
     if (local) {
       relationshipDraft.value = rebaseRelationshipDraft(local, latest);
       saveRelationshipDraft(
-        authUserId.value,
-        room.value.roomId,
-        room.value.role,
+        expectedUserId,
+        expectedRoom.roomId,
+        expectedRoom.role,
         relationshipDraft.value,
       );
     }
-    relationshipError.value = "资料已在另一处更新。已重新读取服务端版本；你的本机内容仍保留，请确认后再次保存。";
+    return "资料已在另一处更新。已重新读取服务端版本；你的本机内容仍保留，请确认后再次保存。";
   } catch {
-    relationshipError.value = "资料已在另一处更新。你的本机内容仍保留；请联网后重新打开这间房再保存。";
+    if (authUserId.value !== expectedUserId ||
+      room.value?.roomId !== expectedRoom.roomId || room.value.role !== expectedRoom.role) return "";
+    return "资料已在另一处更新。你的本机内容仍保留；请联网后重新打开这间房再保存。";
   }
 }
 
