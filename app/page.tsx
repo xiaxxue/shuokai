@@ -1,24 +1,29 @@
 import DialogueMechanism from "./components/dialogue-mechanism";
 
-const frictionPoints = [
+const useCases = [
   {
     index: "01",
-    phrase: "越解释，越像在辩解",
-    detail: "我们急着证明自己没有恶意，却忘了对方最想知道的是：你究竟听见了什么。",
-    tone: "warm",
+    phrase: "同一件事，越解释越误会",
+    detail: "双方都在回应，却一直说不清事实、感受和真正的分歧。",
   },
   {
     index: "02",
-    phrase: "越重要，越怕说错",
-    detail: "道歉、拒绝、边界和共同决定，往往不是没有话，而是不知道从哪一句开始。",
-    tone: "cool",
+    phrase: "有重要的话，想说又怕说坏",
+    detail: "想道歉、拒绝、修复关系或提出边界，却不知道怎样开口。",
   },
   {
     index: "03",
-    phrase: "一直在聊，却没有更靠近",
-    detail: "事实、感受和期待混在同一句话里，两个人都回应了，却没人真正被听见。",
-    tone: "neutral",
+    phrase: "需要一起决定，却只剩各自立场",
+    detail: "关于出行、消费、生活安排或共同责任，争论代替了真正的商量。",
   },
+];
+
+const outcomes = [
+  "澄清一场误解",
+  "找到双方的共同点",
+  "准确地保留分歧",
+  "约定一个可以尝试的小行动",
+  "同意暂停或结束这次沟通",
 ];
 
 const privacyRules = [
@@ -42,19 +47,19 @@ function PerspectiveScene() {
       <div className="perspective-field field-left" aria-hidden="true"><span>我的视角</span><b>01</b></div>
       <div className="perspective-field field-right" aria-hidden="true"><span>你的视角</span><b>02</b></div>
       <article className="perspective-card card-left" aria-hidden="true">
-        <small>我真正想说的</small>
-        <p>“我不是反对你，<br />我只是怕自己<br />又被落下。”</p>
-        <span><i /> 仅自己可见</span>
+        <small>我确认的意思</small>
+        <p>“我希望重要决定里<br />有我的位置，<br />而不是最后才知道。”</p>
+        <span><i /> 确认后才分享</span>
       </article>
       <article className="perspective-card card-right" aria-hidden="true">
         <small>对方确认的表达</small>
-        <p>“我急着往前走，<br />没有发现你<br />需要一起决定。”</p>
+        <p>“我急着做决定，<br />是担心讨论<br />又变成争吵。”</p>
         <span><i /> 由本人确认</span>
       </article>
       <div className="understanding-lens" aria-hidden="true">
-        <span>共同理解</span>
-        <strong>你们都在意<br />“被算在里面”</strong>
-        <small>理解，不必同意</small>
+        <span>真正的分歧</span>
+        <strong>一个在意参与，<br />一个害怕冲突</strong>
+        <small>先看懂，再决定</small>
       </div>
       <svg className="scene-path" viewBox="0 0 800 620" aria-hidden="true">
         <path d="M75 236C230 236 250 310 400 310S570 384 725 384" />
@@ -71,7 +76,7 @@ export default function Home() {
       <header className="site-header">
         <a className="brand-link" href="#top" aria-label="返回说开官网首页"><Brand /></a>
         <nav aria-label="主要导航">
-          <a href="#why">为什么</a>
+          <a href="#why">什么时候用</a>
           <a href="#mechanism">怎么工作</a>
           <a href="#privacy">隐私边界</a>
         </nav>
@@ -79,29 +84,29 @@ export default function Home() {
       </header>
 
       <section className="hero">
-        <div className="hero-number" aria-hidden="true">01 / 04</div>
+        <div className="hero-number" aria-hidden="true">01 / 05</div>
         <div className="hero-copy">
-          <p className="kicker">FOR CONVERSATIONS THAT MATTER</p>
-          <h1>别急着回答。<br /><em>先把话说开。</em></h1>
-          <p className="hero-description">一个帮助两个人分别说清、准确听见，并共同决定下一步的结构化沟通空间。</p>
-          <a className="primary-link" href="#mechanism"><span>看看说开怎么工作</span><i aria-hidden="true">↘</i></a>
+          <p className="kicker">为重要但难开口的对话</p>
+          <h1>聊不明白，<br /><em>我们一起说开。</em></h1>
+          <p className="hero-description">当一段对话开始重复、误解或升级，先在各自的私密空间把想说的理清，再只把本人确认的意思交给对方。</p>
+          <a className="primary-link" href="#mechanism"><span>看看说开如何帮助你们</span><i aria-hidden="true">↘</i></a>
         </div>
         <PerspectiveScene />
         <div className="hero-aside" aria-hidden="true"><span>两个视角</span><i /><span>一个共同空间</span></div>
       </section>
 
       <div className="signal-strip" aria-hidden="true">
-        <span>各自表达</span><i>→</i><span>本人确认</span><i>→</i><span>确认听懂</span><i>→</i><span>决定下一步</span>
+        <span>聊不明白</span><i>→</i><span>打开说开</span><i>→</i><span>各自说清</span><i>→</i><span>看懂彼此</span><i>→</i><span>决定下一步</span>
       </div>
 
       <section className="friction" id="why">
         <div className="section-intro">
-          <p className="section-index">02 / WHY SHUOKAI</p>
-          <h2>聊天没有坏。<br />只是有些话，<br /><em>承受不了即时回答。</em></h2>
+          <p className="section-index">02 / 什么时候需要说开</p>
+          <h2>这些时候，继续在聊天框里说，<br /><em>往往只会更乱。</em></h2>
         </div>
         <div className="friction-grid">
-          {frictionPoints.map((point) => (
-            <article className={`friction-card ${point.tone}`} key={point.index}>
+          {useCases.map((point) => (
+            <article className="friction-card" key={point.index}>
               <span>{point.index}</span>
               <h3>{point.phrase}</h3>
               <p>{point.detail}</p>
@@ -113,18 +118,30 @@ export default function Home() {
 
       <section className="mechanism" id="mechanism">
         <div className="mechanism-heading">
-          <p className="section-index">03 / HOW IT WORKS</p>
-          <h2>不是替你把话说漂亮。<br />是把表达和回应，<br /><em>一次只做一件事。</em></h2>
-          <p>点击三个阶段，看看同一句冲突如何从私人表达，经过本人确认，进入两个人都能看见的共同空间。</p>
+          <p className="section-index">03 / 说开怎么工作</p>
+          <h2>先说清自己，<br />再看懂彼此，<br /><em>最后决定下一步。</em></h2>
+          <p>双方先在互不可见的空间表达。只有本人确认的内容才会共享，AI 再帮助找出共同点、可能的误解和真正尚未解决的分歧。</p>
         </div>
         <DialogueMechanism />
       </section>
 
+      <section className="outcomes" aria-labelledby="outcomes-title">
+        <div>
+          <p className="section-index">04 / 什么才算一次有效沟通</p>
+          <h2 id="outcomes-title">说开的目标，<br />不是强迫和好。<br /><em>是得到一个诚实的结果。</em></h2>
+        </div>
+        <ol>
+          {outcomes.map((outcome, index) => (
+            <li key={outcome}><span>0{index + 1}</span><strong>{outcome}</strong></li>
+          ))}
+        </ol>
+      </section>
+
       <section className="privacy" id="privacy">
         <div className="privacy-copy">
-          <p className="section-index">04 / PRIVACY BY DESIGN</p>
-          <h2>你的话，<br />不会比你<br /><em>先到对方面前。</em></h2>
-          <p>边界不是附加说明，而是说开每一步的默认设置。AI 可以帮助整理，但分享的决定始终属于表达者本人。</p>
+          <p className="section-index">05 / 谁能看见什么</p>
+          <h2>没有经过你确认的话，<br /><em>不会分享给对方。</em></h2>
+          <p>原始表达、草稿和 AI 追问默认只属于你。AI 可以帮助整理，但不能替你表态，也不判断谁对谁错。</p>
         </div>
         <div className="privacy-table" role="table" aria-label="说开的隐私边界">
           <div className="privacy-row privacy-head" role="row">
@@ -143,8 +160,8 @@ export default function Home() {
       <section className="closing">
         <div className="closing-orbit orbit-one" aria-hidden="true" />
         <div className="closing-orbit orbit-two" aria-hidden="true" />
-        <p>不是每次沟通都要达成共识。</p>
-        <h2>但每个人都值得<br /><em>被准确听见。</em></h2>
+        <p>理解，不必同意。</p>
+        <h2>聊不明白的时候，<br /><em>我们一起说开。</em></h2>
         <div className="closing-status"><i /> H5 正式版打磨中</div>
         <small>核心流程和隐私边界完成验证后开放</small>
       </section>
