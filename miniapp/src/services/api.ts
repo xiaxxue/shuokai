@@ -520,12 +520,18 @@ export async function requestExpressionClarification(
         "content-type": "application/json",
       },
       data: { roomId, expectedRevision, sourceText, turns },
-      timeout: 25000,
+      // Discovery schema v3 may need one provider-side repair pass. Keep the
+      // transport alive long enough for that bounded retry to finish instead
+      // of turning normal model variance into a false network failure.
+      timeout: 60000,
     });
-  } catch {
+  } catch (error) {
+    const timedOut = error instanceof Error && /timeout/i.test(error.message);
     throw new ApiError(
-      "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
-      "NETWORK_UNAVAILABLE",
+      timedOut
+        ? "AI 这次理解得比较慢。你的内容仍在，请重新尝试；如果结果已经保存，会直接恢复，不会重复追问。"
+        : "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
+      timedOut ? "AI_RESPONSE_TIMEOUT" : "NETWORK_UNAVAILABLE",
     );
   }
   if (response.statusCode !== 200 || !response.data || typeof response.data !== "object") {

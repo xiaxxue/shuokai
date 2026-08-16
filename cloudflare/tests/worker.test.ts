@@ -394,6 +394,7 @@ function clarificationHarness(options: {
   saveError?: { code: string };
   restoreError?: { code: string };
   generateError?: string;
+  existingConversation?: unknown;
 } = {}) {
   const userRpcCalls: Array<{ name: string; args: unknown }> = [];
   const adminRpcCalls: Array<{ name: string; args: unknown }> = [];
@@ -431,7 +432,12 @@ function clarificationHarness(options: {
         }
         if (name === "get_ai_private_conversation_v1") {
           return {
-            data: options.restoreError ? null : { memoryProposals: [restoredProposal] },
+            data: options.restoreError ? null : options.existingConversation ?? {
+              revision: 0,
+              sourceText: "",
+              turns: [],
+              memoryProposals: [restoredProposal],
+            },
             error: options.restoreError ?? null,
           };
         }
@@ -1114,6 +1120,7 @@ test("AI clarification verifies membership, scopes memory context, and restores 
   assert.deepEqual(payload.memoryProposals, [harness.restoredProposal]);
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
     "get_expression_workspace_v2",
+    "get_ai_private_conversation_v1",
     "get_ai_memory_context_v1",
     "get_ai_memory_context_v1",
     "get_ai_private_conversation_v1",
@@ -1137,6 +1144,44 @@ test("AI clarification verifies membership, scopes memory context, and restores 
     turns: [],
     memoryContext: { personal: [{ kind: "NEED", content: "被关心" }], relationship: [] },
   });
+});
+
+test("AI clarification restores an identical late result without another model call", async () => {
+  const result = validDiscoveryReadyResult();
+  const harness = clarificationHarness({
+    existingConversation: {
+      revision: 3,
+      sourceText: "昨晚他说不想每天提醒，我很失望。",
+      turns: [],
+      question: "",
+      ready: true,
+      understanding: {
+        schemaVersion: result.schemaVersion,
+        coverage: result.coverage,
+        latestAnswerUpdate: result.latestAnswerUpdate,
+        nextQuestion: result.nextQuestion,
+      },
+      safetyDisposition: result.safetyDisposition,
+      safetyMessage: result.safetyMessage,
+      summary: result.conversationSummary,
+      memoryProposals: [],
+    },
+  });
+
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { revision: number; schemaVersion: number };
+  assert.equal(payload.revision, 3);
+  assert.equal(payload.schemaVersion, 3);
+  assert.equal(harness.generatedInput(), null);
+  assert.equal(harness.adminRpcCalls.length, 0);
+  assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
+    "get_expression_workspace_v2",
+    "get_ai_private_conversation_v1",
+  ]);
 });
 
 test("AI clarification rejects a non-member before memory or model access", async () => {
@@ -1216,7 +1261,8 @@ test("AI clarification reports optimistic revision conflicts without returning g
     code: "PRIVATE_CONVERSATION_CONFLICT",
   });
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
-    "get_expression_workspace_v2", "get_ai_memory_context_v1", "get_ai_memory_context_v1",
+    "get_expression_workspace_v2", "get_ai_private_conversation_v1",
+    "get_ai_memory_context_v1", "get_ai_memory_context_v1",
   ]);
 });
 
@@ -1228,7 +1274,8 @@ test("AI clarification rejects an atomic context conflict between final read and
   assert.equal(response.status, 409);
   assert.equal((await response.json() as { code: string }).code, "CONTEXT_STALE");
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
-    "get_expression_workspace_v2", "get_ai_memory_context_v1", "get_ai_memory_context_v1",
+    "get_expression_workspace_v2", "get_ai_private_conversation_v1",
+    "get_ai_memory_context_v1", "get_ai_memory_context_v1",
   ]);
   assert.equal(harness.adminRpcCalls.length, 1);
 });

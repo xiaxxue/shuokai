@@ -146,6 +146,41 @@ export function isValidDiscoveryTurns(value: unknown): value is DiscoveryTurn[] 
   );
 }
 
+function sameDiscoveryTurns(left: unknown, right: DiscoveryTurn[]) {
+  return isValidDiscoveryTurns(left) && JSON.stringify(left) === JSON.stringify(right);
+}
+
+function recoveredClarificationPayload(
+  value: unknown,
+  expectedRevision: number,
+  sourceText: string,
+  turns: DiscoveryTurn[],
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const conversation = value as Record<string, unknown>;
+  if (typeof conversation.revision !== "number" ||
+    !Number.isSafeInteger(conversation.revision) ||
+    conversation.revision <= expectedRevision ||
+    conversation.sourceText !== sourceText ||
+    !sameDiscoveryTurns(conversation.turns, turns) ||
+    !conversation.understanding || typeof conversation.understanding !== "object" ||
+    Array.isArray(conversation.understanding) ||
+    typeof conversation.ready !== "boolean" ||
+    typeof conversation.safetyDisposition !== "string" ||
+    typeof conversation.safetyMessage !== "string") return null;
+  const understanding = conversation.understanding as Record<string, unknown>;
+  return {
+    ...understanding,
+    schemaVersion: understanding.schemaVersion,
+    ready: conversation.ready,
+    safetyDisposition: conversation.safetyDisposition,
+    safetyMessage: conversation.safetyMessage,
+    conversationSummary: typeof conversation.summary === "string" ? conversation.summary : "",
+    revision: conversation.revision,
+    memoryProposals: Array.isArray(conversation.memoryProposals) ? conversation.memoryProposals : [],
+  };
+}
+
 export async function handleExpressionClarification(
   request: Request,
   env: WorkerEnv,
@@ -197,6 +232,31 @@ export async function handleExpressionClarification(
       "DATABASE_REQUEST_FAILED",
       safeDatabaseMessages[membershipError.code] ?? "暂时无法确认沟通房间。",
       400,
+    );
+  }
+  // A mobile client can give up waiting while the Worker still finishes and
+  // durably saves the answer. Make the next tap idempotent: return that exact
+  // saved turn instead of spending another model call and then conflicting on
+  // the optimistic revision.
+  const { data: existingConversation } = await supabase.rpc("get_ai_private_conversation_v1", {
+    p_room_id: input.roomId,
+  });
+  const recovered = recoveredClarificationPayload(
+    existingConversation,
+    input.expectedRevision,
+    input.sourceText.trim(),
+    input.turns,
+  );
+  if (recovered) return json(request, env, recovered);
+  if (existingConversation && typeof existingConversation === "object" &&
+    typeof (existingConversation as { revision?: unknown }).revision === "number" &&
+    Number((existingConversation as { revision: number }).revision) > input.expectedRevision) {
+    return errorJson(
+      request,
+      env,
+      "PRIVATE_CONVERSATION_CONFLICT",
+      "这段私人对话刚刚在别处更新，请重新打开后继续。",
+      409,
     );
   }
   try {

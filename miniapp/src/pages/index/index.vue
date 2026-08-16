@@ -639,6 +639,7 @@ import { useRoomHistory } from "../../composables/use-room-history";
 import { useExpressionDiscovery } from "../../composables/use-expression-discovery";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
+import { userFacingErrorMessage } from "../../services/user-facing-error";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearEditorDraft,
@@ -1003,7 +1004,7 @@ function formatReviewDate(value: string) {
 }
 
 function message(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  return userFacingErrorMessage(error, fallback);
 }
 
 function isWorkspaceConflict(error: unknown) {
