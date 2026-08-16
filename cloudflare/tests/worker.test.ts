@@ -5,6 +5,7 @@ import test from "node:test";
 import { REVIEW_MODEL, TEXT_MODEL, TRANSCRIPTION_MODEL, transcribeAudio } from "../src/cloudflare-ai.ts";
 import {
   handleExpressionClarification,
+  handleMiniappApi,
   isSupportedAudio,
   isValidDiscoveryTurns,
   type ClarificationDependencies,
@@ -721,6 +722,59 @@ test("profile and relationship context RPCs require bounded explicit consent fie
     p_decision: "DIFFERENT",
     p_payload: { ...payload, relationshipType: "DIAGNOSED_PERSONALITY" },
   }), null);
+});
+
+test("relationship context validation gives a recoverable action instead of an internal parameter error", async () => {
+  const response = await handleMiniappApi(new Request("https://shuokai.example/miniapp-api", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer signed.jwt.value",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      method: "save_room_relationship_context_v1",
+      args: {
+        p_room_id: "11111111-1111-4111-8111-111111111111",
+        p_expected_shared_revision: 1,
+        p_expected_private_revision: 1,
+        p_status: "DRAFT",
+        p_step: 2,
+        p_shared: {
+          status: "DRAFT",
+          revision: 1,
+          relationshipType: "PARTNER",
+          relationshipOther: null,
+          durationRange: "Y1_3",
+          interactionMode: "MIXED",
+          useSharedAi: true,
+        },
+        p_private: {
+          status: "DRAFT",
+          revision: 1,
+          communicationPace: "IMMEDIATE",
+          responsePreference: "EMPATHY_FIRST",
+          planningStyle: "PLAN_AHEAD",
+          relationshipState: null,
+          observedDifference: "",
+          culturalContext: "",
+          useCommunicationAi: true,
+          useRelationshipStateAi: true,
+          useDifferenceAi: true,
+          useCultureAi: false,
+          useInviterSharedAi: false,
+        },
+      },
+    }),
+  }), {
+    SUPABASE_URL: "https://project.supabase.co",
+    SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    message: "关系背景没有保存。请重新打开这间房，确认当前选择后再试；本机草稿仍会保留。",
+    code: "INVALID_ARGUMENTS",
+  });
 });
 
 test("room history RPC requires a bounded limit and complete cursor", () => {

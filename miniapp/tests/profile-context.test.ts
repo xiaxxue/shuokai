@@ -4,6 +4,8 @@ import {
   parseRoomRelationshipContext,
   parseUserProfile,
   shouldOfferNameOnlySave,
+  toParticipantContextDraft,
+  toSharedContextDraft,
 } from "../src/domain/profile-context";
 import { rebaseRelationshipDraft } from "../src/services/profile-context-session";
 
@@ -65,5 +67,54 @@ describe("profile and relationship context parsing", () => {
     expect(rebased.sharedRevision).toBe(2);
     expect(rebased.privateRevision).toBe(3);
     expect(rebased.mine.observedDifference).toBe("本机未提交内容");
+  });
+
+  it("projects restored server context to the exact editable RPC payload", () => {
+    const parsed = parseRoomRelationshipContext({
+      role: "A",
+      shared: {
+        status: "DRAFT", draftStep: 2, revision: 1, consentRevision: 0,
+        relationshipType: "PARTNER", relationshipOther: null,
+        durationRange: "Y1_3", interactionMode: "MIXED", useSharedAi: true,
+        updatedAt: "2026-08-16T07:47:00.000Z",
+      },
+      mine: {
+        status: "DRAFT", draftStep: 2, draftDecision: null,
+        seenSharedRevision: 1, revision: 1, consentRevision: 0,
+        relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null,
+        communicationPace: "IMMEDIATE", responsePreference: "EMPATHY_FIRST",
+        planningStyle: "PLAN_AHEAD", relationshipState: null,
+        observedDifference: "", culturalContext: "",
+        useCommunicationAi: true, useRelationshipStateAi: true,
+        useDifferenceAi: true, useCultureAi: false, useInviterSharedAi: false,
+        updatedAt: "2026-08-16T07:47:00.000Z",
+      },
+      recipientResponse: null,
+    });
+
+    expect(toSharedContextDraft(parsed.shared)).toEqual({
+      relationshipType: "PARTNER",
+      relationshipOther: null,
+      durationRange: "Y1_3",
+      interactionMode: "MIXED",
+      useSharedAi: true,
+    });
+    expect(toParticipantContextDraft(parsed.mine)).toEqual({
+      relationshipType: null,
+      relationshipOther: null,
+      durationRange: null,
+      interactionMode: null,
+      communicationPace: "IMMEDIATE",
+      responsePreference: "EMPATHY_FIRST",
+      planningStyle: "PLAN_AHEAD",
+      relationshipState: null,
+      observedDifference: "",
+      culturalContext: "",
+      useCommunicationAi: true,
+      useRelationshipStateAi: true,
+      useDifferenceAi: true,
+      useCultureAi: false,
+      useInviterSharedAi: false,
+    });
   });
 });

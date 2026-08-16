@@ -21,6 +21,8 @@ import { parseInvitationContext } from "../domain/invitation";
 import {
   parseRoomRelationshipContext,
   parseUserProfile,
+  toParticipantContextDraft,
+  toSharedContextDraft,
   type ParticipantContextDraft,
   type ProfileDraft,
   type SharedContextDraft,
@@ -316,8 +318,8 @@ export const roomApi = {
     p_expected_private_revision: privateRevision,
     p_status: status,
     p_step: step,
-    p_shared: shared,
-    p_private: mine,
+    p_shared: toSharedContextDraft(shared),
+    p_private: toParticipantContextDraft(mine),
   })),
   respondRelationshipContext: async (
     roomId: string,
@@ -334,7 +336,7 @@ export const roomApi = {
     p_status: status,
     p_step: step,
     p_decision: decision,
-    p_payload: mine,
+    p_payload: toParticipantContextDraft(mine),
   })),
   expressionWorkspace: async (roomId: string) =>
     rpc<{

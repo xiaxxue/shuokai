@@ -531,7 +531,13 @@ export async function handleMiniappApi(request: Request, env: WorkerEnv) {
     return errorJson(request, env, "UNSUPPORTED_OPERATION", "不支持的操作。", 400);
   }
   const validatedArgs = validateRpcArgs(method, args);
-  if (!validatedArgs) return errorJson(request, env, "INVALID_ARGUMENTS", "操作参数无效。", 400);
+  if (!validatedArgs) {
+    const message = method === "save_room_relationship_context_v1" ||
+      method === "respond_room_relationship_context_v1"
+      ? "关系背景没有保存。请重新打开这间房，确认当前选择后再试；本机草稿仍会保留。"
+      : "操作参数无效。";
+    return errorJson(request, env, "INVALID_ARGUMENTS", message, 400);
+  }
 
   const supabase = userClient(supabaseConfig, authorization);
   if (!await verifiedUserId(supabase, authorization)) {

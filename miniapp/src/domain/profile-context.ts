@@ -179,6 +179,36 @@ export const emptyParticipantContextDraft = (): ParticipantContextDraft => ({
   useInviterSharedAi: false,
 });
 
+export function toSharedContextDraft(value: Omit<SharedContextDraft, "useSharedAi"> & { useSharedAi?: boolean }): SharedContextDraft {
+  return {
+    relationshipType: value.relationshipType,
+    relationshipOther: value.relationshipOther,
+    durationRange: value.durationRange,
+    interactionMode: value.interactionMode,
+    useSharedAi: value.useSharedAi ?? true,
+  };
+}
+
+export function toParticipantContextDraft(value: ParticipantContextDraft): ParticipantContextDraft {
+  return {
+    relationshipType: value.relationshipType,
+    relationshipOther: value.relationshipOther,
+    durationRange: value.durationRange,
+    interactionMode: value.interactionMode,
+    communicationPace: value.communicationPace,
+    responsePreference: value.responsePreference,
+    planningStyle: value.planningStyle,
+    relationshipState: value.relationshipState,
+    observedDifference: value.observedDifference,
+    culturalContext: value.culturalContext,
+    useCommunicationAi: value.useCommunicationAi,
+    useRelationshipStateAi: value.useRelationshipStateAi,
+    useDifferenceAi: value.useDifferenceAi,
+    useCultureAi: value.useCultureAi,
+    useInviterSharedAi: value.useInviterSharedAi,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

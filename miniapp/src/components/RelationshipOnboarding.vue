@@ -108,6 +108,8 @@ import {
   relationshipStateOptions,
   relationshipTypeOptions,
   responsePreferenceOptions,
+  toParticipantContextDraft,
+  toSharedContextDraft,
   type ParticipantContextDraft,
   type RoomRelationshipContext,
   type SharedContextDraft,
@@ -215,9 +217,9 @@ function load() {
     decision.value = props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
       : props.context.mine.status === "CONFIRMED" ? "CONFIRMED"
         : props.context.mine.status === "SKIPPED" ? "SKIPPED" : null);
-    if (props.role === "A") Object.assign(mineShared, props.context.shared);
-    else Object.assign(mineShared, props.context.mine);
-    Object.assign(mine, props.context.mine);
+    if (props.role === "A") Object.assign(mineShared, toSharedContextDraft(props.context.shared));
+    else Object.assign(mineShared, toSharedContextDraft(props.context.mine));
+    Object.assign(mine, toParticipantContextDraft(props.context.mine));
   }
   relationshipOther.value = mineShared.relationshipOther ?? "";
 }
