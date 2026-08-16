@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   createRelationshipOnboardingSubmitter,
+  normalizeRecipientRelationshipDecision,
+  recipientRelationshipDecisions,
   relationshipOnboardingStage,
 } from "../src/services/relationship-onboarding-flow";
 import { parseRoomRelationshipContext } from "../src/domain/profile-context";
@@ -186,6 +188,15 @@ describe("relationship onboarding submission flow", () => {
 });
 
 describe("relationship onboarding restoration routing", () => {
+  it("only offers confirmation when an inviter version is actually visible", () => {
+    expect(recipientRelationshipDecisions("CONFIRMED")).toEqual(["CONFIRMED", "DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("MISSING")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("DRAFT")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("SKIPPED")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(normalizeRecipientRelationshipDecision("CONFIRMED", "MISSING")).toBeNull();
+    expect(normalizeRecipientRelationshipDecision("DIFFERENT", "MISSING")).toBe("DIFFERENT");
+  });
+
   it("resumes incomplete role A context and advances completed role A context", () => {
     expect(relationshipOnboardingStage(
       { workflowVersion: 2, role: "A", state: "GOAL_SETTING" },

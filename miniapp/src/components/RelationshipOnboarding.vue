@@ -11,15 +11,15 @@
 
     <template v-if="role === 'B' && step === 1">
       <view class="inviter-version">
-        <text class="version-label">邀请方版本 · 尚未由你确认</text>
-        <view v-if="shared.status === 'SKIPPED' || shared.status === 'MISSING'" class="empty-copy">对方没有补充关系背景。你仍然可以正常继续。</view>
+        <text class="version-label">{{ hasConfirmableInviterVersion ? '邀请方版本 · 尚未由你确认' : '暂无可确认的邀请方版本' }}</text>
+        <view v-if="!hasConfirmableInviterVersion" class="empty-copy">{{ missingInviterCopy }}</view>
         <view v-else class="summary-list">
           <view><text>关系</text><text>{{ relationshipLabel(shared) }}</text></view>
           <view><text>相处时间</text><text>{{ optionLabel(durationOptions, shared.durationRange) }}</text></view>
           <view><text>相处方式</text><text>{{ optionLabel(interactionOptions, shared.interactionMode) }}</text></view>
         </view>
       </view>
-      <view class="decision-list" role="radiogroup" aria-label="邀请背景是否符合我的理解">
+      <view class="decision-list" role="radiogroup" :aria-label="decisionGroupLabel">
         <button v-for="item in decisions" :key="item.value" class="decision" :class="{ selected: decision === item.value }" role="radio" tabindex="0" :aria-checked="decision === item.value" @tap="decision = item.value" @keydown.enter.prevent="decision = item.value" @keydown.space.prevent="decision = item.value">
           <text class="decision-title">{{ item.label }}</text><text class="decision-copy">{{ item.description }}</text>
         </button>
@@ -67,7 +67,7 @@
         <label v-if="role === 'A'" class="ai-toggle"><switch :checked="mineShared.useSharedAi" color="#315847" @change="mineShared.useSharedAi = eventChecked($event)" /><view><text>让我的私人 AI 参考这份关系背景</text><text>不影响共同 Agent，也不会代替受邀者确认</text></view></label>
       </view>
 
-      <view v-if="role === 'B' && shared.status !== 'MISSING' && shared.status !== 'SKIPPED'" class="preview-section inviter-ai">
+      <view v-if="role === 'B' && hasConfirmableInviterVersion" class="preview-section inviter-ai">
         <text class="preview-title">邀请方提供、我可以看到</text>
         <text>不开启时，这些内容只供你阅读，不会发送给模型。</text>
         <label class="ai-toggle"><switch :checked="mine.useInviterSharedAi" color="#315847" @change="mine.useInviterSharedAi = eventChecked($event)" /><view><text>让我的私人 AI 参考邀请方版本</text><text>默认关闭；不影响邀请方或共同 Agent</text></view></label>
@@ -115,6 +115,11 @@ import {
   type SharedContextDraft,
 } from "../domain/profile-context";
 import type { RelationshipDraft } from "../services/profile-context-session";
+import {
+  normalizeRecipientRelationshipDecision,
+  recipientRelationshipDecisions,
+  type RecipientRelationshipDecision,
+} from "../services/relationship-onboarding-flow";
 
 const ChoiceGroup = defineComponent({
   props: {
@@ -157,19 +162,30 @@ const emit = defineEmits<{
   leave: [];
 }>();
 
-const decisions = [
+const decisionOptions = [
   { value: "CONFIRMED", label: "符合我的理解", description: "邀请方会看到你已确认；共同 Agent 不会使用这些背景。" },
-  { value: "DIFFERENT", label: "填写我的版本", description: "两种版本会并列，不由 AI 判断对错。" },
-  { value: "SKIPPED", label: "暂不回答", description: "邀请方只会看到你暂未确认。" },
+  { value: "DIFFERENT", label: "填写我的版本", description: "你的版本会单独保存，不由 AI 判断对错。" },
+  { value: "SKIPPED", label: "暂不回答", description: "邀请方只会看到你暂未提供自己的版本。" },
 ] as const;
 const step = ref(1);
-const decision = ref<"CONFIRMED" | "DIFFERENT" | "SKIPPED" | null>(null);
+const decision = ref<RecipientRelationshipDecision | null>(null);
 const shared = reactive({ ...props.context.shared });
 const mineShared = reactive<SharedContextDraft>(emptySharedContextDraft());
 const mine = reactive<ParticipantContextDraft>(emptyParticipantContextDraft());
 const relationshipOther = ref("");
 const headingRef = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
 const errorRef = ref<HTMLElement | { $el?: HTMLElement } | null>(null);
+const hasConfirmableInviterVersion = computed(() => shared.status === "CONFIRMED");
+const decisions = computed(() => {
+  const allowed = recipientRelationshipDecisions(shared.status);
+  return decisionOptions.filter((item) => allowed.includes(item.value));
+});
+const missingInviterCopy = computed(() => shared.status === "SKIPPED"
+  ? "邀请方选择不提供关系背景。你可以填写自己的版本，也可以暂不回答。"
+  : "当前没有邀请方版本可供确认。你可以填写自己的版本，也可以暂不回答。");
+const decisionGroupLabel = computed(() => hasConfirmableInviterVersion.value
+  ? "邀请方的关系背景是否符合我的理解"
+  : "没有邀请方关系版本时我想怎样继续");
 
 function element(value: HTMLElement | { $el?: HTMLElement } | null) {
   if (!value) return null;
@@ -192,7 +208,9 @@ async function focusError() {
 defineExpose({ focusError });
 
 const heading = computed(() => {
-  if (props.role === "B" && step.value === 1) return { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" };
+  if (props.role === "B" && step.value === 1) return hasConfirmableInviterVersion.value
+    ? { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" }
+    : { title: "你想怎样继续？", description: "没有可确认的邀请方版本，不影响你提供自己的信息或暂不回答。" };
   if (step.value === 1 || props.role === "B" && step.value === 2) return { title: props.role === "A" ? "先介绍一下你们" : "填写我的版本", description: "只选你愿意说明的部分，所有题都可以跳过。" };
   if (step.value === 2 || props.role === "B" && step.value === 3) return { title: "发生分歧时，你通常怎样沟通？", description: "这里只描述你自己，不评价对方。" };
   if (step.value === 3) return { title: "你眼中的关系现在怎样？", description: "这是你的私人视角，不会展示给对方。" };
@@ -216,15 +234,16 @@ function load() {
   Object.assign(shared, props.context.shared);
   const source = props.savedDraft;
   if (source) {
-    step.value = source.step;
-    decision.value = source.decision ?? null;
+    decision.value = normalizeRecipientRelationshipDecision(source.decision ?? null, shared.status);
+    step.value = props.role === "B" && !decision.value ? 1 : source.step;
     Object.assign(mineShared, source.shared);
     Object.assign(mine, source.mine);
   } else {
-    step.value = props.role === "A" ? props.context.shared.draftStep : props.context.mine.draftStep;
-    decision.value = props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
+    const restoredStep = props.role === "A" ? props.context.shared.draftStep : props.context.mine.draftStep;
+    decision.value = normalizeRecipientRelationshipDecision(props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
       : props.context.mine.status === "CONFIRMED" ? "CONFIRMED"
-        : props.context.mine.status === "SKIPPED" ? "SKIPPED" : null);
+        : props.context.mine.status === "SKIPPED" ? "SKIPPED" : null), shared.status);
+    step.value = props.role === "B" && !decision.value ? 1 : restoredStep;
     if (props.role === "A") Object.assign(mineShared, toSharedContextDraft(props.context.shared));
     else Object.assign(mineShared, toSharedContextDraft(props.context.mine));
     Object.assign(mine, toParticipantContextDraft(props.context.mine));
