@@ -12,6 +12,7 @@ const historicalMigrationAliases = new Map([
   ["20260815144559_persist_invitation_summary.sql", "20260815143000_persist_invitation_summary.sql"],
   ["20260815152232_persist_invitation_summary.sql", "20260815143000_persist_invitation_summary.sql"],
   ["20260815155754_prefetch_invitation_context.sql", "20260815153844_prefetch_invitation_context.sql"],
+  ["20260816020355_allow_receiver_without_inviter_context.sql", "20260816013034_allow_receiver_without_inviter_context.sql"],
 ]);
 
 test("database CI uses a locked local Supabase stack without project secrets", async () => {

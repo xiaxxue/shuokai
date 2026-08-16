@@ -1,0 +1,2 @@
+-- Historical test-project alias for 20260816013034_allow_receiver_without_inviter_context.sql.
+-- The canonical migration contains the schema change; this version is a no-op.
