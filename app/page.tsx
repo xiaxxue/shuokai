@@ -1,6 +1,3 @@
-const productUrl = process.env.SHUOKAI_H5_URL
-  ?? "https://shuokai-supabase-test.shuokai.workers.dev/";
-
 const moments = [
   {
     number: "01",
@@ -65,7 +62,7 @@ export default function Home() {
           <a href="#trust">隐私原则</a>
         </nav>
 
-        <a className="header-cta" href={productUrl}>打开说开</a>
+        <span className="header-cta is-disabled" aria-disabled="true">产品内测中</span>
       </header>
 
       <section className="hero" id="top">
@@ -76,9 +73,9 @@ export default function Home() {
             先各自说清，再一起看懂。说开帮助两个人准确表达、看见真正的分歧，并决定下一步。
           </p>
           <div className="hero-actions">
-            <a className="primary-button" href={productUrl}>
-              我先理一理 <span aria-hidden="true">↗</span>
-            </a>
+            <span className="primary-button is-disabled" aria-disabled="true">
+              产品内测中 <span aria-hidden="true">·</span>
+            </span>
             <a className="text-link" href="#how">看看它怎么工作 <span aria-hidden="true">↓</span></a>
           </div>
           <p className="privacy-line"><span aria-hidden="true">●</span> 私人表达默认不共享</p>
@@ -183,9 +180,9 @@ export default function Home() {
         <div className="closing-note">
           <p>写给一段值得认真对待的关系</p>
           <h2>聊不明白的时候，<br />我们一起<span>说开。</span></h2>
-          <a className="primary-button inverse" href={productUrl}>
-            开始一次说开 <span aria-hidden="true">↗</span>
-          </a>
+          <span className="primary-button inverse is-disabled" aria-disabled="true">
+            产品内测中 <span aria-hidden="true">·</span>
+          </span>
           <small>加入不代表同意 · 随时可以暂停</small>
         </div>
       </section>
