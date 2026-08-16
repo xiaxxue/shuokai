@@ -256,7 +256,7 @@ select is(
 ) from test_v2_context;
 select ok(
   (
-    public.get_room_snapshot(room_id)->'invitationContext'
+    (public.get_room_snapshot(room_id)->'invitationContext')
       - array['inviterName', 'topic', 'title', 'summary', 'confirmedSummary']
   ) = '{}'::jsonb,
   'prefetched invitation context exposes no private expression fields or internal metadata'
