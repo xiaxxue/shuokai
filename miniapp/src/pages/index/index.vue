@@ -312,6 +312,7 @@
         :question="currentClarificationQuestion"
         :answer="clarificationAnswer"
         :turns="clarificationTurns"
+        :mode-selection-turn-count="modeSelectionTurnCount"
         :busy="busy"
         :source-text="transcript"
         :mode-title="currentExpressionOption.title"
@@ -326,6 +327,8 @@
         @update-field="updateExpressionField"
         @update-invitation="updateInvitationDraft"
         @change-mode="changeExpressionMode"
+        @conversation-edit="beginExpressionConversationEdit"
+        @direct-edit-saved="setNotice('success', '卡片修改已保存，仍留在当前私人对话里。')"
       />
 
       <GuidedDialogue
@@ -798,6 +801,7 @@ const aiJobId = ref("");
 const expressionOrganizationFailure = ref("");
 const expressionUpdatedFieldKeys = ref<string[]>([]);
 const clarificationTurns = ref<ClarificationTurn[]>([]);
+const modeSelectionTurnCount = ref(0);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
 const invitationContext = ref<InvitationContext | null>(null);
@@ -852,7 +856,9 @@ const editOwnExpression = sharedUnderstanding.editOwnExpression;
 const pauseFromUnderstanding = sharedUnderstanding.pause;
 let workspaceGeneration = 0;
 
-watch(stage, () => {
+watch(stage, (next, previous) => {
+  const continuousPrivateStages: ClientStage[] = ["RECORD", "CLARIFICATION_CHAT"];
+  if (continuousPrivateStages.includes(next) && continuousPrivateStages.includes(previous)) return;
   contentScrollTop.value = contentScrollTop.value === 0 ? 1 : 0;
 }, { flush: "post" });
 
@@ -888,6 +894,7 @@ watch(
     selectedMode,
     () => JSON.stringify(editableExpression.value),
     () => JSON.stringify(clarificationTurns.value),
+    modeSelectionTurnCount,
     clarificationAnswer,
     clarificationSkipped,
     discoveryStarted,
@@ -1315,6 +1322,7 @@ function updateRoom(nextRoom: RoomSession) {
 
 function resetClarification(skipped = false) {
   clarificationTurns.value = [];
+  modeSelectionTurnCount.value = 0;
   clarificationAnswer.value = "";
   clarificationSkipped.value = skipped;
 }
@@ -1422,6 +1430,7 @@ function flushEditorDraft() {
     workspaceRevision: workspaceRevision.value,
     aiJobId: aiJobId.value,
     clarificationTurns: clarificationTurns.value,
+    modeSelectionTurnCount: modeSelectionTurnCount.value,
     clarificationAnswer: clarificationAnswer.value,
     clarificationSkipped: clarificationSkipped.value,
     discoveryStarted: discoveryStarted.value,
@@ -1455,6 +1464,7 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   if (draft.workspaceRevision !== undefined) workspaceRevision.value = draft.workspaceRevision;
   if (draft.aiJobId) aiJobId.value = draft.aiJobId;
   if (draft.clarificationTurns) clarificationTurns.value = draft.clarificationTurns;
+  modeSelectionTurnCount.value = draft.modeSelectionTurnCount ?? clarificationTurns.value.length;
   if (draft.clarificationAnswer !== undefined) clarificationAnswer.value = draft.clarificationAnswer;
   if (draft.clarificationSkipped !== undefined) clarificationSkipped.value = draft.clarificationSkipped;
   if (draft.discoveryStarted !== undefined) discoveryStarted.value = draft.discoveryStarted;
@@ -2054,7 +2064,19 @@ function changeExpressionMode() {
   expressionUpdatedFieldKeys.value = [];
   expressionReviewStep.value = 0;
   selectedMode.value = null;
-  stage.value = "MODE_SELECT";
+  discoveryReady.value = true;
+  discoveryModeSelectionOpen.value = true;
+  stage.value = "RECORD";
+}
+
+function beginExpressionConversationEdit() {
+  if (!currentClarificationQuestion.value) {
+    editableExpression.value = {
+      ...editableExpression.value,
+      uncertainties: ["你想让这张表达卡怎么调整？可以说内容、语气或你不想保留的部分。"],
+    };
+  }
+  if (!clarificationAnswer.value.trim()) clarificationAnswer.value = "我想把卡片调整为：";
 }
 
 async function chooseExpressionMode(mode: ExpressionMode) {
@@ -2085,6 +2107,7 @@ async function chooseExpressionMode(mode: ExpressionMode) {
 
   busy.value = true;
   try {
+    modeSelectionTurnCount.value = clarificationTurns.value.length;
     editableExpression.value = createEditableExpression(mode);
     const privateSource = composeClarificationSource(transcript.value, clarificationTurns.value);
     const job = await requestExpressionOrganization(

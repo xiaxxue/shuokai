@@ -35,6 +35,7 @@ export type EditorDraft = {
   workspaceRevision?: number;
   aiJobId?: string;
   clarificationTurns?: ClarificationTurn[];
+  modeSelectionTurnCount?: number;
   clarificationAnswer?: string;
   clarificationSkipped?: boolean;
   discoveryStarted?: boolean;
@@ -151,6 +152,12 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const clarificationTurns = candidate.clarificationTurns === undefined
     ? undefined
     : sanitizeClarificationTurns(candidate.clarificationTurns);
+  const modeSelectionTurnCount = clarificationTurns !== undefined &&
+    typeof candidate.modeSelectionTurnCount === "number" &&
+    Number.isSafeInteger(candidate.modeSelectionTurnCount) &&
+    candidate.modeSelectionTurnCount >= 0
+    ? Math.min(candidate.modeSelectionTurnCount, clarificationTurns.length)
+    : undefined;
   const clarificationAnswer = isBoundedText(candidate.clarificationAnswer, 1200)
     ? candidate.clarificationAnswer
     : undefined;
@@ -216,6 +223,7 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
     ...(aiJobId ? { aiJobId } : {}),
     ...(clarificationTurns !== undefined ? { clarificationTurns } : {}),
+    ...(modeSelectionTurnCount !== undefined ? { modeSelectionTurnCount } : {}),
     ...(clarificationAnswer !== undefined ? { clarificationAnswer } : {}),
     ...(clarificationSkipped !== undefined ? { clarificationSkipped } : {}),
     ...(discoveryStarted !== undefined

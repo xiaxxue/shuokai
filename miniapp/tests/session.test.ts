@@ -380,6 +380,7 @@ describe("private editor draft recovery", () => {
       workspaceRevision: 2,
       aiJobId: "22222222-2222-4222-8222-222222222222",
       clarificationTurns: [{ question: "当时具体说了什么？", answer: "他说另一个女生很好看。" }],
+      modeSelectionTurnCount: 1,
       clarificationAnswer: "还没提交的回答",
       clarificationSkipped: false,
       discoveryStarted: true,
@@ -413,6 +414,7 @@ describe("private editor draft recovery", () => {
       aiJobId: draft.aiJobId,
       editableExpression: draft.editableExpression,
       clarificationTurns: draft.clarificationTurns,
+      modeSelectionTurnCount: 1,
       clarificationAnswer: draft.clarificationAnswer,
       clarificationSkipped: false,
       discoveryStarted: true,
@@ -453,6 +455,21 @@ describe("private editor draft recovery", () => {
     expect(restored?.discoveryStarted).toBe(false);
     expect(restored?.clarificationTurns).toHaveLength(9);
     expect(restored).not.toHaveProperty("discoveryFollowUpLimitReached");
+  });
+
+  it("clamps the saved path-selection boundary to valid private turns", () => {
+    const draft = {
+      roomId: "11111111-1111-4111-8111-111111111111",
+      role: "A" as const,
+      transcript: "需要继续整理的原话",
+      clarification: "",
+      perspective: { fact: "", meaning: "", impact: "", request: "" },
+      clarificationTurns: [{ question: "发生了什么？", answer: "我们吵架了。" }],
+      modeSelectionTurnCount: 99,
+    };
+    saveEditorDraft(draft);
+
+    expect(getEditorDraft(draft.roomId, draft.role)?.modeSelectionTurnCount).toBe(1);
   });
 
   it("migrates a legacy clarification into the feeling card", () => {
