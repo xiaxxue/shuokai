@@ -99,6 +99,7 @@
       :enhanced="true"
       :show-scrollbar="false"
       :scroll-top="contentScrollTop"
+      :scroll-into-view="contentScrollIntoView"
       @scroll="contentScrollTop = $event.detail.scrollTop"
     >
       <view v-if="stage === 'WELCOME'" class="screen welcome-screen">
@@ -225,6 +226,8 @@
         :question="discoveryQuestion"
         :started="discoveryStarted"
         :ready="discoveryReady"
+        :mode-selection-open="discoveryModeSelectionOpen"
+        :selected-mode="selectedMode"
         :busy="busy"
         :thinking="discoveryThinking"
         :recording="recording"
@@ -244,6 +247,7 @@
         @update:answer="clarificationAnswer = $event"
         @send="sendDiscoveryMessage"
         @finish="finishDiscovery"
+        @select-mode="chooseExpressionMode"
         @continue-after-failure="continueDiscoveryAfterFailure"
         @record="toggleRecording"
         @view-invitation="showInvitationIntro"
@@ -707,6 +711,7 @@ const snapshot = ref<RoomSnapshot | null>(null);
 const goal = ref(goals[0].title);
 const joinCode = ref("");
 const contentScrollTop = ref(0);
+const contentScrollIntoView = ref("");
 const recording = ref(false);
 const recordingSeconds = ref(0);
 const busy = ref(false);
@@ -797,7 +802,7 @@ let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
 let invitationContextRequest = 0;
 let recordingTarget: "transcript" | "answer" = "transcript";
 const expressionDiscovery = useExpressionDiscovery({
-  room, stage, busy, recording, transcript, selectedMode,
+  room, busy, recording, transcript, selectedMode,
   turns: clarificationTurns,
   answer: clarificationAnswer,
   setNotice, clearNotice, formatError: message,
@@ -811,6 +816,7 @@ const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
 const discoveryRestored = expressionDiscovery.restored;
 const discoveryFailureMessage = expressionDiscovery.failureMessage;
+const discoveryModeSelectionOpen = expressionDiscovery.modeSelectionOpen;
 const discoverySaveState = expressionDiscovery.saveState;
 const discoveryMemoryProposals = expressionDiscovery.memoryProposals;
 const discoveryDetachedDrafts = expressionDiscovery.detachedDrafts;
@@ -834,6 +840,17 @@ let workspaceGeneration = 0;
 watch(stage, () => {
   contentScrollTop.value = contentScrollTop.value === 0 ? 1 : 0;
 }, { flush: "post" });
+
+watch(
+  [discoveryThinking, discoveryReady, discoveryModeSelectionOpen, () => clarificationTurns.value.length],
+  async () => {
+    if (stage.value !== "RECORD") return;
+    contentScrollIntoView.value = "";
+    await nextTick();
+    contentScrollIntoView.value = "discovery-tail";
+  },
+  { flush: "post" },
+);
 
 watch(recording, (isRecording) => {
   if (recordingTimer) clearInterval(recordingTimer);
@@ -1392,6 +1409,7 @@ function flushEditorDraft() {
     detachedDiscoveryDrafts: expressionDiscovery.detachedDrafts.value,
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
+    discoveryModeSelectionOpen: discoveryModeSelectionOpen.value,
     discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
     discoverySafetyDisposition: discoverySafetyDisposition.value,
     discoverySafetyMessage: discoverySafetyMessage.value,
@@ -1428,6 +1446,9 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   }
   if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
+  if (draft.discoveryModeSelectionOpen !== undefined) {
+    discoveryModeSelectionOpen.value = draft.discoveryModeSelectionOpen;
+  }
   if (draft.discoveryUnderstanding !== undefined) {
     discoveryUnderstanding.value = draft.discoveryUnderstanding;
   }
@@ -2016,6 +2037,57 @@ function changeExpressionMode() {
   stage.value = "MODE_SELECT";
 }
 
+async function chooseExpressionMode(mode: ExpressionMode) {
+  if (!room.value || busy.value) return;
+  clearNotice();
+  selectedMode.value = mode;
+  if (mode === "PAUSE") {
+    if (!await confirmPause()) {
+      selectedMode.value = null;
+      return;
+    }
+    busy.value = true;
+    try {
+      await roomApi.pause(room.value.roomId);
+      updateRoom({ ...room.value, phaseV2: "PAUSED" });
+      stage.value = "PAUSED";
+      clearEditorDraft(room.value.roomId, room.value.role);
+      draftSaveState.value = "empty";
+      setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
+    } catch (error) {
+      selectedMode.value = null;
+      setNotice("error", message(error, "暂时无法暂停，请检查网络后重试。"));
+    } finally {
+      busy.value = false;
+    }
+    return;
+  }
+
+  busy.value = true;
+  try {
+    editableExpression.value = createEditableExpression(mode);
+    const privateSource = composeClarificationSource(transcript.value, clarificationTurns.value);
+    const job = await requestExpressionOrganization(
+      room.value.roomId,
+      workspaceRevision.value,
+      privateSource,
+      mode,
+      editableExpression.value,
+    );
+    workspaceRevision.value = job.revision;
+    aiJobId.value = job.jobId;
+    expressionOrganizationFailure.value = "";
+    expressionUpdatedFieldKeys.value = [];
+    stage.value = "CLARIFICATION_CHAT";
+    void pollExpressionJob(job.jobId);
+  } catch (error) {
+    selectedMode.value = null;
+    setNotice("error", message(error, "没有开始整理。请检查网络后重新选择，刚才的对话仍然保留。"));
+  } finally {
+    if (!aiJobId.value) busy.value = false;
+  }
+}
+
 function stopExpressionJobPolling() {
   if (aiPollTimer) clearTimeout(aiPollTimer);
   aiPollTimer = null;
@@ -2244,6 +2316,10 @@ async function next() {
     openExpressionReview();
     return;
   }
+  if (stage.value === "MODE_SELECT" && selectedMode.value) {
+    await chooseExpressionMode(selectedMode.value);
+    return;
+  }
   const attemptedStage = stage.value;
   clearNotice();
   busy.value = true;
@@ -2252,38 +2328,6 @@ async function next() {
       const result = await roomApi.setGoal(room.value.roomId, goal.value);
       updateRoom({ ...room.value, state: result.state, phaseV2: "PRIVATE_EXPRESSION" });
       stage.value = "RECORD";
-    } else if (stage.value === "MODE_SELECT") {
-      if (selectedMode.value === "PAUSE") {
-        busy.value = false;
-        if (!await confirmPause()) return;
-        busy.value = true;
-        await roomApi.pause(room.value.roomId);
-        updateRoom({ ...room.value, phaseV2: "PAUSED" });
-        stage.value = "PAUSED";
-        clearEditorDraft(room.value.roomId, room.value.role);
-        draftSaveState.value = "empty";
-        setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
-      } else if (selectedMode.value) {
-        editableExpression.value = createEditableExpression(selectedMode.value);
-        const privateSource = composeClarificationSource(
-          transcript.value,
-          clarificationTurns.value,
-        );
-        const job = await requestExpressionOrganization(
-          room.value.roomId,
-          workspaceRevision.value,
-          privateSource,
-          selectedMode.value,
-          editableExpression.value,
-        );
-        workspaceRevision.value = job.revision;
-        aiJobId.value = job.jobId;
-        expressionOrganizationFailure.value = "";
-        expressionUpdatedFieldKeys.value = [];
-        stage.value = "CLARIFICATION_CHAT";
-        void pollExpressionJob(job.jobId);
-        return;
-      }
     } else if (stage.value === "EXPRESSION_REVIEW") {
       const confirmed = await roomApi.confirmExpression(
         room.value.roomId,

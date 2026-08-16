@@ -87,7 +87,6 @@ function useTestFlow() {
   const clearNotice = vi.fn();
   const flow = useExpressionDiscovery({
     room,
-    stage,
     busy,
     recording: ref(false),
     transcript,
@@ -149,6 +148,8 @@ describe("expression discovery orchestration", () => {
     expect(state.turns.value).toHaveLength(1);
     expect(state.answer.value).toBe("");
     expect(state.flow.ready.value).toBe(true);
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.stage.value).toBe("RECORD");
   });
 
   it("continues schema-driven discovery beyond the former client and server cutoffs", async () => {
@@ -188,7 +189,8 @@ describe("expression discovery orchestration", () => {
     state.flow.finish();
 
     expect(state.selectedMode.value).toBeNull();
-    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
     expect(state.setNotice).toHaveBeenLastCalledWith(
       "info",
       "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ",
@@ -203,7 +205,8 @@ describe("expression discovery orchestration", () => {
 
     state.flow.finish();
 
-    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
     expect(state.turns.value).toEqual([{
       question: "你最在意哪一部分？",
       answer: "我还没把这句话发出去",
@@ -265,7 +268,8 @@ describe("expression discovery orchestration", () => {
 
     state.flow.continueAfterFailure();
 
-    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
     expect(state.turns.value).toEqual([{
       question: "你最在意哪一部分？",
       answer: "即使没有 AI 回复，也要带上这句话",
@@ -286,7 +290,8 @@ describe("expression discovery orchestration", () => {
     state.flow.continueAfterFailure();
 
     expect(state.flow.started.value).toBe(false);
-    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
     expect(state.transcript.value).toContain("男朋友不想提醒");
     expect(state.turns.value).toEqual([]);
   });

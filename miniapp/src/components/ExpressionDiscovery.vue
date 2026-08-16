@@ -1,5 +1,5 @@
 <template>
-  <view class="discovery-screen">
+  <view class="discovery-screen" :class="{ 'has-composer': !readOnly && !selectionVisible }">
     <view v-if="role === 'B' && !readOnly" class="invitation-context">
       <view class="invitation-copy">
         <text class="invitation-label">正在回应这次沟通</text>
@@ -30,7 +30,7 @@
         </view>
       </view>
 
-      <template v-if="started || thinking">
+      <template v-if="started || thinking || selectionVisible">
         <view class="message-row user">
           <view class="message-bubble user-bubble"><text>{{ sourceText }}</text></view>
         </view>
@@ -50,12 +50,20 @@
         <view v-if="thinking && started && answer.trim()" class="message-row user">
           <view class="message-bubble user-bubble"><text>{{ answer }}</text></view>
         </view>
-        <view v-if="thinking || ready" class="message-row assistant">
+        <view v-if="thinking || selectionVisible" class="message-row assistant">
           <view class="ai-avatar">AI</view>
           <view class="message-bubble assistant-bubble">
             <view v-if="thinking" class="typing" aria-label="AI 正在思考"><text /><text /><text /></view>
             <text v-else>{{ readyMessage }}</text>
           </view>
+        </view>
+        <view v-if="selectionVisible && !thinking" class="mode-choice-row">
+          <ExpressionModeChooser
+            :model-value="selectedMode"
+            :disabled="busy"
+            inline
+            @update:model-value="$emit('selectMode', $event)"
+          />
         </view>
       </template>
     </view>
@@ -89,7 +97,7 @@
       </view>
     </view>
 
-    <view v-if="!readOnly" class="composer-dock">
+    <view v-if="!readOnly && !selectionVisible" class="composer-dock">
       <view
         v-if="failureMessage"
         class="ai-recovery"
@@ -106,12 +114,6 @@
           <button class="retry-ai" @tap="$emit('send')">重新让 AI 理解</button>
           <button class="continue-current" @tap="$emit('continueAfterFailure')">按现有内容继续整理</button>
         </view>
-      </view>
-      <view v-if="ready && !busy && !safetyStopped" class="finish-row">
-        <button class="finish-action" @tap="$emit('finish')">
-          <text>可以开始整理了</text>
-          <text>选择表达路径 →</text>
-        </button>
       </view>
       <view class="composer-heading">
         <text class="composer-label">{{ started ? '回复 AI' : '先讲讲发生了什么' }}</text>
@@ -154,13 +156,15 @@
         @tap="$emit('finish')"
       >先不继续追问，直接选择表达路径</button>
     </view>
+    <view id="discovery-tail" class="discovery-tail" aria-hidden="true" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
+import ExpressionModeChooser from "./ExpressionModeChooser.vue";
 import type { ClarificationTurn } from "../domain/clarification";
-import type { SafetyDisposition } from "../domain/expression";
+import type { ExpressionMode, SafetyDisposition } from "../domain/expression";
 import {
   personalMemoryKindLabel,
   type DetachedDiscoveryDraft,
@@ -178,6 +182,8 @@ const props = defineProps<{
   question: string;
   started: boolean;
   ready: boolean;
+  modeSelectionOpen: boolean;
+  selectedMode: ExpressionMode | null;
   busy: boolean;
   thinking: boolean;
   recording: boolean;
@@ -200,6 +206,7 @@ const emit = defineEmits<{
   "update:answer": [value: string];
   send: [];
   finish: [];
+  selectMode: [mode: ExpressionMode];
   continueAfterFailure: [];
   record: [];
   viewInvitation: [];
@@ -211,7 +218,11 @@ const emit = defineEmits<{
   discardDetachedDraft: [index: number];
 }>();
 
-const currentValue = computed(() => props.started ? props.answer : props.sourceText);
+const currentValue = computed(() => {
+  if (props.thinking) return "";
+  return props.started ? props.answer : props.sourceText;
+});
+const selectionVisible = computed(() => props.modeSelectionOpen || props.ready);
 const invitationTopicStatusCopy = computed(() => invitationTopicCopy(props.invitationStatus, props.invitationTopic));
 const invitationActionCopy = computed(() => {
   if (props.invitationStatus === "loading") return "读取中";
@@ -222,7 +233,9 @@ const safetyStopped = computed(() => ["BLOCK_SHARE", "PAUSE"].includes(props.saf
 const openingMessage = computed(() => props.role === "B"
   ? "我先听你的版本。你不用回应对方的结论，只说你看到、听到和在意的事情。"
   : "我在这里。先用你自己的话告诉我发生了什么，不需要组织得很完整。");
-const readyMessage = "我已经理解到足够开始整理的程度了。现在由你选择表达路径，我再把这段对话整理成卡片。";
+const readyMessage = computed(() => props.ready
+  ? "我已经理解到足够开始整理的程度了。选一个表达路径，我就把这段对话整理成卡片。"
+  : "好的，我会按目前这些内容开始整理。先选一个表达路径，之后仍然可以修改。");
 const saveStateCopy = computed(() => ({
   idle: "",
   local: "未发送内容仅保存在本机草稿",
@@ -250,6 +263,7 @@ function updateCurrentValue(event: Event) {
 
 <style scoped lang="scss">
 .discovery-screen { min-height: calc(100vh - 184rpx); min-height: calc(100dvh - 184rpx); padding: 48rpx 44rpx calc(22rpx + env(safe-area-inset-bottom)); display: flex; flex-direction: column; box-sizing: border-box; }
+.discovery-screen.has-composer { padding-bottom: calc(320rpx + env(safe-area-inset-bottom)); }
 .invitation-context { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin-bottom: 30rpx; padding: 20rpx 22rpx; border: 1rpx solid #d4ddd5; border-radius: 22rpx; background: #e8eee8; }
 .invitation-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 7rpx; }
 .invitation-label { color: #6b7c73; font-size: 19rpx; font-weight: 700; letter-spacing: .08em; }
@@ -277,6 +291,7 @@ function updateCurrentValue(event: Event) {
 .message-bubble { max-width: 88%; padding: 19rpx 22rpx; box-sizing: border-box; font-size: 27rpx; line-height: 1.65; box-shadow: 0 7rpx 18rpx rgba(37,62,51,.06); }
 .assistant-bubble { border-radius: 8rpx 24rpx 24rpx 24rpx; background: #fffdf8; color: #29463b; }
 .user-bubble { border-radius: 24rpx 8rpx 24rpx 24rpx; background: #315847; color: #fffaf2; }
+.mode-choice-row { margin-left: 58rpx; padding: 2rpx 0 12rpx; }
 .typing { display: flex; align-items: center; gap: 7rpx; min-width: 58rpx; height: 28rpx; }
 .typing text { width: 9rpx; height: 9rpx; border-radius: 50%; background: #749083; animation: typing-pulse 1.1s infinite ease-in-out; }
 .typing text:nth-child(2) { animation-delay: .15s; }
@@ -304,7 +319,7 @@ function updateCurrentValue(event: Event) {
 .memory-actions button { min-height: 48px; margin: 0; padding: 0 18rpx; border-radius: 999rpx; background: #f2eee6; color: #456557; font-size: 20rpx; font-weight: 700; }
 .memory-actions button:first-child { background: #315847; color: #fffaf2; }
 .memory-actions button::after { border: 0; }
-.composer-dock { position: sticky; bottom: 0; margin: auto -10rpx 0; padding: 16rpx 10rpx calc(8rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 18%, #f3efe6); }
+.composer-dock { position: fixed; z-index: 15; bottom: 0; left: 50%; width: 100%; max-width: 560px; max-height: calc(100vh - 92px); max-height: calc(100dvh - 92px); padding: 24rpx 44rpx calc(12rpx + env(safe-area-inset-bottom)); overflow-y: auto; box-sizing: border-box; background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 16%, #f3efe6); transform: translateX(-50%); }
 .ai-recovery { margin-bottom: 16rpx; padding: 20rpx; border: 2rpx solid #e2a898; border-radius: 22rpx; background: #fff6f1; color: #6f4036; box-shadow: 0 8rpx 22rpx rgba(111,64,54,.08); }
 .ai-recovery-heading { display: flex; align-items: center; gap: 10rpx; }
 .ai-recovery-mark { width: 34rpx; height: 34rpx; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: #bd4933; color: #fffaf3; font-size: 21rpx; font-weight: 900; }
@@ -316,10 +331,7 @@ function updateCurrentValue(event: Event) {
 .ai-recovery-actions button::after { border: 0; }
 .retry-ai { flex: 1 1 220rpx; background: #bd4933; color: #fffaf3; }
 .continue-current { flex: 1 1 280rpx; border: 2rpx solid #b76e5c; background: transparent; color: #914332; }
-.finish-row { margin-bottom: 16rpx; }
-.finish-action { width: 100%; min-height: 84rpx; margin: 0; padding: 16rpx 22rpx; display: flex; align-items: center; justify-content: space-between; border: 1rpx solid #c8d5cc; border-radius: 22rpx; background: #e4ece5; color: #315847; font-size: 23rpx; font-weight: 800; }
-.finish-action::after { border: 0; }
-.composer-heading { display: flex; justify-content: space-between; margin: 0 4rpx 10rpx; color: #858c87; font-size: 19rpx; }
+.composer-heading { display: flex; justify-content: space-between; margin: 0 4rpx 10rpx; color: #6f7973; font-size: 24rpx; }
 .composer-label { color: #315847; font-weight: 800; }
 .composer { display: flex; align-items: flex-end; gap: 10rpx; padding: 9rpx 9rpx 9rpx 12rpx; border: 2rpx solid #cbc8bf; border-radius: 30rpx; background: #fffdf9; box-shadow: 0 10rpx 28rpx rgba(33,60,48,.08); }
 .composer:focus-within { border-color: #557765; box-shadow: 0 0 0 5rpx rgba(49,88,71,.09), 0 10rpx 28rpx rgba(33,60,48,.08); }
@@ -327,16 +339,17 @@ function updateCurrentValue(event: Event) {
 .voice { width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #f1e8de; color: #d9543b; font-size: 22rpx; }
 .voice.recording { background: #d9543b; color: #fffaf3; }
 .voice::after { border: 0; }
-.answer { box-sizing: border-box; flex: 1; width: auto; min-height: 48px; max-height: 230rpx; padding: 13rpx 2rpx 11rpx; background: transparent; color: #233a32; font-size: 27rpx; line-height: 1.6; }
+.answer { box-sizing: border-box; flex: 1; width: auto; min-height: 48px; max-height: 230rpx; padding: 13rpx 2rpx 11rpx; background: transparent; color: #233a32; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 32rpx; font-weight: 400; line-height: 1.55; letter-spacing: 0; }
 .send { width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #d9543b; box-shadow: 0 7rpx 16rpx rgba(217,84,59,.24); color: #fffaf3; font-family: Georgia, serif; font-size: 29px; line-height: 1; }
 .send::after { border: 0; }
 .send[disabled] { background: #e2e2dc; box-shadow: none; color: #929893; }
 .composer-meta { min-height: 40rpx; margin: 9rpx 4rpx 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14rpx; }
-.private-hint { color: #7b8580; font-size: 19rpx; line-height: 1.5; }
-.save-state { display: block; margin-top: 3rpx; color: #718078; font-size: 18rpx; line-height: 1.5; }
+.private-hint { color: #68736d; font-size: 23rpx; line-height: 1.5; }
+.save-state { display: block; margin-top: 3rpx; color: #65756d; font-size: 22rpx; line-height: 1.5; }
 .save-error { color: #a84231; }
 .recording-hint, .busy-hint { flex: none; color: #4f6e5f; font-size: 19rpx; font-weight: 700; }
 .skip-action { min-height: 58rpx; margin: 8rpx auto 0; padding: 4rpx 12rpx; background: transparent; color: #7a817d; font-size: 20rpx; text-decoration: underline; text-underline-offset: 6rpx; }
 .skip-action::after { border: 0; }
-@media (max-width: 360px) { .discovery-screen { padding-right: 34rpx; padding-left: 34rpx; } .title { font-size: 48rpx; } }
+.discovery-tail { width: 1px; height: 1px; }
+@media (max-width: 360px) { .discovery-screen { padding-right: 34rpx; padding-left: 34rpx; } .composer-dock { padding-right: 34rpx; padding-left: 34rpx; } .title { font-size: 48rpx; } }
 </style>
