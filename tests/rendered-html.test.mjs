@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("routes the retired web surface to the real H5 client", async () => {
+test("presents the official site and links to the real H5 client", async () => {
   const [page, layout, authPanel] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -10,7 +10,11 @@ test("routes the retired web surface to the real H5 client", async () => {
   ]);
 
   assert.match(layout, /说开 SHUOKAI/);
-  assert.match(page, /redirect\(productUrl\)/);
+  assert.match(layout, /resolveOrigin/);
+  assert.match(layout, /fallbackOrigin/);
+  assert.match(page, /有些话/);
+  assert.match(page, /理解不等于同意/);
+  assert.match(page, /href=\{productUrl\}/);
   assert.match(page, /shuokai-supabase-test\.shuokai\.workers\.dev/);
   assert.doesNotMatch(page, /simulate_partner|demo|mock|演示|模拟/iu);
   assert.match(authPanel, /创建账号/);

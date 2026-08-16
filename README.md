@@ -2,7 +2,7 @@
 
 一个以微信小程序与移动 H5 为客户端、Supabase 为数据层的结构化沟通产品：当普通聊天陷入重复、误解或升级，帮助双方先分别表达，再沿着非暴力沟通的观察、感受、需要、请求四步看见真实分歧。
 
-正式产品代码位于 [`miniapp/`](./miniapp)，使用 `uni-app + Vue 3 + TypeScript`，同一套代码分别构建为微信小程序原生产物和移动 H5。仓库根目录的 Next.js 入口只负责把旧网址跳转到真实 H5，不再提供另一套产品流程。
+正式产品代码位于 [`miniapp/`](./miniapp)，使用 `uni-app + Vue 3 + TypeScript`，同一套代码分别构建为微信小程序原生产物和移动 H5。仓库根目录的 Next.js 入口是品牌官网，只介绍产品理念并链接到真实 H5，不复制产品流程。
 
 ## 产品流程
 
@@ -60,7 +60,7 @@ publishable key；Supabase secret key 与微信 AppSecret 只允许进入 Worker
 应用数据库变更时按文件名顺序执行 `supabase/migrations/`，先在独立测试项目或 Supabase Branch
 验证，再执行 Advisor 与 RLS 隔离测试。不要在未确认环境性质时直接向已有数据的项目 push migration。
 
-## 检查旧 Web 入口
+## 检查品牌官网
 
 ```bash
 npm install
@@ -74,7 +74,7 @@ npm run lint
 npm test
 ```
 
-旧入口只会跳转到 `SHUOKAI_H5_URL`；未设置时使用专用测试 H5。它不包含房间、录音或数据库调用能力。
+官网的行动按钮会进入 `SHUOKAI_H5_URL`；未设置时使用专用测试 H5。官网本身不包含房间、录音或数据库调用能力。
 
 ## Cloudflare Worker
 
