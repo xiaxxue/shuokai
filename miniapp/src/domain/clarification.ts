@@ -12,7 +12,7 @@ export type DiscoveryDimension = typeof discoveryDimensions[number];
 const legacyDiscoveryDimensions = ["event", "impact", "intention"] as const;
 type LegacyDiscoveryDimension = typeof legacyDiscoveryDimensions[number];
 
-export type DiscoveryUnderstandingState = {
+type LegacyDiscoveryUnderstandingState = {
   schemaVersion: 1 | 2;
   coverage: Record<DiscoveryDimension, {
     status: "ENOUGH" | "MISSING";
@@ -29,6 +29,59 @@ export type DiscoveryUnderstandingState = {
     purpose: string;
   };
 };
+
+export const discoverySectionFields = {
+  event: [
+    "participants", "setting", "trigger", "keyInteraction",
+    "conflictPoint", "historyPattern", "currentState",
+  ],
+  userImpact: ["emotion", "physicalReaction", "realLifeConsequence"],
+  meaningToCommunicate: ["personalMeaning", "underlyingNeed"],
+  desiredResponse: ["desiredUnderstanding", "desiredAction", "acceptableAlternative"],
+} as const;
+type DiscoverySection = keyof typeof discoverySectionFields;
+type EventField = typeof discoverySectionFields.event[number];
+type UserImpactField = typeof discoverySectionFields.userImpact[number];
+type MeaningField = typeof discoverySectionFields.meaningToCommunicate[number];
+type DesiredResponseField = typeof discoverySectionFields.desiredResponse[number];
+export type DiscoveryField =
+  | `event.${EventField}`
+  | `userImpact.${UserImpactField}`
+  | `meaningToCommunicate.${MeaningField}`
+  | `desiredResponse.${DesiredResponseField}`;
+export const discoveryFields = (Object.keys(discoverySectionFields) as DiscoverySection[])
+  .flatMap((section) => discoverySectionFields[section]
+    .map((field) => `${section}.${field}` as DiscoveryField));
+
+export type DiscoveryDetailCoverage = {
+  status: "ENOUGH" | "MISSING" | "NOT_RELEVANT";
+  evidence: string[];
+  missingInfo: string;
+  relevanceReason: string;
+};
+
+export type DiscoveryUnderstandingStateV3 = {
+  schemaVersion: 3;
+  coverage: {
+    event: Record<EventField, DiscoveryDetailCoverage>;
+    userImpact: Record<UserImpactField, DiscoveryDetailCoverage>;
+    meaningToCommunicate: Record<MeaningField, DiscoveryDetailCoverage>;
+    desiredResponse: Record<DesiredResponseField, DiscoveryDetailCoverage>;
+  };
+  latestAnswerUpdate: {
+    absorbed: boolean;
+    updatedFields: DiscoveryField[];
+  };
+  nextQuestion: {
+    focusField: DiscoveryField | "none";
+    text: string;
+    purpose: string;
+  };
+};
+
+export type DiscoveryUnderstandingState =
+  | LegacyDiscoveryUnderstandingState
+  | DiscoveryUnderstandingStateV3;
 
 export type ClarificationMessage = {
   role: "assistant" | "user";
@@ -75,6 +128,7 @@ function normalizedDiscoveryDimension(
 
 export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnderstandingState | null {
   if (!isRecord(value) || !isRecord(value.coverage)) return null;
+  if (value.schemaVersion === 3) return parseDiscoveryUnderstandingStateV3(value);
   const legacyCoverage = value.schemaVersion === undefined &&
     hasExactKeys(value.coverage, legacyDiscoveryDimensions);
   const currentCoverage = value.schemaVersion === 2 &&
@@ -108,7 +162,7 @@ export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnder
     }
     : value.coverage;
 
-  const coverage = {} as DiscoveryUnderstandingState["coverage"];
+  const coverage = {} as LegacyDiscoveryUnderstandingState["coverage"];
   for (const dimension of discoveryDimensions) {
     const item = normalizedCoverage[dimension];
     if (!isRecord(item) || !hasExactKeys(item, ["status", "evidence", "missingInfo"]) ||
@@ -144,6 +198,99 @@ export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnder
       purpose: value.nextQuestion.purpose,
     },
   };
+}
+
+function parseDiscoveryDetailCoverage(value: unknown): DiscoveryDetailCoverage | null {
+  if (!isRecord(value) ||
+    !hasExactKeys(value, ["status", "evidence", "missingInfo", "relevanceReason"]) ||
+    !["ENOUGH", "MISSING", "NOT_RELEVANT"].includes(String(value.status)) ||
+    !Array.isArray(value.evidence) || value.evidence.length > 3 ||
+    !value.evidence.every((evidence) =>
+      typeof evidence === "string" && Boolean(evidence.trim()) && evidence.length <= 240) ||
+    typeof value.missingInfo !== "string" || value.missingInfo.length > 300 ||
+    typeof value.relevanceReason !== "string" || value.relevanceReason.length > 300) return null;
+  if (value.status === "ENOUGH" &&
+    (!value.evidence.length || value.missingInfo.trim() || value.relevanceReason.trim())) return null;
+  if (value.status === "MISSING" &&
+    (!value.missingInfo.trim() || value.relevanceReason.trim())) return null;
+  if (value.status === "NOT_RELEVANT" &&
+    (value.evidence.length || value.missingInfo.trim() || !value.relevanceReason.trim())) return null;
+  return {
+    status: value.status as DiscoveryDetailCoverage["status"],
+    evidence: value.evidence as string[],
+    missingInfo: value.missingInfo,
+    relevanceReason: value.relevanceReason,
+  };
+}
+
+function parseDiscoveryUnderstandingStateV3(
+  value: Record<string, unknown>,
+): DiscoveryUnderstandingStateV3 | null {
+  if (!isRecord(value.coverage) ||
+    !hasExactKeys(value.coverage, Object.keys(discoverySectionFields)) ||
+    !isRecord(value.latestAnswerUpdate) ||
+    !hasExactKeys(value.latestAnswerUpdate, ["absorbed", "updatedFields"]) ||
+    typeof value.latestAnswerUpdate.absorbed !== "boolean" ||
+    !Array.isArray(value.latestAnswerUpdate.updatedFields) ||
+    value.latestAnswerUpdate.updatedFields.length > discoveryFields.length ||
+    new Set(value.latestAnswerUpdate.updatedFields).size !== value.latestAnswerUpdate.updatedFields.length ||
+    !value.latestAnswerUpdate.updatedFields.every((field) =>
+      typeof field === "string" && discoveryFields.includes(field as DiscoveryField)) ||
+    !isRecord(value.nextQuestion) ||
+    !hasExactKeys(value.nextQuestion, ["focusField", "text", "purpose"]) ||
+    ![...discoveryFields, "none"].includes(String(value.nextQuestion.focusField)) ||
+    typeof value.nextQuestion.text !== "string" || value.nextQuestion.text.length > 500 ||
+    typeof value.nextQuestion.purpose !== "string" || value.nextQuestion.purpose.length > 300) return null;
+
+  const coverage: Record<string, Record<string, DiscoveryDetailCoverage>> = {};
+  for (const section of Object.keys(discoverySectionFields) as DiscoverySection[]) {
+    const sectionValue = value.coverage[section];
+    if (!isRecord(sectionValue) || !hasExactKeys(sectionValue, discoverySectionFields[section])) return null;
+    const parsedSection: Record<string, DiscoveryDetailCoverage> = {};
+    for (const field of discoverySectionFields[section]) {
+      const detail = parseDiscoveryDetailCoverage(sectionValue[field]);
+      if (!detail) return null;
+      parsedSection[field] = detail;
+    }
+    coverage[section] = parsedSection;
+  }
+
+  return {
+    schemaVersion: 3,
+    coverage: coverage as DiscoveryUnderstandingStateV3["coverage"],
+    latestAnswerUpdate: {
+      absorbed: value.latestAnswerUpdate.absorbed,
+      updatedFields: value.latestAnswerUpdate.updatedFields as DiscoveryField[],
+    },
+    nextQuestion: {
+      focusField: value.nextQuestion.focusField as DiscoveryField | "none",
+      text: value.nextQuestion.text,
+      purpose: value.nextQuestion.purpose,
+    },
+  };
+}
+
+export function discoveryUnderstandingV3IsReady(value: DiscoveryUnderstandingStateV3) {
+  const eventResolved = discoverySectionFields.event.every((field) =>
+    value.coverage.event[field].status !== "MISSING");
+  const eventCoreEnough = (["participants", "trigger", "keyInteraction", "conflictPoint"] as const)
+    .every((field) => value.coverage.event[field].status === "ENOUGH");
+  const sectionReady = (section: "userImpact" | "meaningToCommunicate" | "desiredResponse") => {
+    const fields = discoverySectionFields[section];
+    const sectionCoverage = value.coverage[section] as unknown as Record<string, DiscoveryDetailCoverage>;
+    const details = fields.map((field) => sectionCoverage[field]);
+    return details.every((detail) => detail.status !== "MISSING") &&
+      details.some((detail) => detail.status === "ENOUGH");
+  };
+  return eventResolved && eventCoreEnough && sectionReady("userImpact") &&
+    sectionReady("meaningToCommunicate") && sectionReady("desiredResponse");
+}
+
+export function discoveryUnderstandingV3FocusIsMissing(value: DiscoveryUnderstandingStateV3) {
+  if (value.nextQuestion.focusField === "none") return false;
+  const [section, field] = value.nextQuestion.focusField.split(".") as [DiscoverySection, string];
+  const sectionValue = value.coverage[section] as unknown as Record<string, DiscoveryDetailCoverage>;
+  return sectionValue[field]?.status === "MISSING";
 }
 
 function normalizedQuestion(value: string) {

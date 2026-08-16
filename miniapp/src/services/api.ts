@@ -5,7 +5,8 @@ import type {
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
 import {
-  discoveryDimensions,
+  discoveryUnderstandingV3FocusIsMissing,
+  discoveryUnderstandingV3IsReady,
   isRepeatedDiscoveryQuestion,
   parseDiscoveryUnderstandingState,
   type ClarificationTurn,
@@ -468,7 +469,7 @@ export async function requestExpressionOrganization(
   expectedRevision: number,
   sourceText: string,
   selectedMode: Exclude<ExpressionMode, "PAUSE">,
-  manualPayload: EditableExpression["fields"] = {},
+  currentExpression: EditableExpression,
 ) {
   const session = await activeSession();
   const response = await request<unknown>({
@@ -478,7 +479,18 @@ export async function requestExpressionOrganization(
       Authorization: `Bearer ${session.accessToken}`,
       "content-type": "application/json",
     },
-    data: { roomId, expectedRevision, sourceText, selectedMode, manualPayload },
+    data: {
+      roomId,
+      expectedRevision,
+      sourceText,
+      selectedMode,
+      manualPayload: {
+        ...currentExpression.fields,
+        __userEditedFields: Object.entries(currentExpression.fieldOwnership)
+          .filter(([, ownership]) => ownership === "USER_EDITED")
+          .map(([field]) => field),
+      },
+    },
     timeout: 25000,
   });
   if (response.statusCode !== 202 || !response.data || typeof response.data !== "object") {
@@ -525,25 +537,29 @@ export async function requestExpressionClarification(
   const result = response.data as Record<string, unknown>;
   const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
   const understanding = parseDiscoveryUnderstandingState(result);
-  const allCovered = Boolean(understanding && discoveryDimensions.every((dimension) =>
-    understanding.coverage[dimension].status === "ENOUGH"));
   const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(result.safetyDisposition));
   const hasStopped = Boolean(result.ready || safetyStopped);
-  const nextQuestion = understanding?.nextQuestion;
-  if (!understanding || understanding.schemaVersion !== 2 || result.schemaVersion !== 2 ||
+  if (!understanding || understanding.schemaVersion !== 3 || result.schemaVersion !== 3 ||
     typeof result.ready !== "boolean" ||
-    result.ready !== allCovered ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
-    typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
+    typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000) {
+    throw new ApiError(
+      "AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。",
+      "AI_RESPONSE_INVALID",
+    );
+  }
+  const allCovered = discoveryUnderstandingV3IsReady(understanding);
+  const nextQuestion = understanding.nextQuestion;
+  if (result.ready !== allCovered ||
     (turns.length === 0
-      ? understanding.latestAnswerUpdate.absorbed || understanding.latestAnswerUpdate.updatedDimensions.length > 0
+      ? understanding.latestAnswerUpdate.absorbed || understanding.latestAnswerUpdate.updatedFields.length > 0
       : !understanding.latestAnswerUpdate.absorbed) ||
     (hasStopped
-      ? nextQuestion?.focusDimension !== "none" || Boolean(nextQuestion.text.trim()) ||
+      ? nextQuestion?.focusField !== "none" || Boolean(nextQuestion.text.trim()) ||
         Boolean(nextQuestion.purpose.trim())
-      : nextQuestion?.focusDimension === "none" || !nextQuestion?.text.trim() ||
+      : nextQuestion?.focusField === "none" || !nextQuestion?.text.trim() ||
         !nextQuestion.purpose.trim() ||
-        understanding.coverage[nextQuestion.focusDimension].status !== "MISSING" ||
+        !discoveryUnderstandingV3FocusIsMissing(understanding) ||
         isRepeatedDiscoveryQuestion(nextQuestion.text, turns))) {
     throw new ApiError(
       "AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。",

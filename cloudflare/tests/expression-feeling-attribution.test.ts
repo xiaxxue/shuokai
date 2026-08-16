@@ -100,6 +100,25 @@ test("NVC expression keeps a feeling explicitly corrected in the current draft",
   assert.equal((generated.result as { fields: { feeling: string } }).fields.feeling, "烦");
 });
 
+test("NVC expression preserves an intentionally cleared user-edited field", async () => {
+  const generated = await generateExpressionCandidate({
+    AI: {
+      async run(_model, input) {
+        if (isInvitationRequest(input)) return { response: JSON.stringify(validInvitationDraftResult()) };
+        const result = validNvcExpressionResult();
+        result.grounding.feeling = { status: "USER_STATED", sources: ["SOURCE"] };
+        return { response: JSON.stringify(result) };
+      },
+    },
+  }, {
+    mode: "NVC",
+    sourceText: "男朋友在半夜吵架后说他很烦，我很难过、不舒服，希望他提醒我睡觉。",
+    manualPayload: { feeling: "", __userEditedFields: ["feeling"] },
+  });
+
+  assert.equal((generated.result as { fields: { feeling: string } }).fields.feeling, "");
+});
+
 test("NVC expression accepts the user's feeling when another person caused it", async () => {
   let calls = 0;
   const generated = await generateExpressionCandidate({

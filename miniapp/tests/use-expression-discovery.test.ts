@@ -14,28 +14,54 @@ vi.mock("../src/services/api", () => ({
 import { useExpressionDiscovery } from "../src/composables/use-expression-discovery";
 
 function discoveryResponse(question: string, ready = false, absorbed = false) {
+  const enough = (evidence: string[]) => ({
+    status: "ENOUGH" as const, evidence, missingInfo: "", relevanceReason: "",
+  });
+  const missing = (missingInfo: string) => ({
+    status: "MISSING" as const, evidence: [], missingInfo, relevanceReason: "",
+  });
+  const notRelevant = () => ({
+    status: "NOT_RELEVANT" as const, evidence: [], missingInfo: "",
+    relevanceReason: "该信息不影响本次理解",
+  });
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     question,
     ready,
     understanding: {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       coverage: {
-        event: { status: "ENOUGH" as const, evidence: ["男朋友不想提醒我睡觉"], missingInfo: "" },
-        userImpact: ready
-          ? { status: "ENOUGH" as const, evidence: ["我很难过"], missingInfo: "" }
-          : { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
-        communicationGoal: ready
-          ? { status: "ENOUGH" as const, evidence: ["希望他知道"], missingInfo: "" }
-          : { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
+        event: {
+          participants: enough(["男朋友"]),
+          setting: notRelevant(),
+          trigger: enough(["男朋友不想提醒我睡觉"]),
+          keyInteraction: enough(["男朋友不想提醒我睡觉"]),
+          conflictPoint: enough(["男朋友不想提醒我睡觉"]),
+          historyPattern: notRelevant(),
+          currentState: notRelevant(),
+        },
+        userImpact: {
+          emotion: ready ? enough(["我很难过"]) : missing("缺少具体影响"),
+          physicalReaction: notRelevant(),
+          realLifeConsequence: notRelevant(),
+        },
+        meaningToCommunicate: {
+          personalMeaning: ready ? enough(["希望他知道"]) : missing("缺少这件事代表什么"),
+          underlyingNeed: notRelevant(),
+        },
+        desiredResponse: {
+          desiredUnderstanding: ready ? enough(["希望他知道"]) : missing("缺少希望对方理解什么"),
+          desiredAction: notRelevant(),
+          acceptableAlternative: notRelevant(),
+        },
       },
       latestAnswerUpdate: {
         absorbed,
-        updatedDimensions: absorbed ? ["communicationGoal" as const] : [],
+        updatedFields: absorbed ? ["desiredResponse.desiredUnderstanding" as const] : [],
       },
       nextQuestion: ready
-        ? { focusDimension: "none" as const, text: "", purpose: "" }
-        : { focusDimension: "userImpact" as const, text: question, purpose: "补充用户本人的感受或后果" },
+        ? { focusField: "none" as const, text: "", purpose: "" }
+        : { focusField: "userImpact.emotion" as const, text: question, purpose: "补充用户本人的感受或后果" },
     },
     safetyDisposition: "ALLOW" as const,
     safetyMessage: "",
@@ -272,7 +298,7 @@ describe("expression discovery orchestration", () => {
       safetyMessage: "请先离开可能发生伤害的环境。",
       understanding: {
         ...discoveryResponse("").understanding,
-        nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+        nextQuestion: { focusField: "none", text: "", purpose: "" },
       },
     });
     const state = useTestFlow();

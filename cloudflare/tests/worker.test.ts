@@ -44,7 +44,7 @@ import {
   understandingReviewSchema,
 } from "../src/expression-ai.ts";
 import {
-  discoveryDimensionDefinitions,
+  discoveryFieldDefinitions,
   discoveryResultSchema,
   generateDiscoveryQuestion,
   isDiscoveryResult,
@@ -163,22 +163,87 @@ function validMutualDialogueTimeline() {
   ];
 }
 
+function enough(evidence: string[]) {
+  return { status: "ENOUGH", evidence, missingInfo: "", relevanceReason: "" } as const;
+}
+
+function missing(missingInfo: string) {
+  return { status: "MISSING", evidence: [], missingInfo, relevanceReason: "" } as const;
+}
+
+function notRelevant(relevanceReason = "该信息不影响本次理解") {
+  return { status: "NOT_RELEVANT", evidence: [], missingInfo: "", relevanceReason } as const;
+}
+
 function validDiscoveryReadyResult() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: true,
     coverage: {
-      event: { status: "ENOUGH", evidence: ["昨晚他说不想每天提醒"], missingInfo: "" },
-      userImpact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
-      communicationGoal: { status: "ENOUGH", evidence: ["希望他睡前问我一次"], missingInfo: "" },
+      event: {
+        participants: enough(["他"]),
+        setting: enough(["昨晚"]),
+        trigger: enough(["他说不想每天提醒"]),
+        keyInteraction: enough(["他说不想每天提醒"]),
+        conflictPoint: enough(["他说不想每天提醒"]),
+        historyPattern: notRelevant(),
+        currentState: notRelevant(),
+      },
+      userImpact: {
+        emotion: enough(["我很失望"]),
+        physicalReaction: notRelevant(),
+        realLifeConsequence: notRelevant(),
+      },
+      meaningToCommunicate: {
+        personalMeaning: enough(["希望他睡前问我一次"]),
+        underlyingNeed: notRelevant(),
+      },
+      desiredResponse: {
+        desiredUnderstanding: notRelevant(),
+        desiredAction: enough(["希望他睡前问我一次"]),
+        acceptableAlternative: notRelevant(),
+      },
     },
-    latestAnswerUpdate: { absorbed: true, updatedDimensions: ["communicationGoal"] },
-    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    latestAnswerUpdate: { absorbed: true, updatedFields: ["desiredResponse.desiredAction"] },
+    nextQuestion: { focusField: "none", text: "", purpose: "" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
     conversationSummary: "用户希望对方睡前提醒休息。",
     memoryCandidates: [],
   } as const;
+}
+
+function discoveryCoverageFixture(input: {
+  eventEvidence: string;
+  impactEvidence?: string;
+  meaningEvidence?: string;
+  desiredEvidence?: string;
+}) {
+  return {
+    event: {
+      participants: enough([input.eventEvidence]),
+      setting: notRelevant(),
+      trigger: enough([input.eventEvidence]),
+      keyInteraction: enough([input.eventEvidence]),
+      conflictPoint: enough([input.eventEvidence]),
+      historyPattern: notRelevant(),
+      currentState: notRelevant(),
+    },
+    userImpact: {
+      emotion: input.impactEvidence ? enough([input.impactEvidence]) : missing("缺少用户本人的感受或后果"),
+      physicalReaction: notRelevant(),
+      realLifeConsequence: notRelevant(),
+    },
+    meaningToCommunicate: {
+      personalMeaning: input.meaningEvidence ? enough([input.meaningEvidence]) : missing("缺少这件事对用户代表什么"),
+      underlyingNeed: notRelevant(),
+    },
+    desiredResponse: {
+      desiredUnderstanding: input.desiredEvidence ? enough([input.desiredEvidence]) : missing("缺少希望对方理解或回应的重点"),
+      desiredAction: notRelevant(),
+      acceptableAlternative: notRelevant(),
+    },
+  };
 }
 
 function clarificationRequest() {
@@ -210,7 +275,7 @@ test("private discovery schema avoids unsupported Cloudflare grammar keywords", 
     ...valid,
     latestAnswerUpdate: {
       ...valid.latestAnswerUpdate,
-      updatedDimensions: ["communicationGoal", "communicationGoal"],
+      updatedFields: ["desiredResponse.desiredAction", "desiredResponse.desiredAction"],
     },
   };
   assert.equal(isDiscoveryResult(duplicated, input), false);
@@ -225,22 +290,38 @@ test("private discovery repairs grounded evidence instead of rejecting an otherw
     }],
   };
   const providerResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: true,
     coverage: {
-      event: { status: "ENOUGH", evidence: ["他没有提醒我早点睡"], missingInfo: "" },
-      userImpact: { status: "ENOUGH", evidence: ["晚睡会让我心情和身体都不舒服"], missingInfo: "" },
-      communicationGoal: {
-        status: "ENOUGH",
-        evidence: ["希望他提醒我", "希望他能理解你当时的心情"],
-        missingInfo: "",
+      event: {
+        participants: enough(["伴侣"]),
+        setting: enough(["前天晚上"]),
+        trigger: enough(["他没有提醒我早点睡"]),
+        keyInteraction: enough(["他没有提醒我早点睡"]),
+        conflictPoint: enough(["他没有提醒我早点睡"]),
+        historyPattern: enough(["我以前多次告诉他"]),
+        currentState: notRelevant(),
+      },
+      userImpact: {
+        emotion: enough(["我很不开心"]),
+        physicalReaction: enough(["身体都不舒服"]),
+        realLifeConsequence: enough(["晚睡会让我心情和身体都不舒服"]),
+      },
+      meaningToCommunicate: {
+        personalMeaning: enough(["晚睡会让我心情和身体都不舒服"]),
+        underlyingNeed: enough(["希望他提醒我"]),
+      },
+      desiredResponse: {
+        desiredUnderstanding: notRelevant(),
+        desiredAction: enough(["希望他提醒我", "希望他能理解你当时的心情"]),
+        acceptableAlternative: notRelevant(),
       },
     },
     latestAnswerUpdate: {
       absorbed: true,
-      updatedDimensions: ["event", "userImpact", "communicationGoal"],
+      updatedFields: ["event.historyPattern", "userImpact.physicalReaction", "userImpact.realLifeConsequence", "meaningToCommunicate.personalMeaning", "meaningToCommunicate.underlyingNeed", "desiredResponse.desiredAction"],
     },
-    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    nextQuestion: { focusField: "none", text: "", purpose: "" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
     conversationSummary: "用户希望伴侣理解晚睡带来的不适，并提醒休息。",
@@ -250,9 +331,11 @@ test("private discovery repairs grounded evidence instead of rejecting an otherw
   assert.equal(isDiscoveryResult(providerResult, input), false);
   const normalized = normalizeDiscoveryResult(providerResult, input);
   assert.equal(isDiscoveryResult(normalized, input), true);
-  assert.deepEqual((normalized as typeof providerResult).coverage.communicationGoal.evidence, ["希望他提醒我"]);
-  assert.deepEqual((normalized as typeof providerResult).latestAnswerUpdate.updatedDimensions, [
-    "userImpact", "communicationGoal",
+  assert.deepEqual((normalized as typeof providerResult).coverage.desiredResponse.desiredAction.evidence, ["希望他提醒我"]);
+  assert.deepEqual((normalized as typeof providerResult).latestAnswerUpdate.updatedFields, [
+    "event.historyPattern", "userImpact.physicalReaction", "userImpact.realLifeConsequence",
+    "meaningToCommunicate.personalMeaning", "meaningToCommunicate.underlyingNeed",
+    "desiredResponse.desiredAction",
   ]);
 
   let calls = 0;
@@ -276,17 +359,21 @@ test("private discovery does not turn an AI question into missing user evidence"
   const providerResult = {
     ...structuredClone(validDiscoveryReadyResult()),
     coverage: {
-      event: { status: "ENOUGH", evidence: ["昨晚他没有提醒我休息"], missingInfo: "" },
-      userImpact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
-      communicationGoal: { status: "ENOUGH", evidence: ["你希望他以后怎么做"], missingInfo: "" },
+      ...structuredClone(validDiscoveryReadyResult()).coverage,
+      desiredResponse: {
+        desiredUnderstanding: notRelevant(),
+        desiredAction: enough(["你希望他以后怎么做"]),
+        acceptableAlternative: notRelevant(),
+      },
     },
   };
   const normalized = normalizeDiscoveryResult(providerResult, input) as typeof providerResult;
   assert.equal(normalized.ready, false);
-  assert.deepEqual(normalized.coverage.communicationGoal, {
+  assert.deepEqual(normalized.coverage.desiredResponse.desiredAction, {
     status: "MISSING",
     evidence: [],
     missingInfo: "缺少可由用户原话确认的信息",
+    relevanceReason: "",
   });
   assert.equal(isDiscoveryResult(normalized, input), false);
 });
@@ -1043,7 +1130,7 @@ test("AI clarification verifies membership, scopes memory context, and restores 
     (((harness.adminRpcCalls[0]?.args as Record<string, unknown>).p_result as {
       understanding?: { schemaVersion?: unknown };
     }).understanding?.schemaVersion),
-    2,
+    3,
   );
   assert.deepEqual(harness.generatedInput(), {
     sourceText: "昨晚他说不想每天提醒，我很失望。",
@@ -1570,20 +1657,14 @@ test("Workers AI request uses Qwen with a bounded JSON schema", async () => {
 test("private discovery asks about missing context before any expression path is selected", async () => {
   const captured: { input?: Record<string, unknown> } = {};
   const response = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: false,
-    coverage: {
-      event: {
-        status: "ENOUGH",
-        evidence: ["我男朋友不想提醒我睡觉，并且觉得很烦"],
-        missingInfo: "",
-      },
-      userImpact: { status: "MISSING", evidence: [], missingInfo: "缺少用户本人的感受或后果" },
-      communicationGoal: { status: "MISSING", evidence: [], missingInfo: "缺少希望对方理解的重点" },
-    },
-    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
+    coverage: discoveryCoverageFixture({
+      eventEvidence: "我男朋友不想提醒我睡觉，并且觉得很烦",
+    }),
+    latestAnswerUpdate: { absorbed: false, updatedFields: [] },
     nextQuestion: {
-      focusDimension: "userImpact",
+      focusField: "userImpact.emotion",
       text: "他说觉得很烦时，你自己当时是什么感受，或者这对你有什么实际影响？",
       purpose: "补充当前用户本人的体验或后果",
     },
@@ -1607,12 +1688,12 @@ test("private discovery asks about missing context before any expression path is
   assert.equal(discoveryResultSchema.additionalProperties, false);
   assert.match(JSON.stringify(captured.input), /绝不能生成表达卡/);
   assert.match(JSON.stringify(captured.input), /不能推荐或预设非暴力沟通/);
-  assert.match(JSON.stringify(captured.input), /轮数不是理解完成的依据/);
+  assert.match(JSON.stringify(captured.input), /轮数不是完成依据/);
   assert.match(JSON.stringify(captured.input), /evidence 只能逐字摘录/);
   assert.match(JSON.stringify(captured.input), /userImpact 的主体永远是当前正在说话的用户本人/);
-  assert.match(discoveryDimensionDefinitions.userImpact, /对方的言行、态度、情绪和评价不属于/);
+  assert.match(discoveryFieldDefinitions["userImpact.emotion"], /当前用户本人/);
   assert.deepEqual(discoveryResultSchema.properties.coverage.required, [
-    "event", "userImpact", "communicationGoal",
+    "event", "userImpact", "meaningToCommunicate", "desiredResponse",
   ]);
 });
 
@@ -1625,20 +1706,19 @@ test("private discovery keeps user impact missing when the answer only explains 
     }],
   };
   const response = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: false,
-    coverage: {
-      event: { status: "ENOUGH", evidence: ["我晚上请伴侣提醒我早点休息，他嫌我烦"], missingInfo: "" },
-      userImpact: { status: "MISSING", evidence: [], missingInfo: "还没有用户本人的感受或现实后果" },
-      communicationGoal: {
-        status: "ENOUGH",
-        evidence: ["我希望他理解，提醒我早点休息是我感到被关爱的方式"],
-        missingInfo: "",
-      },
+    coverage: discoveryCoverageFixture({
+      eventEvidence: "我晚上请伴侣提醒我早点休息，他嫌我烦",
+      meaningEvidence: "我希望他理解，提醒我早点休息是我感到被关爱的方式",
+      desiredEvidence: "我希望他理解，提醒我早点休息是我感到被关爱的方式",
+    }),
+    latestAnswerUpdate: {
+      absorbed: true,
+      updatedFields: ["meaningToCommunicate.personalMeaning", "desiredResponse.desiredUnderstanding"],
     },
-    latestAnswerUpdate: { absorbed: true, updatedDimensions: ["communicationGoal"] },
     nextQuestion: {
-      focusDimension: "userImpact",
+      focusField: "userImpact.emotion",
       text: "他说你很烦时，你当时最直接的感受是什么，或者这件事对你造成了什么影响？",
       purpose: "补充当前用户本人的体验或后果",
     },
@@ -1658,15 +1738,16 @@ test("private discovery keeps user impact missing when the answer only explains 
 test("private discovery can finish without a ceremonial follow-up when context is already complete", async () => {
   const sourceText = "昨晚十一点我请男朋友提醒我睡觉，他说不想每天提醒。我很失望，希望他睡前问我一次要不要休息。";
   const response = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: true,
-    coverage: {
-      event: { status: "ENOUGH", evidence: ["昨晚十一点我请男朋友提醒我睡觉"], missingInfo: "" },
-      userImpact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
-      communicationGoal: { status: "ENOUGH", evidence: ["希望他睡前问我一次要不要休息"], missingInfo: "" },
-    },
-    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
-    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    coverage: discoveryCoverageFixture({
+      eventEvidence: "昨晚十一点我请男朋友提醒我睡觉",
+      impactEvidence: "我很失望",
+      meaningEvidence: "希望他睡前问我一次要不要休息",
+      desiredEvidence: "希望他睡前问我一次要不要休息",
+    }),
+    latestAnswerUpdate: { absorbed: false, updatedFields: [] },
+    nextQuestion: { focusField: "none", text: "", purpose: "" },
     safetyDisposition: "ALLOW",
     safetyMessage: "",
     conversationSummary: "用户希望对方睡前提醒休息，并说明了失望感受。",
@@ -1686,22 +1767,21 @@ test("private discovery can finish without a ceremonial follow-up when context i
   assert.equal(isDiscoveryResult(response, { sourceText, turns: [] }), true);
   assert.equal(isDiscoveryResult({
     ...response,
-    nextQuestion: { focusDimension: "event", text: "还发生了什么？", purpose: "继续追问" },
+    nextQuestion: { focusField: "event.currentState", text: "还发生了什么？", purpose: "继续追问" },
   }, { sourceText, turns: [] }), false);
 });
 
 test("private discovery stops safely without claiming incomplete context is ready", () => {
   const sourceText = "他刚才威胁要伤害我，我很害怕。";
   const response = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     ready: false,
-    coverage: {
-      event: { status: "ENOUGH", evidence: ["他刚才威胁要伤害我"], missingInfo: "" },
-      userImpact: { status: "ENOUGH", evidence: ["我很害怕"], missingInfo: "" },
-      communicationGoal: { status: "MISSING", evidence: [], missingInfo: "当前应先处理安全风险" },
-    },
-    latestAnswerUpdate: { absorbed: false, updatedDimensions: [] },
-    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    coverage: discoveryCoverageFixture({
+      eventEvidence: "他刚才威胁要伤害我",
+      impactEvidence: "我很害怕",
+    }),
+    latestAnswerUpdate: { absorbed: false, updatedFields: [] },
+    nextQuestion: { focusField: "none", text: "", purpose: "" },
     safetyDisposition: "PAUSE",
     safetyMessage: "请先离开可能发生伤害的环境，并联系可信任的人或当地紧急服务。",
     conversationSummary: "用户提到迫近的安全风险。",
@@ -1711,7 +1791,7 @@ test("private discovery stops safely without claiming incomplete context is read
   assert.equal(isDiscoveryResult(response, { sourceText, turns: [] }), true);
   assert.equal(isDiscoveryResult({
     ...response,
-    nextQuestion: { focusDimension: "communicationGoal", text: "你希望他怎么做？", purpose: "继续追问" },
+    nextQuestion: { focusField: "desiredResponse.desiredAction", text: "你希望他怎么做？", purpose: "继续追问" },
   }, { sourceText, turns: [] }), false);
 });
 
@@ -1726,20 +1806,32 @@ test("private discovery retries instead of repeating an answered question", asyn
         attempts += 1;
         if (attempts === 2) retryInput = input;
         return { response: JSON.stringify({
-          schemaVersion: 2,
+          schemaVersion: 3,
           ready: false,
           coverage: {
-            event: { status: "ENOUGH", evidence: ["昨晚他不愿意提醒我睡觉"], missingInfo: "" },
-            userImpact: { status: "ENOUGH", evidence: ["我很难过"], missingInfo: "" },
-            communicationGoal: {
-              status: "MISSING",
-              evidence: ["我希望他关心我"],
-              missingInfo: "还缺少希望对方采取的具体回应",
+            ...discoveryCoverageFixture({
+              eventEvidence: "昨晚他不愿意提醒我睡觉",
+              impactEvidence: "我很难过",
+              meaningEvidence: "我希望他关心我",
+              desiredEvidence: "我希望他关心我",
+            }),
+            desiredResponse: {
+              desiredUnderstanding: enough(["我希望他关心我"]),
+              desiredAction: {
+                status: "MISSING",
+                evidence: ["我希望他关心我"],
+                missingInfo: "还缺少希望对方采取的具体回应",
+                relevanceReason: "",
+              },
+              acceptableAlternative: notRelevant(),
             },
           },
-          latestAnswerUpdate: { absorbed: true, updatedDimensions: ["communicationGoal"] },
+          latestAnswerUpdate: {
+            absorbed: true,
+            updatedFields: ["meaningToCommunicate.personalMeaning", "desiredResponse.desiredUnderstanding", "desiredResponse.desiredAction"],
+          },
           nextQuestion: {
-            focusDimension: "communicationGoal",
+            focusField: "desiredResponse.desiredAction",
             text: attempts === 1 ? ` ${repeatedQuestion} ` : "对你来说，他怎样回应会让你感到被关心？",
             purpose: "补充可以被对方理解的具体回应",
           },
@@ -1779,16 +1871,12 @@ test("private discovery keeps asking for missing schema evidence after many turn
       async run(_model, input) {
         captured.input = input;
         return { response: JSON.stringify({
-          schemaVersion: 2,
+          schemaVersion: 3,
           ready: false,
-          coverage: {
-            event: { status: "ENOUGH", evidence: ["我们发生了争执"], missingInfo: "" },
-            userImpact: { status: "MISSING", evidence: [], missingInfo: "缺少用户本人的感受或后果" },
-            communicationGoal: { status: "MISSING", evidence: [], missingInfo: "缺少沟通意图" },
-          },
-          latestAnswerUpdate: { absorbed: true, updatedDimensions: [] },
+          coverage: discoveryCoverageFixture({ eventEvidence: "我们发生了争执" }),
+          latestAnswerUpdate: { absorbed: true, updatedFields: [] },
           nextQuestion: {
-            focusDimension: "userImpact",
+            focusField: "userImpact.emotion",
             text: "这次争执对你造成了什么影响？",
             purpose: "补充事件带来的影响",
           },

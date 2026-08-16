@@ -344,6 +344,13 @@ describe("private editor draft recovery", () => {
       editableExpression: {
         mode: "NVC" as const,
         fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+        fieldOwnership: {
+          observation: "AI_DRAFT" as const,
+          feeling: "AI_DRAFT" as const,
+          need: "AI_DRAFT" as const,
+          request: "AI_DRAFT" as const,
+        },
+        userEditedInvitationFields: [],
         invitation: {
           ready: true,
           title: "关于周日仍未收到消息",

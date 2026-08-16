@@ -134,6 +134,58 @@ describe("private AI clarification", () => {
     })).toBeNull();
   });
 
+  it("accepts the hierarchical v3 discovery contract and rejects malformed leaf states", () => {
+    const enough = (evidence: string[]) => ({
+      status: "ENOUGH", evidence, missingInfo: "", relevanceReason: "",
+    });
+    const missing = (missingInfo: string) => ({
+      status: "MISSING", evidence: [], missingInfo, relevanceReason: "",
+    });
+    const notRelevant = {
+      status: "NOT_RELEVANT", evidence: [], missingInfo: "",
+      relevanceReason: "该信息不影响本次理解",
+    };
+    const state = {
+      schemaVersion: 3,
+      coverage: {
+        event: {
+          participants: enough(["男朋友"]), setting: notRelevant,
+          trigger: enough(["拒绝提醒我睡觉"]), keyInteraction: enough(["他说不想提醒"]),
+          conflictPoint: enough(["是否提醒睡觉"]), historyPattern: notRelevant,
+          currentState: notRelevant,
+        },
+        userImpact: {
+          emotion: missing("缺少用户本人的情绪"),
+          physicalReaction: notRelevant, realLifeConsequence: notRelevant,
+        },
+        meaningToCommunicate: {
+          personalMeaning: missing("缺少这件事对用户代表什么"), underlyingNeed: notRelevant,
+        },
+        desiredResponse: {
+          desiredUnderstanding: missing("缺少希望对方理解什么"),
+          desiredAction: notRelevant, acceptableAlternative: notRelevant,
+        },
+      },
+      latestAnswerUpdate: { absorbed: false, updatedFields: [] },
+      nextQuestion: {
+        focusField: "userImpact.emotion",
+        text: "他说不想提醒时，你当时是什么感受？",
+        purpose: "补充用户本人的情绪",
+      },
+    };
+    expect(parseDiscoveryUnderstandingState(state)).toEqual(state);
+    expect(parseDiscoveryUnderstandingState({
+      ...state,
+      coverage: {
+        ...state.coverage,
+        userImpact: {
+          ...state.coverage.userImpact,
+          emotion: { status: "ENOUGH", evidence: [], missingInfo: "", relevanceReason: "" },
+        },
+      },
+    })).toBeNull();
+  });
+
   it("maps legacy impact and intention fields without treating them as the v2 contract", () => {
     expect(parseDiscoveryUnderstandingState({
       coverage: {
