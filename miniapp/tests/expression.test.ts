@@ -8,6 +8,7 @@ import {
   expressionAfterFieldEdit,
   expressionSharePayload,
   invitationDraftIsComplete,
+  mergeAiExpressionCandidate,
   parseAiExpressionCandidate,
 } from "../src/domain/expression";
 
@@ -115,6 +116,30 @@ describe("expression modes", () => {
     const updated = expressionAfterFieldEdit(expression, "feeling", "失望和担心");
 
     expect(updated.invitation).toEqual(expression.invitation);
+  });
+
+  it("never overwrites a user-edited card field when AI reorganizes the draft", () => {
+    const current = createEditableExpression("NVC");
+    const userEdited = expressionAfterFieldEdit(current, "feeling", "");
+    const candidate = parseAiExpressionCandidate({
+      mode: "NVC",
+      fields: {
+        observation: "昨晚对方拒绝提醒我休息",
+        feeling: "失望",
+        need: "被关心",
+        request: "睡前提醒一次",
+      },
+      uncertainties: [],
+      safetyDisposition: "ALLOW",
+      safetyMessage: "",
+    }, "NVC");
+
+    const merged = mergeAiExpressionCandidate(userEdited, candidate);
+
+    expect(merged.fields.feeling).toBe("");
+    expect(merged.fieldOwnership.feeling).toBe("USER_EDITED");
+    expect(merged.fields.request).toBe("睡前提醒一次");
+    expect(merged.fieldOwnership.request).toBe("AI_DRAFT");
   });
 
   it("bounds AI follow-up questions at the client boundary", () => {

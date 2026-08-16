@@ -1,8 +1,5 @@
--- Existing rooms can predate relationship onboarding, so the receiver may have
--- no inviter-authored context to confirm. Keep true membership/role checks as
--- permission errors, while allowing a receiver to save an independent version
--- or explicitly skip against the visible revision (zero when absent/draft).
-
+-- Let recipients continue when an older room has no inviter relationship
+-- context, while keeping real membership checks and future revision checks.
 create or replace function public.respond_room_relationship_context_v1(
   p_room_id uuid,
   p_expected_private_revision bigint,
@@ -20,8 +17,8 @@ as $$
 declare
   v_me public.participants := private.require_context_participant_v1(p_room_id);
   v_shared private.room_relationship_contexts;
-  v_mine private.participant_relationship_contexts;
   v_visible_shared_revision bigint;
+  v_mine private.participant_relationship_contexts;
   v_relationship_type text := nullif(p_payload->>'relationshipType','');
   v_relationship_other text := nullif(regexp_replace(btrim(normalize(coalesce(p_payload->>'relationshipOther',''), NFKC)), '[[:space:]]+', ' ', 'g'), '');
 begin
@@ -40,7 +37,7 @@ begin
     else 0
   end;
   if p_decision = 'CONFIRMED' and v_shared.status is distinct from 'CONFIRMED' then
-    raise exception '邀请方还没有提供可确认的关系版本。' using errcode = 'P0004';
+    raise exception '邀请方没有可确认的关系背景。请选择填写自己的版本或暂不回答。' using errcode = 'P0C02';
   end if;
   if v_visible_shared_revision <> p_seen_shared_revision then
     raise exception '邀请背景刚刚更新，请重新确认。' using errcode = '40001';
@@ -63,7 +60,7 @@ begin
       observed_difference, cultural_context, use_communication_ai, use_relationship_state_ai,
       use_difference_ai, use_culture_ai, use_inviter_shared_ai
     ) values (
-      v_me.id, p_room_id, v_me.user_id, p_status, p_step, p_decision, p_seen_shared_revision,
+      v_me.id, p_room_id, v_me.user_id, p_status, p_step, p_decision, v_visible_shared_revision,
       case when p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT' then v_relationship_type end,
       case when (p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT') and v_relationship_type = 'OTHER' then v_relationship_other end,
       case when p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT' then nullif(p_payload->>'durationRange','') end,
@@ -81,7 +78,7 @@ begin
     if v_mine.revision <> p_expected_private_revision then raise exception '你的选择刚刚在另一处更新。' using errcode = '40001'; end if;
     update private.participant_relationship_contexts set
       status = p_status, draft_step = p_step, draft_decision = p_decision,
-      seen_shared_revision = p_seen_shared_revision,
+      seen_shared_revision = v_visible_shared_revision,
       relationship_type = case when p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT' then v_relationship_type end,
       relationship_other = case when (p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT') and v_relationship_type = 'OTHER' then v_relationship_other end,
       duration_range = case when p_status = 'DIFFERENT' or p_status = 'DRAFT' and p_decision = 'DIFFERENT' then nullif(p_payload->>'durationRange','') end,

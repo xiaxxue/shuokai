@@ -574,6 +574,12 @@ export async function generateExpressionCandidate(
 ) {
   const context = parseExpressionConversationSource(input.sourceText);
   const currentDraft = sanitizedManualPayload(input.mode, input.manualPayload);
+  const userEditedFields = input.manualPayload && typeof input.manualPayload === "object" &&
+    !Array.isArray(input.manualPayload) &&
+    Array.isArray((input.manualPayload as Record<string, unknown>).__userEditedFields)
+    ? ((input.manualPayload as Record<string, unknown>).__userEditedFields as unknown[])
+      .filter((field): field is string => typeof field === "string" && field in fieldSchemas[input.mode])
+    : [];
   const modelContext = {
     ...context,
     sourceRefs: context.sourceRefs.filter((source) =>
@@ -610,7 +616,11 @@ export async function generateExpressionCandidate(
   });
   const result = generated.result as Record<string, unknown>;
   const conversation = isRecord(result.conversation) ? result.conversation : null;
-  const fields = isRecord(result.fields) ? result.fields : {};
+  const fields = isRecord(result.fields) ? { ...result.fields } : {};
+  for (const field of userEditedFields) {
+    const manualValue = isRecord(input.manualPayload) ? input.manualPayload[field] : undefined;
+    if (typeof manualValue === "string") fields[field] = manualValue.trim().slice(0, 3000);
+  }
   const invitation = conversation?.state === "READY"
     ? await generateInvitationDraft(env, { mode: input.mode, payload: fields })
     : {
@@ -621,7 +631,11 @@ export async function generateExpressionCandidate(
       tokenOutput: 0,
       latencyMs: 0,
     };
-  const finalResult: Record<string, unknown> = { ...result, invitation: invitation.draft };
+  const finalResult: Record<string, unknown> = {
+    ...result,
+    fields,
+    invitation: invitation.draft,
+  };
   return {
     ...generated,
     result: finalResult,

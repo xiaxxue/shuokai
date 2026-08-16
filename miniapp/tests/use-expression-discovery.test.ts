@@ -14,26 +14,54 @@ vi.mock("../src/services/api", () => ({
 import { useExpressionDiscovery } from "../src/composables/use-expression-discovery";
 
 function discoveryResponse(question: string, ready = false, absorbed = false) {
+  const enough = (evidence: string[]) => ({
+    status: "ENOUGH" as const, evidence, missingInfo: "", relevanceReason: "",
+  });
+  const missing = (missingInfo: string) => ({
+    status: "MISSING" as const, evidence: [], missingInfo, relevanceReason: "",
+  });
+  const notRelevant = () => ({
+    status: "NOT_RELEVANT" as const, evidence: [], missingInfo: "",
+    relevanceReason: "该信息不影响本次理解",
+  });
   return {
+    schemaVersion: 3 as const,
     question,
     ready,
     understanding: {
+      schemaVersion: 3 as const,
       coverage: {
-        event: { status: "ENOUGH" as const, evidence: ["男朋友不想提醒我睡觉"], missingInfo: "" },
-        impact: ready
-          ? { status: "ENOUGH" as const, evidence: ["觉得很烦"], missingInfo: "" }
-          : { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
-        intention: ready
-          ? { status: "ENOUGH" as const, evidence: ["希望他知道"], missingInfo: "" }
-          : { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
+        event: {
+          participants: enough(["男朋友"]),
+          setting: notRelevant(),
+          trigger: enough(["男朋友不想提醒我睡觉"]),
+          keyInteraction: enough(["男朋友不想提醒我睡觉"]),
+          conflictPoint: enough(["男朋友不想提醒我睡觉"]),
+          historyPattern: notRelevant(),
+          currentState: notRelevant(),
+        },
+        userImpact: {
+          emotion: ready ? enough(["我很难过"]) : missing("缺少具体影响"),
+          physicalReaction: notRelevant(),
+          realLifeConsequence: notRelevant(),
+        },
+        meaningToCommunicate: {
+          personalMeaning: ready ? enough(["希望他知道"]) : missing("缺少这件事代表什么"),
+          underlyingNeed: notRelevant(),
+        },
+        desiredResponse: {
+          desiredUnderstanding: ready ? enough(["希望他知道"]) : missing("缺少希望对方理解什么"),
+          desiredAction: notRelevant(),
+          acceptableAlternative: notRelevant(),
+        },
       },
       latestAnswerUpdate: {
         absorbed,
-        updatedDimensions: absorbed ? ["intention" as const] : [],
+        updatedFields: absorbed ? ["desiredResponse.desiredUnderstanding" as const] : [],
       },
       nextQuestion: ready
-        ? { focusDimension: "none" as const, text: "", purpose: "" }
-        : { focusDimension: "impact" as const, text: question, purpose: "补充具体影响" },
+        ? { focusField: "none" as const, text: "", purpose: "" }
+        : { focusField: "userImpact.emotion" as const, text: question, purpose: "补充用户本人的感受或后果" },
     },
     safetyDisposition: "ALLOW" as const,
     safetyMessage: "",
@@ -59,7 +87,6 @@ function useTestFlow() {
   const clearNotice = vi.fn();
   const flow = useExpressionDiscovery({
     room,
-    stage,
     busy,
     recording: ref(false),
     transcript,
@@ -94,7 +121,7 @@ describe("expression discovery orchestration", () => {
     );
     expect(state.flow.started.value).toBe(true);
     expect(state.flow.question.value).toContain("最希望他理解");
-    expect(state.flow.understanding.value?.nextQuestion.purpose).toBe("补充具体影响");
+    expect(state.flow.understanding.value?.nextQuestion.purpose).toBe("补充用户本人的感受或后果");
     expect(state.stage.value).toBe("RECORD");
     expect(state.busy.value).toBe(false);
   });
@@ -121,6 +148,8 @@ describe("expression discovery orchestration", () => {
     expect(state.turns.value).toHaveLength(1);
     expect(state.answer.value).toBe("");
     expect(state.flow.ready.value).toBe(true);
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.stage.value).toBe("RECORD");
   });
 
   it("continues schema-driven discovery beyond the former client and server cutoffs", async () => {
@@ -160,14 +189,15 @@ describe("expression discovery orchestration", () => {
     state.flow.finish();
 
     expect(state.selectedMode.value).toBeNull();
-    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
     expect(state.setNotice).toHaveBeenLastCalledWith(
       "info",
       "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ",
     );
   });
 
-  it("does not discard an unsent reply when route selection is requested", async () => {
+  it("keeps an unsent reply when route selection is requested", async () => {
     mocks.clarify.mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"));
     const state = useTestFlow();
     await state.flow.send();
@@ -176,10 +206,94 @@ describe("expression discovery orchestration", () => {
     state.flow.finish();
 
     expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "我还没把这句话发出去",
+    }]);
+    expect(state.answer.value).toBe("");
     expect(state.setNotice).toHaveBeenLastCalledWith(
       "info",
-      "这句话还没有发给 AI。请先发送，或清空后再选择表达路径。 ",
+      "已保留这句话。AI 会按现有内容整理，之后仍可修改。 ",
     );
+  });
+
+  it("keeps a failed reply editable and exposes both recovery paths", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。"));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "这句话不能因为 AI 失败而丢失";
+
+    await state.flow.send();
+
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.answer.value).toBe("这句话不能因为 AI 失败而丢失");
+    expect(state.turns.value).toEqual([]);
+    expect(state.flow.saveState.value).toBe("local");
+    expect(state.flow.failureMessage.value).toContain("按现有内容继续整理");
+    expect(state.busy.value).toBe(false);
+  });
+
+  it("retries a failed reply without duplicating it", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("暂时失败"))
+      .mockResolvedValueOnce(discoveryResponse("接下来希望发生什么？", false, true));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "请保留并重试这一句";
+
+    await state.flow.send();
+    await state.flow.send();
+
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "请保留并重试这一句",
+    }]);
+    expect(state.answer.value).toBe("");
+    expect(state.flow.failureMessage.value).toBe("");
+    expect(state.flow.saveState.value).toBe("saved");
+  });
+
+  it("continues after a failed reply and includes it in later organization", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("暂时失败"));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "即使没有 AI 回复，也要带上这句话";
+    await state.flow.send();
+
+    state.flow.continueAfterFailure();
+
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "即使没有 AI 回复，也要带上这句话",
+    }]);
+    expect(state.answer.value).toBe("");
+    expect(state.flow.failureMessage.value).toBe("");
+    expect(state.setNotice).toHaveBeenLastCalledWith(
+      "info",
+      "已保留当前内容。现在选择表达路径，之后仍可修改。 ",
+    );
+  });
+
+  it("can continue with the original story when the first AI reply fails", async () => {
+    mocks.clarify.mockRejectedValueOnce(new Error("暂时失败"));
+    const state = useTestFlow();
+
+    await state.flow.send();
+    state.flow.continueAfterFailure();
+
+    expect(state.flow.started.value).toBe(false);
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.transcript.value).toContain("男朋友不想提醒");
+    expect(state.turns.value).toEqual([]);
   });
 
   it("does not enter route selection after a safety stop", async () => {
@@ -189,7 +303,7 @@ describe("expression discovery orchestration", () => {
       safetyMessage: "请先离开可能发生伤害的环境。",
       understanding: {
         ...discoveryResponse("").understanding,
-        nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+        nextQuestion: { focusField: "none", text: "", purpose: "" },
       },
     });
     const state = useTestFlow();

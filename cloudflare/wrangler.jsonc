@@ -7,6 +7,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "minify": true,
+  "routes": [
+    { "pattern": "app.shuokai.me", "custom_domain": true }
+  ],
   "vars": {
     "APP_ENVIRONMENT": "production"
   },
@@ -30,6 +33,20 @@
       "/ai/clarify*",
       "/ai/understanding*",
       "/transcribe*"
+    ]
+  },
+  "queues": {
+    "producers": [
+      { "binding": "AI_JOBS_QUEUE", "queue": "shuokai-ai-jobs-production" }
+    ],
+    "consumers": [
+      {
+        "queue": "shuokai-ai-jobs-production",
+        "dead_letter_queue": "shuokai-ai-jobs-production-dlq",
+        "max_batch_size": 5,
+        "max_concurrency": 3,
+        "max_retries": 3
+      }
     ]
   }
 }

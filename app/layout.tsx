@@ -4,7 +4,7 @@ import "./globals.css";
 
 const title = "说开 SHUOKAI — 理解，不必同意";
 const description = "先各自说清，再一起看懂。一个帮助两个人准确表达、看见分歧并决定下一步的结构化沟通工具。";
-const fallbackOrigin = "https://shuok.ai";
+const fallbackOrigin = "https://shuokai.me";
 
 function resolveOrigin(hostHeader: string | null, protocolHeader: string | null) {
   const host = hostHeader?.split(",", 1)[0]?.trim() ?? "";

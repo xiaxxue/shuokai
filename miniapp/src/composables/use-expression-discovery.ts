@@ -4,7 +4,6 @@ import type {
   DiscoveryUnderstandingState,
 } from "../domain/clarification";
 import type { ExpressionMode, SafetyDisposition } from "../domain/expression";
-import type { ClientStage } from "../domain/room-state";
 import type { RoomSession } from "../domain/types";
 import { requestExpressionClarification } from "../services/api";
 import type {
@@ -17,7 +16,6 @@ type NoticeKind = "info" | "success" | "error";
 
 type DiscoveryOptions = {
   room: Ref<RoomSession | null>;
-  stage: Ref<ClientStage>;
   busy: Ref<boolean>;
   recording: Ref<boolean>;
   transcript: Ref<string>;
@@ -40,8 +38,10 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   const conversationRevision = ref(0);
   const memoryProposals = ref<PersonalMemoryItem[]>([]);
   const restored = ref(false);
-  const saveState = ref<"idle" | "local" | "saving" | "saved" | "error">("idle");
+  const saveState = ref<"idle" | "local" | "saving" | "saved">("idle");
+  const failureMessage = ref("");
   const detachedDrafts = ref<DetachedDiscoveryDraft[]>([]);
+  const modeSelectionOpen = ref(false);
 
   function reset() {
     started.value = false;
@@ -55,7 +55,9 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     memoryProposals.value = [];
     restored.value = false;
     saveState.value = "idle";
+    failureMessage.value = "";
     detachedDrafts.value = [];
+    modeSelectionOpen.value = false;
   }
 
   function restore(conversation: AiPrivateConversation) {
@@ -76,11 +78,13 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     started.value = true;
     question.value = conversation.question;
     ready.value = conversation.ready;
+    modeSelectionOpen.value = conversation.ready;
     understanding.value = conversation.understanding;
     safetyDisposition.value = conversation.safetyDisposition;
     safetyMessage.value = conversation.safetyMessage;
     restored.value = true;
     saveState.value = "saved";
+    failureMessage.value = "";
     return true;
   }
 
@@ -125,6 +129,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     )) return;
 
     options.clearNotice();
+    failureMessage.value = "";
     options.busy.value = true;
     thinking.value = true;
     saveState.value = "saving";
@@ -145,6 +150,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       }
       question.value = result.question;
       ready.value = result.ready;
+      modeSelectionOpen.value = result.ready;
       understanding.value = result.understanding;
       safetyDisposition.value = result.safetyDisposition;
       safetyMessage.value = result.safetyMessage;
@@ -155,10 +161,10 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       restored.value = false;
       saveState.value = "saved";
     } catch (error) {
-      saveState.value = "error";
-      options.setNotice(
-        "error",
-        options.formatError(error, "AI 暂时没有接住这句话，请稍后再试。"),
+      saveState.value = "local";
+      failureMessage.value = options.formatError(
+        error,
+        "这次没有收到 AI 回复。请重新尝试，或按现有内容继续整理。",
       );
     } finally {
       thinking.value = false;
@@ -166,28 +172,50 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     }
   }
 
+  function preservePendingAnswer() {
+    const answer = options.answer.value.trim();
+    if (!answer) return true;
+    const currentQuestion = question.value.trim();
+    if (!started.value || !currentQuestion) return false;
+    options.turns.value = [...options.turns.value, { question: currentQuestion, answer }];
+    options.answer.value = "";
+    saveState.value = "local";
+    return true;
+  }
+
+  function enterModeSelection(message: string) {
+    failureMessage.value = "";
+    options.selectedMode.value = null;
+    modeSelectionOpen.value = true;
+    options.setNotice("info", message);
+  }
+
   function finish() {
     if (!started.value || options.busy.value || options.recording.value) return;
     if (["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value)) return;
-    if (options.answer.value.trim()) {
-      options.setNotice("info", "这句话还没有发给 AI。请先发送，或清空后再选择表达路径。 ");
+    const preservedAnswer = Boolean(options.answer.value.trim());
+    if (!preservePendingAnswer()) {
+      options.setNotice("info", "这句话暂时无法加入当前对话，请重新发送后再继续。 ");
       return;
     }
-    options.selectedMode.value = null;
-    options.stage.value = "MODE_SELECT";
-    options.setNotice(
-      "info",
-      ready.value
-        ? "这些背景已经足够开始整理。现在选择表达路径。 "
-        : "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ",
-    );
+    let message = "你选择先停止追问。AI 会按目前提供的内容整理，之后仍可修改。 ";
+    if (ready.value) message = "这些背景已经足够开始整理。现在选择表达路径。 ";
+    if (preservedAnswer) message = "已保留这句话。AI 会按现有内容整理，之后仍可修改。 ";
+    enterModeSelection(message);
+  }
+
+  function continueAfterFailure() {
+    if (!failureMessage.value || options.busy.value || options.recording.value) return;
+    if (["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value)) return;
+    if (!options.transcript.value.trim() || !preservePendingAnswer()) return;
+    enterModeSelection("已保留当前内容。现在选择表达路径，之后仍可修改。 ");
   }
 
   return {
     started, question, ready, understanding,
     safetyDisposition, safetyMessage, thinking, reset, send, finish,
     conversationRevision, memoryProposals, restored, saveState, restore,
-    detachedDrafts,
+    detachedDrafts, failureMessage, modeSelectionOpen, continueAfterFailure,
     markLocalDraft, reapplyDetachedDraft, discardDetachedDraft, appendTranscription,
   };
 }

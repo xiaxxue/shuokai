@@ -18,13 +18,13 @@ import {
   type DiscoveryTurn,
 } from "./discovery-ai.ts";
 
-const safeDatabaseMessages: Record<string, string> = {
+export const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
   "42501": "你没有执行这个操作的权限。",
   P0001: "提交的内容不符合当前操作要求。",
   P0002: "沟通房间不存在或已经失效。",
   P0003: "AI 整理请求过于频繁，请稍后再试。",
-  P0004: "邀请方还没有提供可确认的关系版本。请选择“填写我的版本”或“暂不回答”。",
+  P0C02: "邀请方没有可确认的关系背景。请选择填写自己的版本或暂不回答。",
   "23505": "这个房间已经有另一位参与者。",
   "55000": "当前沟通阶段不能执行这个操作。",
 };
@@ -146,6 +146,41 @@ export function isValidDiscoveryTurns(value: unknown): value is DiscoveryTurn[] 
   );
 }
 
+function sameDiscoveryTurns(left: unknown, right: DiscoveryTurn[]) {
+  return isValidDiscoveryTurns(left) && JSON.stringify(left) === JSON.stringify(right);
+}
+
+function recoveredClarificationPayload(
+  value: unknown,
+  expectedRevision: number,
+  sourceText: string,
+  turns: DiscoveryTurn[],
+) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const conversation = value as Record<string, unknown>;
+  if (typeof conversation.revision !== "number" ||
+    !Number.isSafeInteger(conversation.revision) ||
+    conversation.revision <= expectedRevision ||
+    conversation.sourceText !== sourceText ||
+    !sameDiscoveryTurns(conversation.turns, turns) ||
+    !conversation.understanding || typeof conversation.understanding !== "object" ||
+    Array.isArray(conversation.understanding) ||
+    typeof conversation.ready !== "boolean" ||
+    typeof conversation.safetyDisposition !== "string" ||
+    typeof conversation.safetyMessage !== "string") return null;
+  const understanding = conversation.understanding as Record<string, unknown>;
+  return {
+    ...understanding,
+    schemaVersion: understanding.schemaVersion,
+    ready: conversation.ready,
+    safetyDisposition: conversation.safetyDisposition,
+    safetyMessage: conversation.safetyMessage,
+    conversationSummary: typeof conversation.summary === "string" ? conversation.summary : "",
+    revision: conversation.revision,
+    memoryProposals: Array.isArray(conversation.memoryProposals) ? conversation.memoryProposals : [],
+  };
+}
+
 export async function handleExpressionClarification(
   request: Request,
   env: WorkerEnv,
@@ -199,11 +234,44 @@ export async function handleExpressionClarification(
       400,
     );
   }
+  // A mobile client can give up waiting while the Worker still finishes and
+  // durably saves the answer. Make the next tap idempotent: return that exact
+  // saved turn instead of spending another model call and then conflicting on
+  // the optimistic revision.
+  const { data: existingConversation } = await supabase.rpc("get_ai_private_conversation_v1", {
+    p_room_id: input.roomId,
+  });
+  const recovered = recoveredClarificationPayload(
+    existingConversation,
+    input.expectedRevision,
+    input.sourceText.trim(),
+    input.turns,
+  );
+  if (recovered) return json(request, env, recovered);
+  if (existingConversation && typeof existingConversation === "object" &&
+    typeof (existingConversation as { revision?: unknown }).revision === "number" &&
+    Number((existingConversation as { revision: number }).revision) > input.expectedRevision) {
+    return errorJson(
+      request,
+      env,
+      "PRIVATE_CONVERSATION_CONFLICT",
+      "这段私人对话刚刚在别处更新，请重新打开后继续。",
+      409,
+    );
+  }
   try {
     const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v1", {
       p_room_id: input.roomId,
     });
-    if (memoryError) throw memoryError;
+    if (memoryError) {
+      return errorJson(
+        request,
+        env,
+        "DATABASE_REQUEST_FAILED",
+        "暂时无法读取这段私人对话的 AI 上下文，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
     const boundedMemoryContext = parseDiscoveryMemoryContext(memoryContext);
     const contextVersionObject = discoveryContextVersionObject(boundedMemoryContext);
     const contextVersion = Object.values(contextVersionObject).join(":");
@@ -216,7 +284,15 @@ export async function handleExpressionClarification(
     const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v1", {
       p_room_id: input.roomId,
     });
-    if (latestContextError) throw latestContextError;
+    if (latestContextError) {
+      return errorJson(
+        request,
+        env,
+        "DATABASE_REQUEST_FAILED",
+        "暂时无法确认 AI 上下文是否有更新，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
     if (discoveryContextVersion(latestContext) !== contextVersion) {
       return errorJson(
         request,
@@ -238,6 +314,7 @@ export async function handleExpressionClarification(
         ready: discoveryResult.ready,
         question: discoveryResult.nextQuestion.text,
         understanding: {
+          schemaVersion: discoveryResult.schemaVersion,
           coverage: discoveryResult.coverage,
           latestAnswerUpdate: discoveryResult.latestAnswerUpdate,
           nextQuestion: discoveryResult.nextQuestion,
@@ -282,8 +359,33 @@ export async function handleExpressionClarification(
       revision: savedRevision,
       memoryProposals: Array.isArray(memoryProposals) ? memoryProposals : [],
     });
-  } catch {
-    return errorJson(request, env, "AI_CLARIFICATION_FAILED", "AI 暂时没有接住这句话，请稍后再试。", 502);
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : "";
+    if (cause === "CLOUDFLARE_AI_INVALID_OUTPUT") {
+      return errorJson(
+        request,
+        env,
+        "AI_RESPONSE_INVALID",
+        "AI 这次回复没有通过安全校验，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
+    if (cause === "CLOUDFLARE_AI_QUOTA_EXHAUSTED") {
+      return errorJson(
+        request,
+        env,
+        "AI_RATE_LIMITED",
+        "AI 今日可用额度已经用完，请按现有内容继续整理。",
+        429,
+      );
+    }
+    return errorJson(
+      request,
+      env,
+      "AI_CLARIFICATION_FAILED",
+      "AI 服务这次没有完成处理，请重试或按现有内容继续整理。",
+      502,
+    );
   }
 }
 

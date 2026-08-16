@@ -13,7 +13,7 @@ vi.stubGlobal("uni", {
   request,
 });
 
-import { loginForPlatform } from "../src/services/api";
+import { loginForPlatform, requestExpressionClarification } from "../src/services/api";
 import {
   clearActiveRoom,
   clearEditorDraft,
@@ -54,6 +54,12 @@ function requestReturns(statusCode: number, data: unknown) {
   };
 }
 
+function requestFails(errMsg: string) {
+  return ({ fail }: { fail: (error: { errMsg: string }) => void }) => {
+    fail({ errMsg });
+  };
+}
+
 describe("wechat session recovery", () => {
   beforeEach(() => {
     storage.clear();
@@ -89,6 +95,63 @@ describe("wechat session recovery", () => {
     await expect(Promise.all([first, second])).resolves.toEqual([freshSession, freshSession]);
     expect(login).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AI clarification request recovery", () => {
+  beforeEach(() => {
+    storage.clear();
+    request.mockReset();
+    storage.set(sessionKey, freshSession);
+  });
+
+  it("turns a timeout into a recoverable user-facing error and allows the bounded model retry", async () => {
+    request.mockImplementationOnce(requestFails("request:fail timeout"));
+
+    const result = requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: "ApiError",
+      code: "AI_RESPONSE_TIMEOUT",
+      message: "AI 这次理解得比较慢。你的内容仍在，请重新尝试；如果结果已经保存，会直接恢复，不会重复追问。",
+    });
+    expect(request.mock.calls[0]?.[0].timeout).toBe(60000);
+  });
+
+  it("keeps non-timeout network failures separate from slow AI responses", async () => {
+    request.mockImplementationOnce(requestFails("request:fail network error"));
+
+    await expect(requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    )).rejects.toMatchObject({
+      code: "NETWORK_UNAVAILABLE",
+      message: "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
+    });
+  });
+
+  it("preserves the server error code while offering recovery", async () => {
+    request.mockImplementationOnce(requestReturns(502, {
+      code: "AI_CLARIFICATION_FAILED",
+      message: "AI 暂时没有接住这句话，请稍后再试。",
+    }));
+
+    await expect(requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    )).rejects.toEqual(expect.objectContaining({
+      code: "AI_CLARIFICATION_FAILED",
+      message: "AI 暂时没有接住这句话，请稍后再试。",
+    }));
   });
 });
 
@@ -296,6 +359,13 @@ describe("private editor draft recovery", () => {
       editableExpression: {
         mode: "NVC" as const,
         fields: { observation: "周日仍未收到消息", feeling: "失望", need: "确定感", request: "当天告诉我" },
+        fieldOwnership: {
+          observation: "AI_DRAFT" as const,
+          feeling: "AI_DRAFT" as const,
+          need: "AI_DRAFT" as const,
+          request: "AI_DRAFT" as const,
+        },
+        userEditedInvitationFields: [],
         invitation: {
           ready: true,
           title: "关于周日仍未收到消息",
@@ -317,16 +387,18 @@ describe("private editor draft recovery", () => {
       detachedDiscoveryDrafts: [{ answer: "尚未发送的旧问题回答", question: "旧问题是什么？", revision: 3 }],
       discoveryQuestion: "你当时具体说了什么？",
       discoveryReady: false,
+      discoveryModeSelectionOpen: true,
       discoveryFollowUpLimitReached: false,
       discoveryUnderstanding: {
+        schemaVersion: 2 as const,
         coverage: {
           event: { status: "ENOUGH" as const, evidence: ["当时具体说了什么"], missingInfo: "" },
-          impact: { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
-          intention: { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
+          userImpact: { status: "MISSING" as const, evidence: [], missingInfo: "缺少用户本人的感受或后果" },
+          communicationGoal: { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
         },
         latestAnswerUpdate: { absorbed: true, updatedDimensions: ["event" as const] },
         nextQuestion: {
-          focusDimension: "impact" as const,
+          focusDimension: "userImpact" as const,
           text: "这件事对你造成了什么影响？",
           purpose: "补充具体影响",
         },
@@ -348,6 +420,7 @@ describe("private editor draft recovery", () => {
       detachedDiscoveryDrafts: draft.detachedDiscoveryDrafts,
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
+      discoveryModeSelectionOpen: true,
       discoveryUnderstanding: draft.discoveryUnderstanding,
       discoverySafetyDisposition: "ALLOW",
       discoverySafetyMessage: "",

@@ -42,6 +42,7 @@ export type EditorDraft = {
   detachedDiscoveryDrafts?: DetachedDiscoveryDraft[];
   discoveryQuestion?: string;
   discoveryReady?: boolean;
+  discoveryModeSelectionOpen?: boolean;
   discoveryUnderstanding?: DiscoveryUnderstandingState;
   discoverySafetyDisposition?: EditableExpression["safetyDisposition"];
   discoverySafetyMessage?: string;
@@ -182,6 +183,9 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
   const discoveryReady = typeof candidate.discoveryReady === "boolean"
     ? candidate.discoveryReady
     : undefined;
+  const discoveryModeSelectionOpen = typeof candidate.discoveryModeSelectionOpen === "boolean"
+    ? candidate.discoveryModeSelectionOpen
+    : undefined;
   const discoveryUnderstanding = candidate.discoveryUnderstanding === undefined
     ? undefined
     : parseDiscoveryUnderstandingState(candidate.discoveryUnderstanding) ?? undefined;
@@ -221,6 +225,7 @@ export function getEditorDraft(roomId: string, role: RoomSession["role"]): Edito
     ...(detachedDiscoveryDrafts !== undefined ? { detachedDiscoveryDrafts } : {}),
     ...(discoveryQuestion !== undefined ? { discoveryQuestion } : {}),
     ...(discoveryReady !== undefined ? { discoveryReady } : {}),
+    ...(discoveryModeSelectionOpen !== undefined ? { discoveryModeSelectionOpen } : {}),
     ...(discoveryUnderstanding !== undefined ? { discoveryUnderstanding } : {}),
     ...(discoverySafetyDisposition !== undefined ? { discoverySafetyDisposition } : {}),
     ...(discoverySafetyMessage !== undefined ? { discoverySafetyMessage } : {}),

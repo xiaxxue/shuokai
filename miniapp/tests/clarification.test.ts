@@ -111,14 +111,15 @@ describe("private AI clarification", () => {
 
   it("accepts only a complete and internally consistent discovery state", () => {
     const state = {
+      schemaVersion: 2,
       coverage: {
         event: { status: "ENOUGH", evidence: ["昨晚发生争执"], missingInfo: "" },
-        impact: { status: "MISSING", evidence: [], missingInfo: "缺少具体影响" },
-        intention: { status: "MISSING", evidence: [], missingInfo: "缺少沟通意图" },
+        userImpact: { status: "MISSING", evidence: [], missingInfo: "缺少用户本人的感受或后果" },
+        communicationGoal: { status: "MISSING", evidence: [], missingInfo: "缺少沟通意图" },
       },
       latestAnswerUpdate: { absorbed: true, updatedDimensions: ["event"] },
       nextQuestion: {
-        focusDimension: "impact",
+        focusDimension: "userImpact",
         text: "这件事对你有什么影响？",
         purpose: "补充具体影响",
       },
@@ -128,9 +129,90 @@ describe("private AI clarification", () => {
       ...state,
       coverage: {
         ...state.coverage,
-        impact: { status: "ENOUGH", evidence: [], missingInfo: "" },
+        userImpact: { status: "ENOUGH", evidence: [], missingInfo: "" },
       },
     })).toBeNull();
+  });
+
+  it("accepts the hierarchical v3 discovery contract and rejects malformed leaf states", () => {
+    const enough = (evidence: string[]) => ({
+      status: "ENOUGH", evidence, missingInfo: "", relevanceReason: "",
+    });
+    const missing = (missingInfo: string) => ({
+      status: "MISSING", evidence: [], missingInfo, relevanceReason: "",
+    });
+    const notRelevant = {
+      status: "NOT_RELEVANT", evidence: [], missingInfo: "",
+      relevanceReason: "该信息不影响本次理解",
+    };
+    const state = {
+      schemaVersion: 3,
+      coverage: {
+        event: {
+          participants: enough(["男朋友"]), setting: notRelevant,
+          trigger: enough(["拒绝提醒我睡觉"]), keyInteraction: enough(["他说不想提醒"]),
+          conflictPoint: enough(["是否提醒睡觉"]), historyPattern: notRelevant,
+          currentState: notRelevant,
+        },
+        userImpact: {
+          emotion: missing("缺少用户本人的情绪"),
+          physicalReaction: notRelevant, realLifeConsequence: notRelevant,
+        },
+        meaningToCommunicate: {
+          personalMeaning: missing("缺少这件事对用户代表什么"), underlyingNeed: notRelevant,
+        },
+        desiredResponse: {
+          desiredUnderstanding: missing("缺少希望对方理解什么"),
+          desiredAction: notRelevant, acceptableAlternative: notRelevant,
+        },
+      },
+      latestAnswerUpdate: { absorbed: false, updatedFields: [] },
+      nextQuestion: {
+        focusField: "userImpact.emotion",
+        text: "他说不想提醒时，你当时是什么感受？",
+        purpose: "补充用户本人的情绪",
+      },
+    };
+    expect(parseDiscoveryUnderstandingState(state)).toEqual(state);
+    expect(parseDiscoveryUnderstandingState({
+      ...state,
+      coverage: {
+        ...state.coverage,
+        userImpact: {
+          ...state.coverage.userImpact,
+          emotion: { status: "ENOUGH", evidence: [], missingInfo: "", relevanceReason: "" },
+        },
+      },
+    })).toBeNull();
+  });
+
+  it("maps legacy impact and intention fields without treating them as the v2 contract", () => {
+    expect(parseDiscoveryUnderstandingState({
+      coverage: {
+        event: { status: "ENOUGH", evidence: ["昨晚发生争执"], missingInfo: "" },
+        impact: { status: "MISSING", evidence: [], missingInfo: "缺少具体影响" },
+        intention: { status: "MISSING", evidence: [], missingInfo: "缺少沟通目标" },
+      },
+      latestAnswerUpdate: { absorbed: true, updatedDimensions: ["impact"] },
+      nextQuestion: {
+        focusDimension: "intention",
+        text: "你希望对方理解什么？",
+        purpose: "补充沟通目标",
+      },
+    })).toEqual({
+      schemaVersion: 1,
+      coverage: {
+        event: { status: "ENOUGH", evidence: ["昨晚发生争执"], missingInfo: "" },
+        userImpact: { status: "MISSING", evidence: [], missingInfo: "缺少具体影响" },
+        communicationGoal: { status: "MISSING", evidence: [], missingInfo: "缺少沟通目标" },
+      },
+      latestAnswerUpdate: { absorbed: true, updatedDimensions: ["userImpact"] },
+      nextQuestion: {
+        focusDimension: "communicationGoal",
+        text: "你希望对方理解什么？",
+        purpose: "补充沟通目标",
+      },
+    });
   });
 
   it("preserves a prior draft when a follow-up job is canceled or fails", () => {

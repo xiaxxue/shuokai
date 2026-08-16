@@ -2,11 +2,29 @@ import {
   optionLabel,
   relationshipTypeOptions,
   type RoomRelationshipContext,
+  type SharedRelationshipContext,
 } from "../domain/profile-context";
 import type { ClientStage } from "../domain/room-state";
 import type { RoomSession } from "../domain/types";
 
 export type RelationshipOnboardingSubmitOutcome = "saved" | "failed" | "ignored" | "stale";
+export type RecipientRelationshipDecision = "CONFIRMED" | "DIFFERENT" | "SKIPPED";
+
+const decisionsWithInviterVersion: readonly RecipientRelationshipDecision[] = ["CONFIRMED", "DIFFERENT", "SKIPPED"];
+const decisionsWithoutInviterVersion: readonly RecipientRelationshipDecision[] = ["DIFFERENT", "SKIPPED"];
+
+export function recipientRelationshipDecisions(
+  sharedStatus: SharedRelationshipContext["status"],
+): readonly RecipientRelationshipDecision[] {
+  return sharedStatus === "CONFIRMED" ? decisionsWithInviterVersion : decisionsWithoutInviterVersion;
+}
+
+export function normalizeRecipientRelationshipDecision(
+  decision: RecipientRelationshipDecision | null,
+  sharedStatus: SharedRelationshipContext["status"],
+): RecipientRelationshipDecision | null {
+  return decision && recipientRelationshipDecisions(sharedStatus).includes(decision) ? decision : null;
+}
 
 export type InviteRelationshipSummary = {
   ready: boolean;

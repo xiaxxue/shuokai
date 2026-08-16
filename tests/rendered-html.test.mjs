@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("presents the official site and links to the real H5 client", async () => {
+test("presents the official site honestly while the production H5 is still being refined", async () => {
   const [page, layout, authPanel] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -11,11 +11,14 @@ test("presents the official site and links to the real H5 client", async () => {
 
   assert.match(layout, /说开 SHUOKAI/);
   assert.match(layout, /resolveOrigin/);
-  assert.match(layout, /fallbackOrigin/);
+  assert.match(layout, /https:\/\/shuokai\.me/);
   assert.match(page, /有些话/);
-  assert.match(page, /理解不等于同意/);
-  assert.match(page, /href=\{productUrl\}/);
-  assert.match(page, /shuokai-supabase-test\.shuokai\.workers\.dev/);
+  assert.match(page, /理解，不必同意/);
+  assert.match(page, /H5 正式版打磨中/);
+  assert.match(page, /看看说开怎么工作/);
+  assert.doesNotMatch(page, /https:\/\/app\.shuokai\.me/);
+  assert.doesNotMatch(page, /开始一次说开|进入 H5 正式版/);
+  assert.doesNotMatch(page, /shuokai-supabase-test\.shuokai\.workers\.dev/);
   assert.doesNotMatch(page, /simulate_partner|demo|mock|演示|模拟/iu);
   assert.match(authPanel, /创建账号/);
   assert.doesNotMatch(authPanel, /测试账号|demo|mock|演示|模拟/iu);

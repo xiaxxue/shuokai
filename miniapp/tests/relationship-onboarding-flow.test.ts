@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   createRelationshipOnboardingSubmitter,
+  normalizeRecipientRelationshipDecision,
+  recipientRelationshipDecisions,
   relationshipOnboardingStage,
   summarizeInviteRelationship,
 } from "../src/services/relationship-onboarding-flow";
@@ -81,7 +83,7 @@ describe("relationship onboarding submission flow", () => {
 
     expect(component).toContain("你准备邀请谁来沟通？");
     expect(component).toContain("暂不说明关系，继续沟通");
-    expect(component).toContain('v-for="item in availableDecisions"');
+    expect(component).toContain('v-for="item in decisions"');
     expect(page).toContain("分享给谁");
     expect(page).toContain("!inviteRelationshipSummary.ready");
     expect(page).toContain("关系说明尚未保存。请补充关系说明，或选择暂不说明后再分享。");
@@ -204,6 +206,15 @@ describe("relationship onboarding submission flow", () => {
 });
 
 describe("relationship onboarding restoration routing", () => {
+  it("only offers confirmation when an inviter version is actually visible", () => {
+    expect(recipientRelationshipDecisions("CONFIRMED")).toEqual(["CONFIRMED", "DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("MISSING")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("DRAFT")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(recipientRelationshipDecisions("SKIPPED")).toEqual(["DIFFERENT", "SKIPPED"]);
+    expect(normalizeRecipientRelationshipDecision("CONFIRMED", "MISSING")).toBeNull();
+    expect(normalizeRecipientRelationshipDecision("DIFFERENT", "MISSING")).toBe("DIFFERENT");
+  });
+
   it("resumes incomplete role A context and advances completed role A context", () => {
     expect(relationshipOnboardingStage(
       { workflowVersion: 2, role: "A", state: "GOAL_SETTING" },

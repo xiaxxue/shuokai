@@ -5,7 +5,8 @@ import type {
 } from "../domain/types";
 import type { EditableExpression, ExpressionMode } from "../domain/expression";
 import {
-  discoveryDimensions,
+  discoveryUnderstandingV3FocusIsMissing,
+  discoveryUnderstandingV3IsReady,
   isRepeatedDiscoveryQuestion,
   parseDiscoveryUnderstandingState,
   type ClarificationTurn,
@@ -468,7 +469,7 @@ export async function requestExpressionOrganization(
   expectedRevision: number,
   sourceText: string,
   selectedMode: Exclude<ExpressionMode, "PAUSE">,
-  manualPayload: EditableExpression["fields"] = {},
+  currentExpression: EditableExpression,
 ) {
   const session = await activeSession();
   const response = await request<unknown>({
@@ -478,7 +479,18 @@ export async function requestExpressionOrganization(
       Authorization: `Bearer ${session.accessToken}`,
       "content-type": "application/json",
     },
-    data: { roomId, expectedRevision, sourceText, selectedMode, manualPayload },
+    data: {
+      roomId,
+      expectedRevision,
+      sourceText,
+      selectedMode,
+      manualPayload: {
+        ...currentExpression.fields,
+        __userEditedFields: Object.entries(currentExpression.fieldOwnership)
+          .filter(([, ownership]) => ownership === "USER_EDITED")
+          .map(([field]) => field),
+      },
+    },
     timeout: 25000,
   });
   if (response.statusCode !== 202 || !response.data || typeof response.data !== "object") {
@@ -498,42 +510,67 @@ export async function requestExpressionClarification(
   turns: ClarificationTurn[],
 ) {
   const session = await activeSession();
-  const response = await request<unknown>({
-    url: apiUrl("/ai/clarify"),
-    method: "POST",
-    header: {
-      Authorization: `Bearer ${session.accessToken}`,
-      "content-type": "application/json",
-    },
-    data: { roomId, expectedRevision, sourceText, turns },
-    timeout: 25000,
-  });
+  let response: ApiResponse<unknown>;
+  try {
+    response = await request<unknown>({
+      url: apiUrl("/ai/clarify"),
+      method: "POST",
+      header: {
+        Authorization: `Bearer ${session.accessToken}`,
+        "content-type": "application/json",
+      },
+      data: { roomId, expectedRevision, sourceText, turns },
+      // Discovery schema v3 may need one provider-side repair pass. Keep the
+      // transport alive long enough for that bounded retry to finish instead
+      // of turning normal model variance into a false network failure.
+      timeout: 60000,
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && /timeout/i.test(error.message);
+    throw new ApiError(
+      timedOut
+        ? "AI 这次理解得比较慢。你的内容仍在，请重新尝试；如果结果已经保存，会直接恢复，不会重复追问。"
+        : "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
+      timedOut ? "AI_RESPONSE_TIMEOUT" : "NETWORK_UNAVAILABLE",
+    );
+  }
   if (response.statusCode !== 200 || !response.data || typeof response.data !== "object") {
-    throw new Error(errorMessage(response.data, "AI 暂时没有接住这句话，请稍后再试。"));
+    throw new ApiError(
+      errorMessage(response.data, "这次没有收到 AI 回复。请重新尝试，或按现有内容继续整理。"),
+      responseErrorCode(response.data),
+    );
   }
   const result = response.data as Record<string, unknown>;
   const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
   const understanding = parseDiscoveryUnderstandingState(result);
-  const allCovered = Boolean(understanding && discoveryDimensions.every((dimension) =>
-    understanding.coverage[dimension].status === "ENOUGH"));
   const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(result.safetyDisposition));
   const hasStopped = Boolean(result.ready || safetyStopped);
-  const nextQuestion = understanding?.nextQuestion;
-  if (!understanding || typeof result.ready !== "boolean" ||
-    result.ready !== allCovered ||
+  if (!understanding || understanding.schemaVersion !== 3 || result.schemaVersion !== 3 ||
+    typeof result.ready !== "boolean" ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
-    typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||
+    typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000) {
+    throw new ApiError(
+      "AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。",
+      "AI_RESPONSE_INVALID",
+    );
+  }
+  const allCovered = discoveryUnderstandingV3IsReady(understanding);
+  const nextQuestion = understanding.nextQuestion;
+  if (result.ready !== allCovered ||
     (turns.length === 0
-      ? understanding.latestAnswerUpdate.absorbed || understanding.latestAnswerUpdate.updatedDimensions.length > 0
+      ? understanding.latestAnswerUpdate.absorbed || understanding.latestAnswerUpdate.updatedFields.length > 0
       : !understanding.latestAnswerUpdate.absorbed) ||
     (hasStopped
-      ? nextQuestion?.focusDimension !== "none" || Boolean(nextQuestion.text.trim()) ||
+      ? nextQuestion?.focusField !== "none" || Boolean(nextQuestion.text.trim()) ||
         Boolean(nextQuestion.purpose.trim())
-      : nextQuestion?.focusDimension === "none" || !nextQuestion?.text.trim() ||
+      : nextQuestion?.focusField === "none" || !nextQuestion?.text.trim() ||
         !nextQuestion.purpose.trim() ||
-        understanding.coverage[nextQuestion.focusDimension].status !== "MISSING" ||
+        !discoveryUnderstandingV3FocusIsMissing(understanding) ||
         isRepeatedDiscoveryQuestion(nextQuestion.text, turns))) {
-    throw new Error("AI 私人对话返回了无效内容，请稍后重试。");
+    throw new ApiError(
+      "AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。",
+      "AI_RESPONSE_INVALID",
+    );
   }
   return {
     question: understanding.nextQuestion.text,

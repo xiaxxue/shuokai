@@ -23,6 +23,8 @@ export type ExpressionModeOption = {
 export type EditableExpression = {
   mode: ExpressionMode;
   fields: Record<string, string>;
+  fieldOwnership: Record<string, "EMPTY" | "AI_DRAFT" | "USER_EDITED">;
+  userEditedInvitationFields: Array<"title" | "summary">;
   invitation: EditableInvitationDraft;
   uncertainties: string[];
   safetyDisposition: SafetyDisposition;
@@ -86,9 +88,17 @@ export function expressionAfterFieldEdit(
   const next = {
     ...expression,
     fields: { ...expression.fields, [key]: value },
+    fieldOwnership: {
+      ...expression.fieldOwnership,
+      [key]: "USER_EDITED" as const,
+    },
   };
   if (key !== invitationSourceField(expression.mode)) return next;
-  return { ...next, invitation: invitationDraftFromExpression(next) };
+  const invitation = invitationDraftFromExpression(next);
+  for (const editedKey of expression.userEditedInvitationFields) {
+    invitation[editedKey] = expression.invitation[editedKey];
+  }
+  return { ...next, invitation };
 }
 
 const nvcFields: readonly ExpressionField[] = [
@@ -227,6 +237,8 @@ export function createEditableExpression(mode: ExpressionMode): EditableExpressi
   const expression: EditableExpression = {
     mode,
     fields: Object.fromEntries(expressionModeOption(mode).fields.map((field) => [field.key, ""])),
+    fieldOwnership: Object.fromEntries(expressionModeOption(mode).fields.map((field) => [field.key, "EMPTY"])),
+    userEditedInvitationFields: [],
     invitation: { ready: false, title: "", summary: "", sourceHash: "", generatedByAi: false },
     uncertainties: [],
     safetyDisposition: "ALLOW",
@@ -256,6 +268,20 @@ export function parseAiExpressionCandidate(value: unknown, expectedMode: Express
     }
     fields[field.key] = content;
   }
+  const rawFieldOwnership = isRecord(value.fieldOwnership) ? value.fieldOwnership : null;
+  const fieldOwnership: EditableExpression["fieldOwnership"] = rawFieldOwnership
+    ? Object.fromEntries(option.fields.map((field) => {
+      const ownership = rawFieldOwnership[field.key];
+      return [field.key, ["EMPTY", "AI_DRAFT", "USER_EDITED"].includes(String(ownership))
+        ? ownership
+        : fields[field.key]?.trim() ? "AI_DRAFT" : "EMPTY"];
+    })) as EditableExpression["fieldOwnership"]
+    : Object.fromEntries(option.fields.map((field) =>
+      [field.key, fields[field.key]?.trim() ? "AI_DRAFT" : "EMPTY"])) as EditableExpression["fieldOwnership"];
+  const userEditedInvitationFields = Array.isArray(value.userEditedInvitationFields) &&
+    value.userEditedInvitationFields.every((field) => field === "title" || field === "summary")
+    ? [...new Set(value.userEditedInvitationFields)] as Array<"title" | "summary">
+    : [];
   const uncertainties = Array.isArray(value.uncertainties) && value.uncertainties.length <= 3 &&
     value.uncertainties.every((item) =>
     typeof item === "string" && item.length <= 500
@@ -279,7 +305,39 @@ export function parseAiExpressionCandidate(value: unknown, expectedMode: Express
   if (invitation.ready && !invitationDraftIsComplete(invitation)) {
     throw new Error("AI 返回的邀请说明格式无效，请修改后再确认。");
   }
-  return { mode: expectedMode, fields, invitation, uncertainties, safetyDisposition, safetyMessage };
+  return {
+    mode: expectedMode,
+    fields,
+    fieldOwnership,
+    userEditedInvitationFields,
+    invitation,
+    uncertainties,
+    safetyDisposition,
+    safetyMessage,
+  };
+}
+
+export function mergeAiExpressionCandidate(
+  current: EditableExpression,
+  candidate: EditableExpression,
+) {
+  if (current.mode !== candidate.mode) return candidate;
+  const fields = { ...candidate.fields };
+  const fieldOwnership = { ...candidate.fieldOwnership };
+  for (const [key, ownership] of Object.entries(current.fieldOwnership)) {
+    if (ownership !== "USER_EDITED") continue;
+    fields[key] = current.fields[key] ?? "";
+    fieldOwnership[key] = "USER_EDITED";
+  }
+  const invitation = { ...candidate.invitation };
+  for (const key of current.userEditedInvitationFields) invitation[key] = current.invitation[key];
+  return {
+    ...candidate,
+    fields,
+    fieldOwnership,
+    invitation,
+    userEditedInvitationFields: [...current.userEditedInvitationFields],
+  };
 }
 
 export function expressionIsComplete(expression: EditableExpression) {

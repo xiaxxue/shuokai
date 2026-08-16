@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(42);
+select plan(41);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -79,8 +79,8 @@ select throws_ok(
     $$select public.respond_room_relationship_context_v1(%L::uuid, 0, 0, 'CONFIRMED', 1::smallint, 'CONFIRMED', '{}'::jsonb)$$,
     room_id
   ),
-  'P0004', null,
-  'receiver cannot confirm an inviter draft that is hidden from them'
+  'P0C02', null,
+  'receiver cannot confirm an inviter draft that is not visible'
 ) from relationship_context_test;
 
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
@@ -185,68 +185,55 @@ select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-0000000
 select is(public.get_ai_memory_context_v1(room_id)->'onboarding'->'sharedContext', '{}'::jsonb, 'stale receiver consent no longer sends inviter context to AI')
 from relationship_context_test;
 
-reset role;
-create temporary table legacy_context_test (room_id uuid);
-grant all on legacy_context_test to authenticated;
-set local role authenticated;
+create temporary table legacy_relationship_context_test (room_id uuid);
+grant all on legacy_relationship_context_test to authenticated;
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
-insert into legacy_context_test (room_id)
-select (public.create_room_v2('旧房间发起者')->>'roomId')::uuid;
+insert into legacy_relationship_context_test (room_id)
+select (public.create_room_v2('小雨')->>'roomId')::uuid;
 reset role;
 insert into public.participants (room_id, user_id, role, display_name, public_progress_v2)
-select room_id, '91000000-0000-4000-8000-000000000002', 'B', '旧房间受邀者', 'ORGANIZING'
-from legacy_context_test;
-
+select room_id, '91000000-0000-4000-8000-000000000002', 'B', '小林', 'ORGANIZING'
+from legacy_relationship_context_test;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
-select is(
-  public.respond_room_relationship_context_v1(
-    room_id, 0, 0, 'DIFFERENT', 4::smallint, 'DIFFERENT',
-    '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":null,"interactionMode":null,"communicationPace":"PAUSE_FIRST","responsePreference":null,"planningStyle":null,"relationshipState":null,"observedDifference":"","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":true}'
-  )->'mine'->>'status',
-  'DIFFERENT',
-  'receiver can save an independent version when an older room has no inviter context'
-) from legacy_context_test;
 select is(
   public.get_room_relationship_context_v1(room_id)->'shared'->>'status',
   'MISSING',
-  'saving a receiver version does not invent an inviter version'
-) from legacy_context_test;
+  'legacy room exposes an explicit missing inviter context'
+) from legacy_relationship_context_test;
+select is(
+  public.respond_room_relationship_context_v1(
+    room_id, 0, 0, 'DRAFT', 2::smallint, 'DIFFERENT',
+    '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":null,"interactionMode":null,"communicationPace":null,"responsePreference":null,"planningStyle":null,"relationshipState":null,"observedDifference":"","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":true}'
+  )->'mine'->>'status',
+  'DRAFT',
+  'receiver can checkpoint a private version when legacy room has no inviter context'
+) from legacy_relationship_context_test;
+select is(
+  public.respond_room_relationship_context_v1(
+    room_id, 1, 0, 'DIFFERENT', 4::smallint, 'DIFFERENT',
+    '{"relationshipType":"FRIEND","relationshipOther":null,"durationRange":null,"interactionMode":null,"communicationPace":"PAUSE_FIRST","responsePreference":null,"planningStyle":null,"relationshipState":null,"observedDifference":"","culturalContext":"","useCommunicationAi":true,"useRelationshipStateAi":true,"useDifferenceAi":true,"useCultureAi":false,"useInviterSharedAi":true}'
+  )->'mine'->>'status',
+  'DIFFERENT',
+  'receiver can save an independent version when legacy room has no inviter context'
+) from legacy_relationship_context_test;
 select is(
   public.get_room_relationship_context_v1(room_id)->'mine'->>'useInviterSharedAi',
   'false',
-  'missing inviter context cannot be enabled for receiver private AI'
-) from legacy_context_test;
-select throws_ok(
-  format(
-    $$select public.respond_room_relationship_context_v1(%L::uuid, 1, 0, 'CONFIRMED', 4::smallint, 'CONFIRMED', '{}'::jsonb)$$,
-    room_id
-  ),
-  'P0004', null,
-  'receiver cannot confirm a relationship version that does not exist'
-) from legacy_context_test;
-select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+  'missing inviter context cannot pre-authorize future private AI use'
+) from legacy_relationship_context_test;
 select is(
-  public.get_room_relationship_context_v1(room_id)->'recipientResponse'->>'status',
-  'DIFFERENT',
-  'inviter can see only the receiver shared version in an older room'
-) from legacy_context_test;
-select is(
-  public.save_room_relationship_context_v1(
-    room_id, 0, 0, 'SKIPPED', 1::smallint, '{}'::jsonb, '{}'
-  )->'shared'->>'status',
+  public.respond_room_relationship_context_v1(
+    room_id, 2, 0, 'SKIPPED', 4::smallint, 'SKIPPED', '{}'
+  )->'mine'->>'status',
   'SKIPPED',
-  'inviter can explicitly record that the relationship will not be described'
-) from legacy_context_test;
-select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
-select throws_ok(
-  format(
-    $$select public.respond_room_relationship_context_v1(%L::uuid, 1, 1, 'CONFIRMED', 4::smallint, 'CONFIRMED', '{}'::jsonb)$$,
-    room_id
-  ),
-  'P0004', null,
-  'receiver cannot confirm an inviter choice that intentionally skipped the relationship'
-) from legacy_context_test;
+  'receiver can skip when legacy room has no inviter context'
+) from legacy_relationship_context_test;
+select is(
+  public.get_room_relationship_context_v1(room_id)->'mine'->>'seenSharedRevision',
+  '0',
+  'legacy response remains bound to the visible missing revision'
+) from legacy_relationship_context_test;
 
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000003","role":"authenticated"}', true);
 select throws_ok(

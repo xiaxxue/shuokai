@@ -99,6 +99,7 @@
       :enhanced="true"
       :show-scrollbar="false"
       :scroll-top="contentScrollTop"
+      :scroll-into-view="contentScrollIntoView"
       @scroll="contentScrollTop = $event.detail.scrollTop"
     >
       <view v-if="stage === 'WELCOME'" class="screen welcome-screen">
@@ -225,6 +226,8 @@
         :question="discoveryQuestion"
         :started="discoveryStarted"
         :ready="discoveryReady"
+        :mode-selection-open="discoveryModeSelectionOpen"
+        :selected-mode="selectedMode"
         :busy="busy"
         :thinking="discoveryThinking"
         :recording="recording"
@@ -235,6 +238,7 @@
         :safety-disposition="discoverySafetyDisposition"
         :safety-message="discoverySafetyMessage"
         :restored="discoveryRestored"
+        :failure-message="discoveryFailureMessage"
         :save-state="discoverySaveState"
         :memory-proposals="discoveryMemoryProposals"
         :detached-drafts="discoveryDetachedDrafts"
@@ -243,6 +247,8 @@
         @update:answer="clarificationAnswer = $event"
         @send="sendDiscoveryMessage"
         @finish="finishDiscovery"
+        @select-mode="chooseExpressionMode"
+        @continue-after-failure="continueDiscoveryAfterFailure"
         @record="toggleRecording"
         @view-invitation="showInvitationIntro"
         @retry-invitation="refreshInvitationContext()"
@@ -310,9 +316,15 @@
         :source-text="transcript"
         :mode-title="currentExpressionOption.title"
         :model-value="editableExpression"
+        :organization-pending="Boolean(aiJobId)"
+        :organization-failure="expressionOrganizationFailure"
+        :updated-field-keys="expressionUpdatedFieldKeys"
         @update:answer="clarificationAnswer = $event"
         @continue="continueClarification"
-        @finish="skipClarification"
+        @retry="retryExpressionOrganization"
+        @confirm="confirmExpressionWorkspace"
+        @update-field="updateExpressionField"
+        @update-invitation="updateInvitationDraft"
         @change-mode="changeExpressionMode"
       />
 
@@ -595,6 +607,7 @@ import {
   expressionAfterFieldEdit,
   invitationDraftFromExpression,
   invitationDraftIsComplete,
+  mergeAiExpressionCandidate,
   parseAiExpressionCandidate,
   type EditableExpression,
   type ExpressionMode,
@@ -643,6 +656,7 @@ import { useRoomHistory } from "../../composables/use-room-history";
 import { useExpressionDiscovery } from "../../composables/use-expression-discovery";
 import { restoreH5Auth, signOutH5, type H5AuthResult } from "../../services/auth";
 import { createNoticeController, type Notice } from "../../services/notice";
+import { userFacingErrorMessage } from "../../services/user-facing-error";
 import { startRecording, stopRecording } from "../../services/recorder";
 import {
   clearEditorDraft,
@@ -711,6 +725,7 @@ const snapshot = ref<RoomSnapshot | null>(null);
 const goal = ref(goals[0].title);
 const joinCode = ref("");
 const contentScrollTop = ref(0);
+const contentScrollIntoView = ref("");
 const recording = ref(false);
 const recordingSeconds = ref(0);
 const busy = ref(false);
@@ -779,6 +794,8 @@ const selectedMode = ref<ExpressionMode | null>(null);
 const editableExpression = ref<EditableExpression>(createEditableExpression("NVC"));
 const workspaceRevision = ref(0);
 const aiJobId = ref("");
+const expressionOrganizationFailure = ref("");
+const expressionUpdatedFieldKeys = ref<string[]>([]);
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const clarificationAnswer = ref("");
 const clarificationSkipped = ref(false);
@@ -799,7 +816,7 @@ let aiPollTimer: ReturnType<typeof setTimeout> | null = null;
 let invitationContextRequest = 0;
 let recordingTarget: "transcript" | "answer" = "transcript";
 const expressionDiscovery = useExpressionDiscovery({
-  room, stage, busy, recording, transcript, selectedMode,
+  room, busy, recording, transcript, selectedMode,
   turns: clarificationTurns,
   answer: clarificationAnswer,
   setNotice, clearNotice, formatError: message,
@@ -812,11 +829,14 @@ const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
 const discoveryRestored = expressionDiscovery.restored;
+const discoveryFailureMessage = expressionDiscovery.failureMessage;
+const discoveryModeSelectionOpen = expressionDiscovery.modeSelectionOpen;
 const discoverySaveState = expressionDiscovery.saveState;
 const discoveryMemoryProposals = expressionDiscovery.memoryProposals;
 const discoveryDetachedDrafts = expressionDiscovery.detachedDrafts;
 const sendDiscoveryMessage = expressionDiscovery.send;
 const finishDiscovery = expressionDiscovery.finish;
+const continueDiscoveryAfterFailure = expressionDiscovery.continueAfterFailure;
 const sharedUnderstanding = useSharedUnderstanding({
   room, stage, busy, transcript, selectedMode, workspaceRevision,
   updateRoom, setNotice, clearNotice, formatError: message, confirmPause,
@@ -834,6 +854,17 @@ let workspaceGeneration = 0;
 watch(stage, () => {
   contentScrollTop.value = contentScrollTop.value === 0 ? 1 : 0;
 }, { flush: "post" });
+
+watch(
+  [discoveryThinking, discoveryReady, discoveryModeSelectionOpen, () => clarificationTurns.value.length],
+  async () => {
+    if (stage.value !== "RECORD") return;
+    contentScrollIntoView.value = "";
+    await nextTick();
+    contentScrollIntoView.value = "discovery-tail";
+  },
+  { flush: "post" },
+);
 
 watch(recording, (isRecording) => {
   if (recordingTimer) clearInterval(recordingTimer);
@@ -1005,7 +1036,7 @@ function formatReviewDate(value: string) {
 }
 
 function message(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  return userFacingErrorMessage(error, fallback);
 }
 
 function isWorkspaceConflict(error: unknown) {
@@ -1312,7 +1343,7 @@ function addOptionalClarificationQuestion() {
 }
 
 function openExpressionCandidate() {
-  const question = expressionCandidateClarificationQuestion(
+  let question = expressionCandidateClarificationQuestion(
     editableExpression.value.uncertainties,
     clarificationTurns.value,
     editableExpression.value,
@@ -1321,8 +1352,12 @@ function openExpressionCandidate() {
   if (question && !currentClarificationQuestion.value) {
     editableExpression.value = { ...editableExpression.value, uncertainties: [question] };
   }
-  if (question) stage.value = "CLARIFICATION_CHAT";
-  else openExpressionReview();
+  if (!question) {
+    question = optionalClarificationQuestion(clarificationTurns.value);
+    if (question) editableExpression.value = { ...editableExpression.value, uncertainties: [question] };
+  }
+  clarificationSkipped.value = false;
+  stage.value = "CLARIFICATION_CHAT";
 }
 
 function resetPrivateWorkspace() {
@@ -1341,6 +1376,8 @@ function resetPrivateWorkspace() {
   editableExpression.value = createEditableExpression("NVC");
   workspaceRevision.value = 0;
   aiJobId.value = "";
+  expressionOrganizationFailure.value = "";
+  expressionUpdatedFieldKeys.value = [];
   expressionReviewStep.value = 0;
   resetClarification();
   expressionDiscovery.reset();
@@ -1391,6 +1428,7 @@ function flushEditorDraft() {
     detachedDiscoveryDrafts: expressionDiscovery.detachedDrafts.value,
     discoveryQuestion: discoveryQuestion.value,
     discoveryReady: discoveryReady.value,
+    discoveryModeSelectionOpen: discoveryModeSelectionOpen.value,
     discoveryUnderstanding: discoveryUnderstanding.value ?? undefined,
     discoverySafetyDisposition: discoverySafetyDisposition.value,
     discoverySafetyMessage: discoverySafetyMessage.value,
@@ -1427,6 +1465,9 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
   }
   if (draft.discoveryQuestion !== undefined) discoveryQuestion.value = draft.discoveryQuestion;
   if (draft.discoveryReady !== undefined) discoveryReady.value = draft.discoveryReady;
+  if (draft.discoveryModeSelectionOpen !== undefined) {
+    discoveryModeSelectionOpen.value = draft.discoveryModeSelectionOpen;
+  }
   if (draft.discoveryUnderstanding !== undefined) {
     discoveryUnderstanding.value = draft.discoveryUnderstanding;
   }
@@ -1434,9 +1475,10 @@ function restoreEditorDraft(roomSession: RoomSession, minimumWorkspaceRevision =
     discoverySafetyDisposition.value = draft.discoverySafetyDisposition;
   }
   if (draft.discoverySafetyMessage !== undefined) discoverySafetyMessage.value = draft.discoverySafetyMessage;
-  if (draft.editorStage && roomIsDrafting(roomSession)) stage.value = draft.editorStage;
-  if (stage.value === "EXPRESSION_REVIEW" && currentClarificationQuestion.value) {
-    stage.value = "CLARIFICATION_CHAT";
+  if (draft.editorStage && roomIsDrafting(roomSession)) {
+    stage.value = ["AI_PENDING", "EXPRESSION_REVIEW"].includes(draft.editorStage)
+      ? "CLARIFICATION_CHAT"
+      : draft.editorStage;
   }
   draftSaveState.value = "saved";
   if (draft.aiJobId && ["AI_PENDING", "CLARIFICATION_CHAT", "EXPRESSION_REVIEW"].includes(draft.editorStage ?? "")) {
@@ -1518,7 +1560,7 @@ async function loadSnapshot(roomSession: RoomSession, prefetched?: RoomSnapshot)
     if (workspace.flowState === "PAUSED") authoritativeEditorStage = "PAUSED";
     else if (workspace.selectedMode && workspace.selectedMode !== "PAUSE" && workspace.aiCandidate) {
       editableExpression.value = parseAiExpressionCandidate(workspace.aiCandidate, workspace.selectedMode);
-      authoritativeEditorStage = currentClarificationQuestion.value ? "CLARIFICATION_CHAT" : "EXPRESSION_REVIEW";
+      authoritativeEditorStage = "CLARIFICATION_CHAT";
     }
   }
   if (stage.value !== "INVITATION_INTRO") restoreEditorDraft(roomSession, minimumWorkspaceRevision);
@@ -1999,14 +2041,70 @@ function updateInvitationDraft(key: "title" | "summary", value: string) {
       ...next,
       ready: invitationDraftIsComplete({ ...next, ready: true }),
     },
+    userEditedInvitationFields: [
+      ...new Set([...editableExpression.value.userEditedInvitationFields, key]),
+    ],
   };
 }
 
 function changeExpressionMode() {
   stopExpressionJobPolling();
+  expressionOrganizationFailure.value = "";
+  expressionUpdatedFieldKeys.value = [];
   expressionReviewStep.value = 0;
   selectedMode.value = null;
   stage.value = "MODE_SELECT";
+}
+
+async function chooseExpressionMode(mode: ExpressionMode) {
+  if (!room.value || busy.value) return;
+  clearNotice();
+  selectedMode.value = mode;
+  if (mode === "PAUSE") {
+    if (!await confirmPause()) {
+      selectedMode.value = null;
+      return;
+    }
+    busy.value = true;
+    try {
+      await roomApi.pause(room.value.roomId);
+      updateRoom({ ...room.value, phaseV2: "PAUSED" });
+      stage.value = "PAUSED";
+      clearEditorDraft(room.value.roomId, room.value.role);
+      draftSaveState.value = "empty";
+      setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
+    } catch (error) {
+      selectedMode.value = null;
+      setNotice("error", message(error, "暂时无法暂停，请检查网络后重试。"));
+    } finally {
+      busy.value = false;
+    }
+    return;
+  }
+
+  busy.value = true;
+  try {
+    editableExpression.value = createEditableExpression(mode);
+    const privateSource = composeClarificationSource(transcript.value, clarificationTurns.value);
+    const job = await requestExpressionOrganization(
+      room.value.roomId,
+      workspaceRevision.value,
+      privateSource,
+      mode,
+      editableExpression.value,
+    );
+    workspaceRevision.value = job.revision;
+    aiJobId.value = job.jobId;
+    expressionOrganizationFailure.value = "";
+    expressionUpdatedFieldKeys.value = [];
+    stage.value = "CLARIFICATION_CHAT";
+    void pollExpressionJob(job.jobId);
+  } catch (error) {
+    selectedMode.value = null;
+    setNotice("error", message(error, "没有开始整理。请检查网络后重新选择，刚才的对话仍然保留。"));
+  } finally {
+    if (!aiJobId.value) busy.value = false;
+  }
 }
 
 function stopExpressionJobPolling() {
@@ -2015,45 +2113,29 @@ function stopExpressionJobPolling() {
   aiJobId.value = "";
 }
 
-function returnToExistingExpressionDraft(kind: Notice["kind"], text: string) {
-  stopExpressionJobPolling();
-  clarificationAnswer.value = "";
-  clarificationSkipped.value = true;
-  openExpressionReview();
-  busy.value = false;
-  setNotice(kind, text);
-}
-
-function fallBackToManualExpression() {
-  if (!selectedMode.value || selectedMode.value === "PAUSE") return;
-  stopExpressionJobPolling();
-  editableExpression.value = createEditableExpression(selectedMode.value);
-  clarificationAnswer.value = "";
-  clarificationSkipped.value = true;
-  openExpressionReview(false);
-  busy.value = false;
-  setNotice("info", "已切换为手动填写；原话仍只在你的私人空间。 ");
-}
-
 function stopWaitingForExpression() {
   if (!selectedMode.value || selectedMode.value === "PAUSE") return;
-  if (shouldPreserveDraftOnAiExit(editableExpression.value.fields, clarificationTurns.value)) {
-    returnToExistingExpressionDraft(
-      "info",
-      "已停止等待，并保留上一版草稿和你的补充；你可以继续手动修改。 ",
-    );
-    return;
-  }
-  fallBackToManualExpression();
+  stopExpressionJobPolling();
+  expressionOrganizationFailure.value = shouldPreserveDraftOnAiExit(
+    editableExpression.value.fields,
+    clarificationTurns.value,
+  )
+    ? "已停止等待。上一版卡片和你的补充都已保留。"
+    : "已停止等待。你可以直接在对话内填写卡片，或重新让 AI 整理。";
+  stage.value = "CLARIFICATION_CHAT";
+  busy.value = false;
 }
 
 function recoverExpressionJobFailure(text: string) {
-  if (shouldPreserveDraftOnAiExit(editableExpression.value.fields, clarificationTurns.value)) {
-    returnToExistingExpressionDraft("error", `${text} 已保留上一版草稿和你的补充。 `);
-    return;
-  }
-  fallBackToManualExpression();
-  setNotice("error", `${text} 已保留原话并切换为手动填写。 `);
+  stopExpressionJobPolling();
+  expressionOrganizationFailure.value = shouldPreserveDraftOnAiExit(
+    editableExpression.value.fields,
+    clarificationTurns.value,
+  )
+    ? `${text} 上一版卡片和你的补充都已保留。`
+    : `${text} 原话仍在，你可以重新整理或直接修改对话内卡片。`;
+  stage.value = "CLARIFICATION_CHAT";
+  busy.value = false;
 }
 
 async function beginManualExpression() {
@@ -2072,21 +2154,19 @@ async function beginManualExpression() {
     workspaceRevision.value = saved.revision;
     editableExpression.value = empty;
     clarificationAnswer.value = "";
-    clarificationSkipped.value = true;
-    openExpressionReview(false);
-    setNotice("info", "已进入手动填写，AI 不会读取这次原话。 ");
+    clarificationSkipped.value = false;
+    editableExpression.value = {
+      ...editableExpression.value,
+      uncertainties: ["你想先从表达卡的哪一部分开始补充？"],
+    };
+    expressionOrganizationFailure.value = "";
+    stage.value = "CLARIFICATION_CHAT";
+    setNotice("info", "已打开对话内表达卡；你可以直接修改，也可以继续告诉 AI。 ");
   } catch (error) {
     setNotice("error", message(error, "私人草稿没有保存，请稍后重试。"));
   } finally {
     busy.value = false;
   }
-}
-
-function skipClarification() {
-  clarificationSkipped.value = true;
-  clarificationAnswer.value = "";
-  openExpressionReview();
-  setNotice("info", "已保留当前草稿。请确认表达卡；需要时仍可继续补充。 ");
 }
 
 async function continueClarification() {
@@ -2101,13 +2181,14 @@ async function continueClarification() {
   clarificationTurns.value = nextTurns;
   clarificationAnswer.value = "";
   try {
+    expressionOrganizationFailure.value = "";
     const privateSource = composeClarificationSource(transcript.value, nextTurns);
     const job = await requestExpressionOrganization(
       room.value.roomId,
       workspaceRevision.value,
       privateSource,
       selectedMode.value,
-      editableExpression.value.fields,
+      editableExpression.value,
     );
     clarificationSkipped.value = false;
     workspaceRevision.value = job.revision;
@@ -2122,6 +2203,76 @@ async function continueClarification() {
   }
 }
 
+async function retryExpressionOrganization() {
+  if (!room.value || !selectedMode.value || selectedMode.value === "PAUSE" || busy.value) return;
+  clearNotice();
+  busy.value = true;
+  expressionOrganizationFailure.value = "";
+  try {
+    const privateSource = composeClarificationSource(transcript.value, clarificationTurns.value);
+    const job = await requestExpressionOrganization(
+      room.value.roomId,
+      workspaceRevision.value,
+      privateSource,
+      selectedMode.value,
+      editableExpression.value,
+    );
+    workspaceRevision.value = job.revision;
+    aiJobId.value = job.jobId;
+    stage.value = "CLARIFICATION_CHAT";
+    void pollExpressionJob(job.jobId);
+  } catch (error) {
+    recoverExpressionJobFailure(message(error, "AI 整理任务暂时没有创建。"));
+  } finally {
+    if (!aiJobId.value) busy.value = false;
+  }
+}
+
+async function confirmExpressionWorkspace() {
+  if (!room.value || busy.value || !expressionIsComplete(editableExpression.value) ||
+    !invitationDraftIsComplete(editableExpression.value.invitation) ||
+    ["BLOCK_SHARE", "PAUSE"].includes(editableExpression.value.safetyDisposition)) return;
+  clearNotice();
+  busy.value = true;
+  try {
+    const confirmed = await roomApi.confirmExpression(
+      room.value.roomId,
+      workspaceRevision.value,
+      expressionSharePayload(editableExpression.value),
+      editableExpression.value.invitation.title,
+      editableExpression.value.invitation.summary,
+    );
+    clearEditorDraft(room.value.roomId, room.value.role);
+    aiJobId.value = "";
+    expressionOrganizationFailure.value = "";
+    draftSaveState.value = "empty";
+    updateRoom({ ...room.value, state: confirmed.state });
+    if (room.value.role === "B") {
+      dialogueState.value = await roomApi.startDialogue(room.value.roomId);
+      updateRoom({ ...room.value, phaseV2: "DIALOGUE" });
+      stage.value = "DIALOGUE";
+      setNotice("success", "这张表达卡已由你确认。先互相确认听懂，再进入共同理解。 ");
+      return;
+    }
+    invitationContext.value = invitationContextFromEditableExpression(editableExpression.value);
+    invitationContextStatus.value = "ready";
+    stage.value = "INVITE";
+    try {
+      await requestSharedUnderstanding(room.value.roomId);
+      updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
+      setNotice("success", "这张表达卡已由你确认，正在生成新的共同理解。 ");
+      void pollUnderstanding();
+      stage.value = "AI_PENDING";
+    } catch {
+      setNotice("success", "你的表达卡已确认，私人原话和 AI 对话没有分享。 ");
+    }
+  } catch (error) {
+    setNotice("error", message(error, "卡片没有分享。请检查网络后重试，对话和草稿仍然保留。"));
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function pollExpressionJob(jobId: string) {
   if (!room.value || aiJobId.value !== jobId) return;
   try {
@@ -2133,9 +2284,16 @@ async function pollExpressionJob(jobId: string) {
     }
     if (status.status === "SUCCEEDED") {
       if (!selectedMode.value || selectedMode.value === "PAUSE") return;
-      editableExpression.value = parseAiExpressionCandidate(status.result, selectedMode.value);
+      const previous = editableExpression.value;
+      const candidate = parseAiExpressionCandidate(status.result, selectedMode.value);
+      const merged = mergeAiExpressionCandidate(previous, candidate);
+      expressionUpdatedFieldKeys.value = currentExpressionOption.value.fields
+        .filter((field) => previous.fields[field.key] !== merged.fields[field.key])
+        .map((field) => field.key);
+      editableExpression.value = merged;
       aiJobId.value = "";
       busy.value = false;
+      expressionOrganizationFailure.value = "";
       openExpressionCandidate();
       setNotice("success", currentClarificationQuestion.value
         ? clarificationTurns.value.length
@@ -2152,6 +2310,7 @@ async function pollExpressionJob(jobId: string) {
     }
     aiPollTimer = setTimeout(() => void pollExpressionJob(jobId), 1200);
   } catch (error) {
+    if (aiJobId.value !== jobId) return;
     recoverExpressionJobFailure(message(error, "AI 状态暂时无法读取。"));
   }
 }
@@ -2176,6 +2335,10 @@ async function next() {
     openExpressionReview();
     return;
   }
+  if (stage.value === "MODE_SELECT" && selectedMode.value) {
+    await chooseExpressionMode(selectedMode.value);
+    return;
+  }
   const attemptedStage = stage.value;
   clearNotice();
   busy.value = true;
@@ -2184,35 +2347,6 @@ async function next() {
       const result = await roomApi.setGoal(room.value.roomId, goal.value);
       updateRoom({ ...room.value, state: result.state, phaseV2: "PRIVATE_EXPRESSION" });
       stage.value = "RECORD";
-    } else if (stage.value === "MODE_SELECT") {
-      if (selectedMode.value === "PAUSE") {
-        busy.value = false;
-        if (!await confirmPause()) return;
-        busy.value = true;
-        await roomApi.pause(room.value.roomId);
-        updateRoom({ ...room.value, phaseV2: "PAUSED" });
-        stage.value = "PAUSED";
-        clearEditorDraft(room.value.roomId, room.value.role);
-        draftSaveState.value = "empty";
-        setNotice("success", "这次沟通已暂停，私人原话没有分享。 ");
-      } else if (selectedMode.value) {
-        editableExpression.value = createEditableExpression(selectedMode.value);
-        const privateSource = composeClarificationSource(
-          transcript.value,
-          clarificationTurns.value,
-        );
-        const job = await requestExpressionOrganization(
-          room.value.roomId,
-          workspaceRevision.value,
-          privateSource,
-          selectedMode.value,
-        );
-        workspaceRevision.value = job.revision;
-        aiJobId.value = job.jobId;
-        stage.value = "AI_PENDING";
-        void pollExpressionJob(job.jobId);
-        return;
-      }
     } else if (stage.value === "EXPRESSION_REVIEW") {
       const confirmed = await roomApi.confirmExpression(
         room.value.roomId,
