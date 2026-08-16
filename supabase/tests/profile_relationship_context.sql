@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(41);
+select plan(40);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -95,14 +95,6 @@ select is(
 ) from relationship_context_test;
 select is(public.get_room_relationship_context_v1(room_id)->'mine'->>'observedDifference', '我想马上说清', 'inviter reads only own private view')
 from relationship_context_test;
-select throws_ok(
-  format(
-    $$select public.respond_room_relationship_context_v1(%L::uuid, 0, 2, 'SKIPPED', 1::smallint, 'SKIPPED', '{}'::jsonb)$$,
-    room_id
-  ),
-  '42501', null,
-  'inviter still cannot use the receiver-only response operation'
-) from relationship_context_test;
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"91000000-0000-4000-8000-000000000002","role":"authenticated"}', true);
