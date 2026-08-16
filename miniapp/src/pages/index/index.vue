@@ -622,6 +622,7 @@ import {
   type ClarificationTurn,
 } from "../../domain/clarification";
 import type { DialogueState } from "../../domain/dialogue";
+import { expressionJobFailureMessage } from "../../domain/expression-job";
 import type {
   AiConversationHistoryItem,
   AiMemoryCollection,
@@ -2304,8 +2305,15 @@ async function pollExpressionJob(jobId: string) {
           : "AI 已整理成可编辑的表达卡，请确认或继续补充。 ");
       return;
     }
-    if (["FAILED_FINAL", "STALE", "CANCELED"].includes(status.status)) {
-      recoverExpressionJobFailure("AI 本次没有完成整理。");
+    if (
+      status.status === "FAILED_FINAL" ||
+      status.status === "STALE" ||
+      status.status === "CANCELED"
+    ) {
+      recoverExpressionJobFailure(expressionJobFailureMessage(
+        status.status,
+        status.errorCode,
+      ));
       return;
     }
     aiPollTimer = setTimeout(() => void pollExpressionJob(jobId), 1200);
