@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("presents the official site honestly while the production H5 is still being refined", async () => {
-  const [page, layout, authPanel] = await Promise.all([
+  const [page, layout, authPanel, mechanism] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../miniapp/src/components/H5AuthPanel.vue", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/dialogue-mechanism.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(layout, /说开 SHUOKAI/);
@@ -20,6 +21,10 @@ test("presents the official site honestly while the production H5 is still being
   assert.doesNotMatch(page, /开始一次说开|进入 H5 正式版/);
   assert.doesNotMatch(page, /shuokai-supabase-test\.shuokai\.workers\.dev/);
   assert.doesNotMatch(page, /simulate_partner|demo|mock|演示|模拟/iu);
+  assert.match(mechanism, /各自表达/);
+  assert.match(mechanism, /本人确认/);
+  assert.match(mechanism, /共同理解/);
+  assert.match(mechanism, /aria-pressed/);
   assert.match(authPanel, /创建账号/);
   assert.doesNotMatch(authPanel, /测试账号|demo|mock|演示|模拟/iu);
 });
