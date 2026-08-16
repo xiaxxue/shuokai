@@ -18,12 +18,13 @@ import {
   type DiscoveryTurn,
 } from "./discovery-ai.ts";
 
-const safeDatabaseMessages: Record<string, string> = {
+export const safeDatabaseMessages: Record<string, string> = {
   "40001": "房间刚刚发生了变化，请刷新后重试。",
   "42501": "你没有执行这个操作的权限。",
   P0001: "提交的内容不符合当前操作要求。",
   P0002: "沟通房间不存在或已经失效。",
   P0003: "AI 整理请求过于频繁，请稍后再试。",
+  P0C02: "邀请方没有可确认的关系背景。请选择填写自己的版本或暂不回答。",
   "23505": "这个房间已经有另一位参与者。",
   "55000": "当前沟通阶段不能执行这个操作。",
 };

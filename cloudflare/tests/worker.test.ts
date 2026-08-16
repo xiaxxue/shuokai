@@ -8,6 +8,7 @@ import {
   handleMiniappApi,
   isSupportedAudio,
   isValidDiscoveryTurns,
+  safeDatabaseMessages,
   type ClarificationDependencies,
 } from "../src/handlers.ts";
 import { appErrorCodes, bearerToken, publicSupabaseConfig } from "../src/http.ts";
@@ -722,6 +723,13 @@ test("profile and relationship context RPCs require bounded explicit consent fie
     p_decision: "DIFFERENT",
     p_payload: { ...payload, relationshipType: "DIAGNOSED_PERSONALITY" },
   }), null);
+});
+
+test("missing inviter context has a recoverable relationship-specific message", () => {
+  assert.equal(
+    safeDatabaseMessages.P0C02,
+    "邀请方没有可确认的关系背景。请选择填写自己的版本或暂不回答。",
+  );
 });
 
 test("relationship context validation gives a recoverable action instead of an internal parameter error", async () => {
