@@ -203,7 +203,15 @@ export async function handleExpressionClarification(
     const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v1", {
       p_room_id: input.roomId,
     });
-    if (memoryError) throw memoryError;
+    if (memoryError) {
+      return errorJson(
+        request,
+        env,
+        "DATABASE_REQUEST_FAILED",
+        "暂时无法读取这段私人对话的 AI 上下文，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
     const boundedMemoryContext = parseDiscoveryMemoryContext(memoryContext);
     const contextVersionObject = discoveryContextVersionObject(boundedMemoryContext);
     const contextVersion = Object.values(contextVersionObject).join(":");
@@ -216,7 +224,15 @@ export async function handleExpressionClarification(
     const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v1", {
       p_room_id: input.roomId,
     });
-    if (latestContextError) throw latestContextError;
+    if (latestContextError) {
+      return errorJson(
+        request,
+        env,
+        "DATABASE_REQUEST_FAILED",
+        "暂时无法确认 AI 上下文是否有更新，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
     if (discoveryContextVersion(latestContext) !== contextVersion) {
       return errorJson(
         request,
@@ -282,8 +298,33 @@ export async function handleExpressionClarification(
       revision: savedRevision,
       memoryProposals: Array.isArray(memoryProposals) ? memoryProposals : [],
     });
-  } catch {
-    return errorJson(request, env, "AI_CLARIFICATION_FAILED", "AI 暂时没有接住这句话，请稍后再试。", 502);
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : "";
+    if (cause === "CLOUDFLARE_AI_INVALID_OUTPUT") {
+      return errorJson(
+        request,
+        env,
+        "AI_RESPONSE_INVALID",
+        "AI 这次回复没有通过安全校验，请重试或按现有内容继续整理。",
+        502,
+      );
+    }
+    if (cause === "CLOUDFLARE_AI_QUOTA_EXHAUSTED") {
+      return errorJson(
+        request,
+        env,
+        "AI_RATE_LIMITED",
+        "AI 今日可用额度已经用完，请按现有内容继续整理。",
+        429,
+      );
+    }
+    return errorJson(
+      request,
+      env,
+      "AI_CLARIFICATION_FAILED",
+      "AI 服务这次没有完成处理，请重试或按现有内容继续整理。",
+      502,
+    );
   }
 }
 

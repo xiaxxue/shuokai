@@ -47,6 +47,7 @@ import {
   discoveryResultSchema,
   generateDiscoveryQuestion,
   isDiscoveryResult,
+  normalizeDiscoveryResult,
 } from "../src/discovery-ai.ts";
 
 function validNvcExpressionResult(state: "ASK" | "READY" = "ASK") {
@@ -213,6 +214,80 @@ test("private discovery schema avoids unsupported Cloudflare grammar keywords", 
   assert.equal(isDiscoveryResult(duplicated, input), false);
 });
 
+test("private discovery repairs grounded evidence instead of rejecting an otherwise usable reply", async () => {
+  const input = {
+    sourceText: "前天晚上我很晚睡，伴侣已经躺下了。他没有提醒我早点睡，我很不开心。",
+    turns: [{
+      question: "你希望他能理解你当时的心情，还是希望以后他怎么做？",
+      answer: "我以前多次告诉他，晚睡会让我心情和身体都不舒服，希望他提醒我。",
+    }],
+  };
+  const providerResult = {
+    ready: true,
+    coverage: {
+      event: { status: "ENOUGH", evidence: ["他没有提醒我早点睡"], missingInfo: "" },
+      impact: { status: "ENOUGH", evidence: ["晚睡会让我心情和身体都不舒服"], missingInfo: "" },
+      intention: {
+        status: "ENOUGH",
+        evidence: ["希望他提醒我", "希望他能理解你当时的心情"],
+        missingInfo: "",
+      },
+    },
+    latestAnswerUpdate: {
+      absorbed: true,
+      updatedDimensions: ["event", "impact", "intention"],
+    },
+    nextQuestion: { focusDimension: "none", text: "", purpose: "" },
+    safetyDisposition: "ALLOW",
+    safetyMessage: "",
+    conversationSummary: "用户希望伴侣理解晚睡带来的不适，并提醒休息。",
+    memoryCandidates: [],
+  };
+
+  assert.equal(isDiscoveryResult(providerResult, input), false);
+  const normalized = normalizeDiscoveryResult(providerResult, input);
+  assert.equal(isDiscoveryResult(normalized, input), true);
+  assert.deepEqual((normalized as typeof providerResult).coverage.intention.evidence, ["希望他提醒我"]);
+  assert.deepEqual((normalized as typeof providerResult).latestAnswerUpdate.updatedDimensions, [
+    "impact", "intention",
+  ]);
+
+  let calls = 0;
+  const generated = await generateDiscoveryQuestion({
+    AI: {
+      async run() {
+        calls += 1;
+        return { response: JSON.stringify(providerResult) };
+      },
+    },
+  }, input);
+  assert.equal(calls, 1);
+  assert.deepEqual(generated.result, normalized);
+});
+
+test("private discovery does not turn an AI question into missing user evidence", () => {
+  const input = {
+    sourceText: "昨晚他没有提醒我休息，我很失望。",
+    turns: [{ question: "你希望他以后怎么做？", answer: "我还没想好。" }],
+  };
+  const providerResult = {
+    ...structuredClone(validDiscoveryReadyResult()),
+    coverage: {
+      event: { status: "ENOUGH", evidence: ["昨晚他没有提醒我休息"], missingInfo: "" },
+      impact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
+      intention: { status: "ENOUGH", evidence: ["你希望他以后怎么做"], missingInfo: "" },
+    },
+  };
+  const normalized = normalizeDiscoveryResult(providerResult, input) as typeof providerResult;
+  assert.equal(normalized.ready, false);
+  assert.deepEqual(normalized.coverage.intention, {
+    status: "MISSING",
+    evidence: [],
+    missingInfo: "缺少可由用户原话确认的信息",
+  });
+  assert.equal(isDiscoveryResult(normalized, input), false);
+});
+
 function clarificationEnv() {
   return {
     SUPABASE_URL: "https://project.example.test",
@@ -228,6 +303,7 @@ function clarificationHarness(options: {
   latestMemoryContext?: unknown;
   saveError?: { code: string };
   restoreError?: { code: string };
+  generateError?: string;
 } = {}) {
   const userRpcCalls: Array<{ name: string; args: unknown }> = [];
   const adminRpcCalls: Array<{ name: string; args: unknown }> = [];
@@ -283,6 +359,7 @@ function clarificationHarness(options: {
     }),
     generateDiscoveryQuestion: async (_env: unknown, input: unknown) => {
       generatedInput = input;
+      if (options.generateError) throw new Error(options.generateError);
       return {
         result: validDiscoveryReadyResult(),
         providerRequestRef: "cf_req_test",
@@ -978,6 +1055,19 @@ test("AI clarification rejects a non-member before memory or model access", asyn
   assert.equal(harness.generatedInput(), null);
 });
 
+test("AI clarification reports context read failures as database errors", async () => {
+  const harness = clarificationHarness({ memoryError: { code: "P0001" } });
+  const response = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), harness.dependencies,
+  );
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), {
+    message: "暂时无法读取这段私人对话的 AI 上下文，请重试或按现有内容继续整理。",
+    code: "DATABASE_REQUEST_FAILED",
+  });
+  assert.equal(harness.generatedInput(), null);
+});
+
 test("AI clarification discards a result when profile consent changes during inference", async () => {
   const harness = clarificationHarness({
     latestMemoryContext: {
@@ -1061,6 +1151,28 @@ test("AI clarification reports persistence and restoration failures honestly", a
   );
   assert.equal(restoreResponse.status, 502);
   assert.equal((await restoreResponse.json() as { code: string }).code, "PRIVATE_CONVERSATION_SAVE_FAILED");
+});
+
+test("AI clarification reports invalid model output separately from provider availability", async () => {
+  const invalidHarness = clarificationHarness({ generateError: "CLOUDFLARE_AI_INVALID_OUTPUT" });
+  const invalidResponse = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), invalidHarness.dependencies,
+  );
+  assert.equal(invalidResponse.status, 502);
+  assert.deepEqual(await invalidResponse.json(), {
+    message: "AI 这次回复没有通过安全校验，请重试或按现有内容继续整理。",
+    code: "AI_RESPONSE_INVALID",
+  });
+
+  const quotaHarness = clarificationHarness({ generateError: "CLOUDFLARE_AI_QUOTA_EXHAUSTED" });
+  const quotaResponse = await handleExpressionClarification(
+    clarificationRequest(), clarificationEnv(), quotaHarness.dependencies,
+  );
+  assert.equal(quotaResponse.status, 429);
+  assert.deepEqual(await quotaResponse.json(), {
+    message: "AI 今日可用额度已经用完，请按现有内容继续整理。",
+    code: "AI_RATE_LIMITED",
+  });
 });
 
 test("shared understanding endpoint fails honestly before any database call", async () => {

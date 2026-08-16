@@ -148,6 +148,75 @@ function normalizedEvidenceText(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/[\p{P}\p{S}\s]/gu, "");
 }
 
+function groundedEvidence(value: unknown, sourceMaterials: string[]) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((evidence): evidence is string => {
+    if (typeof evidence !== "string" || !evidence.trim() || evidence.length > 240) return false;
+    const normalized = normalizedEvidenceText(evidence);
+    return Boolean(normalized) && sourceMaterials.some((material) => material.includes(normalized));
+  });
+}
+
+export function normalizeDiscoveryResult(
+  value: unknown,
+  input: { sourceText: string; turns: DiscoveryTurn[] },
+): unknown {
+  if (!isRecord(value) || !isRecord(value.coverage)) return value;
+  const sourceMaterials = [
+    input.sourceText,
+    ...input.turns.map((turn) => turn.answer),
+  ].map(normalizedEvidenceText);
+  const coverage: Record<string, unknown> = {};
+
+  for (const dimension of discoveryDimensions) {
+    const item = value.coverage[dimension];
+    if (!isRecord(item)) {
+      coverage[dimension] = item;
+      continue;
+    }
+    const evidence = groundedEvidence(item.evidence, sourceMaterials);
+    const status = item.status === "ENOUGH" && evidence.length === 0 ? "MISSING" : item.status;
+    let missingInfo = "";
+    if (status !== "ENOUGH") {
+      missingInfo = typeof item.missingInfo === "string" && item.missingInfo.trim()
+        ? item.missingInfo
+        : "缺少可由用户原话确认的信息";
+    }
+    coverage[dimension] = { ...item, status, evidence, missingInfo };
+  }
+
+  const latestAnswer = normalizedEvidenceText(input.turns.at(-1)?.answer ?? "");
+  const updatedDimensions = input.turns.length === 0 ? [] : discoveryDimensions.filter((dimension) => {
+    const item = coverage[dimension];
+    return isRecord(item) && Array.isArray(item.evidence) && item.evidence.some((evidence) =>
+      typeof evidence === "string" && latestAnswer.includes(normalizedEvidenceText(evidence)));
+  });
+  const allCovered = discoveryDimensions.every((dimension) => {
+    const item = coverage[dimension];
+    return isRecord(item) && item.status === "ENOUGH";
+  });
+  const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(value.safetyDisposition));
+  const memoryCandidates = allCovered && !safetyStopped && Array.isArray(value.memoryCandidates)
+    ? value.memoryCandidates.filter((item) => isRecord(item) &&
+      typeof item.evidence === "string" &&
+      groundedEvidence([item.evidence], sourceMaterials).length === 1)
+    : [];
+
+  return {
+    ...value,
+    ready: allCovered,
+    coverage,
+    latestAnswerUpdate: {
+      absorbed: input.turns.length > 0,
+      updatedDimensions,
+    },
+    nextQuestion: allCovered || safetyStopped
+      ? { focusDimension: "none", text: "", purpose: "" }
+      : value.nextQuestion,
+    memoryCandidates,
+  };
+}
+
 function validateCoverage(value: unknown, sourceMaterials: string[]) {
   if (!isRecord(value) || !hasExactKeys(value, discoveryDimensions)) return null;
   const coverage = {} as Record<DiscoveryDimension, DiscoveryCoverage>;
@@ -279,7 +348,12 @@ export function generateDiscoveryQuestion(
       },
     },
     maxTokens: 1100,
-    validationRetryText: "如果上一次问题与 privateConversation 中的问题重复，必须改问仍为 MISSING 的另一项具体信息。",
+    validationRetryText: [
+      "evidence 只能来自 sourceText 或 privateConversation[].answer，绝不能引用 privateConversation[].question。",
+      "updatedDimensions 只能包含用户最新一条 answer 实际补充且 coverage.evidence 引用了该 answer 的维度。",
+      "如果上一次问题与 privateConversation 中的问题重复，必须改问仍为 MISSING 的另一项具体信息。",
+    ].join("\n"),
+    normalize: (value) => normalizeDiscoveryResult(value, input),
     validate: (value) => isDiscoveryResult(value, input),
   });
 }
