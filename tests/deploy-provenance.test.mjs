@@ -55,7 +55,6 @@ test("rejects a dirty checkout", () => {
 const approvedProductionMain = {
   ...cleanMain,
   approval: "shuokai.me",
-  appApproval: "app.shuokai.me",
 };
 
 test("allows an explicitly approved production site deploy from clean GitHub main", () => {
@@ -66,13 +65,6 @@ test("rejects a production site deploy without explicit hostname approval", () =
   assert.throws(
     () => validateProductionSiteDeploySource({ ...approvedProductionMain, approval: "" }),
     /需要显式设置/,
-  );
-});
-
-test("rejects the linked production site until the H5 release is approved", () => {
-  assert.throws(
-    () => validateProductionSiteDeploySource({ ...approvedProductionMain, appApproval: "" }),
-    /需要先确认/,
   );
 });
 

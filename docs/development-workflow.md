@@ -144,10 +144,12 @@ npm run cloudflare:deploy:production:main
 缺失 Worker Secrets、错误 Worker 名称、错误 Custom Domain 或测试 Queue。生产数据库密钥不得
 写入仓库、`.env` 示例、命令历史、CI 日志或客户端构建产物。
 
-生产 H5 验收完成后，才能部署包含体验入口的新版官网：
+不包含 H5 体验入口的官网可以独立部署，但仍须单独获得官网生产发布授权：
 
 ```bash
 SHUOKAI_PRODUCTION_DEPLOY_APPROVED="shuokai.me" \
-SHUOKAI_APP_RELEASE_APPROVED="app.shuokai.me" \
 npm run cloudflare:deploy:site:production:main
 ```
+
+生产 H5 验收完成后，再把 `app.shuokai.me` 体验入口加入官网并重新发布。H5 尚未稳定时，
+官网不得出现可点击的正式体验入口或测试环境地址。
