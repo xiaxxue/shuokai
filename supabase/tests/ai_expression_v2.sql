@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(34);
+select plan(43);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -108,6 +108,119 @@ select ok(
   not has_table_privilege('authenticated', 'private.ai_jobs', 'SELECT'),
   'private AI job table is not directly readable by authenticated clients'
 );
+
+select is(
+  (
+    public.save_expression_workspace_v2(
+      room_id,
+      revision,
+      '我们约好周五确认，但到周日我仍没有收到消息。',
+      'NVC',
+      '{}'::jsonb
+    )->>'revision'
+  )::bigint,
+  revision,
+  'saving identical expression input does not advance the workspace revision'
+) from test_v2_context;
+
+reset role;
+update private.participant_workspaces_v2 workspace
+set revision = revision + 1
+from test_v2_context context
+where workspace.room_id = context.room_id;
+update private.ai_jobs job
+set status = 'STALE',
+    finished_at = now()
+from test_v2_context context
+where job.id = context.job_id;
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"20000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+select throws_ok(
+  format(
+    'select public.save_expression_workspace_v2(%L::uuid, %L, %L, %L, %L::jsonb)',
+    room_id::text,
+    revision,
+    '我们约好周五确认，但到周日我仍没有收到消息。',
+    'NVC',
+    '{"request":"不要覆盖服务器上的新草稿"}'
+  ),
+  '40001',
+  '草稿刚刚发生了变化，请刷新后重试。',
+  'a stale revision cannot bypass conflict detection with a different manual draft'
+) from test_v2_context;
+update test_v2_context context
+set revision = (
+  public.save_expression_workspace_v2(
+    room_id,
+    revision,
+    '我们约好周五确认，但到周日我仍没有收到消息。',
+    'NVC',
+    '{}'::jsonb
+  )->>'revision'
+)::bigint;
+
+select is(
+  revision,
+  2::bigint,
+  'an identical retry adopts the newer server revision without another write'
+) from test_v2_context;
+select is(
+  (public.request_understanding_job_v2(room_id, revision)->>'jobId')::uuid,
+  job_id,
+  'retrying unchanged input reuses the idempotent AI job'
+) from test_v2_context;
+select is(
+  public.get_ai_job_status_v2(job_id)->>'status',
+  'QUEUED',
+  'retrying a stale unchanged job queues it again'
+) from test_v2_context;
+
+reset role;
+update private.ai_jobs job
+set status = 'CANCELED',
+    finished_at = now()
+from test_v2_context context
+where job.id = context.job_id;
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  '{"sub":"20000000-0000-4000-8000-000000000001","role":"authenticated"}',
+  true
+);
+select is(
+  public.request_understanding_job_v2(room_id, revision)->>'status',
+  'QUEUED',
+  'retrying a canceled unchanged job queues it again'
+) from test_v2_context;
+
+reset role;
+select is(
+  job.draft_revision,
+  context.revision,
+  'the reused AI job is rebound to the current workspace revision'
+) from test_v2_context context
+join private.ai_jobs job on job.id = context.job_id;
+select ok(
+  job.finished_at is null,
+  'requeueing a stale job clears its terminal timestamp'
+) from test_v2_context context
+join private.ai_jobs job on job.id = context.job_id;
+select ok(
+  private.expression_ai_input_hash(
+    workspace.source_hash,
+    workspace.selected_mode,
+    workspace.manual_payload
+  ) = job.input_hash,
+  'the rebound job still matches the complete model input'
+) from test_v2_context context
+join private.ai_jobs job on job.id = context.job_id
+join private.participant_workspaces_v2 workspace
+  on workspace.participant_id = job.requested_by_participant_id;
 
 set local role service_role;
 select lives_ok(

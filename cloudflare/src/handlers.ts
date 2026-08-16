@@ -446,32 +446,19 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv, corr
     p_selected_mode: input.selectedMode,
     p_manual_payload: input.manualPayload ?? {},
   });
-  let revision = saved && typeof saved === "object" ? (saved as { revision?: unknown }).revision : null;
-  if (saveError?.code === "40001") {
-    const { data: current } = await supabase.rpc("get_expression_workspace_v2", { p_room_id: input.roomId });
-    const sameSavedRequest = current && typeof current === "object" &&
-      (current as { sourceText?: unknown }).sourceText === normalizedSource &&
-      (current as { selectedMode?: unknown }).selectedMode === input.selectedMode;
-    revision = sameSavedRequest ? (current as { revision?: unknown }).revision : null;
-  } else if (saveError) {
+  if (saveError) {
     return errorJson(
       request,
       env,
-      "WORKSPACE_SAVE_FAILED",
+      saveError.code === "40001" ? "WORKSPACE_CONFLICT" : "WORKSPACE_SAVE_FAILED",
       safeDatabaseMessages[saveError.code] ?? "表达草稿没有保存，请稍后重试。",
-      400,
+      saveError.code === "40001" ? 409 : 400,
     );
   }
+  const revision = saved && typeof saved === "object"
+    ? (saved as { revision?: unknown }).revision
+    : null;
   if (typeof revision !== "number") {
-    if (saveError?.code === "40001") {
-      return errorJson(
-        request,
-        env,
-        "WORKSPACE_CONFLICT",
-        safeDatabaseMessages["40001"],
-        409,
-      );
-    }
     return errorJson(
       request,
       env,
