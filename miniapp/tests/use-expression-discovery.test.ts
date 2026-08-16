@@ -167,7 +167,7 @@ describe("expression discovery orchestration", () => {
     );
   });
 
-  it("does not discard an unsent reply when route selection is requested", async () => {
+  it("keeps an unsent reply when route selection is requested", async () => {
     mocks.clarify.mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"));
     const state = useTestFlow();
     await state.flow.send();
@@ -175,11 +175,92 @@ describe("expression discovery orchestration", () => {
 
     state.flow.finish();
 
-    expect(state.stage.value).toBe("RECORD");
+    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "我还没把这句话发出去",
+    }]);
+    expect(state.answer.value).toBe("");
     expect(state.setNotice).toHaveBeenLastCalledWith(
       "info",
-      "这句话还没有发给 AI。请先发送，或清空后再选择表达路径。 ",
+      "已保留这句话。AI 会按现有内容整理，之后仍可修改。 ",
     );
+  });
+
+  it("keeps a failed reply editable and exposes both recovery paths", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。"));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "这句话不能因为 AI 失败而丢失";
+
+    await state.flow.send();
+
+    expect(state.stage.value).toBe("RECORD");
+    expect(state.answer.value).toBe("这句话不能因为 AI 失败而丢失");
+    expect(state.turns.value).toEqual([]);
+    expect(state.flow.saveState.value).toBe("local");
+    expect(state.flow.failureMessage.value).toContain("按现有内容继续整理");
+    expect(state.busy.value).toBe(false);
+  });
+
+  it("retries a failed reply without duplicating it", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("暂时失败"))
+      .mockResolvedValueOnce(discoveryResponse("接下来希望发生什么？", false, true));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "请保留并重试这一句";
+
+    await state.flow.send();
+    await state.flow.send();
+
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "请保留并重试这一句",
+    }]);
+    expect(state.answer.value).toBe("");
+    expect(state.flow.failureMessage.value).toBe("");
+    expect(state.flow.saveState.value).toBe("saved");
+  });
+
+  it("continues after a failed reply and includes it in later organization", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最在意哪一部分？"))
+      .mockRejectedValueOnce(new Error("暂时失败"));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "即使没有 AI 回复，也要带上这句话";
+    await state.flow.send();
+
+    state.flow.continueAfterFailure();
+
+    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.turns.value).toEqual([{
+      question: "你最在意哪一部分？",
+      answer: "即使没有 AI 回复，也要带上这句话",
+    }]);
+    expect(state.answer.value).toBe("");
+    expect(state.flow.failureMessage.value).toBe("");
+    expect(state.setNotice).toHaveBeenLastCalledWith(
+      "info",
+      "已保留当前内容。现在选择表达路径，之后仍可修改。 ",
+    );
+  });
+
+  it("can continue with the original story when the first AI reply fails", async () => {
+    mocks.clarify.mockRejectedValueOnce(new Error("暂时失败"));
+    const state = useTestFlow();
+
+    await state.flow.send();
+    state.flow.continueAfterFailure();
+
+    expect(state.flow.started.value).toBe(false);
+    expect(state.stage.value).toBe("MODE_SELECT");
+    expect(state.transcript.value).toContain("男朋友不想提醒");
+    expect(state.turns.value).toEqual([]);
   });
 
   it("does not enter route selection after a safety stop", async () => {

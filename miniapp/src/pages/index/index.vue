@@ -235,6 +235,7 @@
         :safety-disposition="discoverySafetyDisposition"
         :safety-message="discoverySafetyMessage"
         :restored="discoveryRestored"
+        :failure-message="discoveryFailureMessage"
         :save-state="discoverySaveState"
         :memory-proposals="discoveryMemoryProposals"
         :detached-drafts="discoveryDetachedDrafts"
@@ -243,6 +244,7 @@
         @update:answer="clarificationAnswer = $event"
         @send="sendDiscoveryMessage"
         @finish="finishDiscovery"
+        @continue-after-failure="continueDiscoveryAfterFailure"
         @record="toggleRecording"
         @view-invitation="showInvitationIntro"
         @retry-invitation="refreshInvitationContext()"
@@ -798,11 +800,13 @@ const discoverySafetyDisposition = expressionDiscovery.safetyDisposition;
 const discoverySafetyMessage = expressionDiscovery.safetyMessage;
 const discoveryThinking = expressionDiscovery.thinking;
 const discoveryRestored = expressionDiscovery.restored;
+const discoveryFailureMessage = expressionDiscovery.failureMessage;
 const discoverySaveState = expressionDiscovery.saveState;
 const discoveryMemoryProposals = expressionDiscovery.memoryProposals;
 const discoveryDetachedDrafts = expressionDiscovery.detachedDrafts;
 const sendDiscoveryMessage = expressionDiscovery.send;
 const finishDiscovery = expressionDiscovery.finish;
+const continueDiscoveryAfterFailure = expressionDiscovery.continueAfterFailure;
 const sharedUnderstanding = useSharedUnderstanding({
   room, stage, busy, transcript, selectedMode, workspaceRevision,
   updateRoom, setNotice, clearNotice, formatError: message, confirmPause,

@@ -90,6 +90,23 @@
     </view>
 
     <view v-if="!readOnly" class="composer-dock">
+      <view
+        v-if="failureMessage"
+        class="ai-recovery"
+        role="alert"
+        aria-live="assertive"
+      >
+        <view class="ai-recovery-heading">
+          <text class="ai-recovery-mark" aria-hidden="true">!</text>
+          <text class="ai-recovery-title">这次没有收到 AI 回复</text>
+        </view>
+        <text class="ai-recovery-copy">{{ failureMessage }}</text>
+        <text class="ai-recovery-draft">你的内容仍在输入框和本机草稿中。</text>
+        <view class="ai-recovery-actions">
+          <button class="retry-ai" @tap="$emit('send')">重新让 AI 理解</button>
+          <button class="continue-current" @tap="$emit('continueAfterFailure')">按现有内容继续整理</button>
+        </view>
+      </view>
       <view v-if="ready && !busy && !safetyStopped" class="finish-row">
         <button class="finish-action" @tap="$emit('finish')">
           <text>可以开始整理了</text>
@@ -121,7 +138,7 @@
         <button
           class="send"
           :disabled="busy || recording || !currentValue.trim() || (started && (ready || safetyStopped))"
-          :aria-label="busy ? 'AI 正在思考' : '发送给 AI'"
+          :aria-label="busy ? 'AI 正在思考' : failureMessage ? '重新让 AI 理解' : '发送给 AI'"
           @tap="$emit('send')"
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
       </view>
@@ -132,7 +149,7 @@
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
       </view>
       <button
-        v-if="started && !busy && !ready && !safetyStopped"
+        v-if="started && !busy && !ready && !safetyStopped && !failureMessage"
         class="skip-action"
         @tap="$emit('finish')"
       >先不继续追问，直接选择表达路径</button>
@@ -171,7 +188,8 @@ const props = defineProps<{
   safetyDisposition: SafetyDisposition;
   safetyMessage: string;
   restored: boolean;
-  saveState: "idle" | "local" | "saving" | "saved" | "error";
+  failureMessage: string;
+  saveState: "idle" | "local" | "saving" | "saved";
   memoryProposals: PersonalMemoryItem[];
   detachedDrafts: DetachedDiscoveryDraft[];
   readOnly?: boolean;
@@ -182,6 +200,7 @@ const emit = defineEmits<{
   "update:answer": [value: string];
   send: [];
   finish: [];
+  continueAfterFailure: [];
   record: [];
   viewInvitation: [];
   retryInvitation: [];
@@ -209,7 +228,6 @@ const saveStateCopy = computed(() => ({
   local: "未发送内容仅保存在本机草稿",
   saving: "正在保存这段私人对话…",
   saved: "已同步这段私人对话",
-  error: "保存失败，请重新发送这句话",
 })[props.saveState]);
 const durationLabel = computed(() => {
   const minutes = Math.floor(props.recordingSeconds / 60).toString().padStart(2, "0");
@@ -287,6 +305,17 @@ function updateCurrentValue(event: Event) {
 .memory-actions button:first-child { background: #315847; color: #fffaf2; }
 .memory-actions button::after { border: 0; }
 .composer-dock { position: sticky; bottom: 0; margin: auto -10rpx 0; padding: 16rpx 10rpx calc(8rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 18%, #f3efe6); }
+.ai-recovery { margin-bottom: 16rpx; padding: 20rpx; border: 2rpx solid #e2a898; border-radius: 22rpx; background: #fff6f1; color: #6f4036; box-shadow: 0 8rpx 22rpx rgba(111,64,54,.08); }
+.ai-recovery-heading { display: flex; align-items: center; gap: 10rpx; }
+.ai-recovery-mark { width: 34rpx; height: 34rpx; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: #bd4933; color: #fffaf3; font-size: 21rpx; font-weight: 900; }
+.ai-recovery-title { color: #9f3f2f; font-size: 28rpx; font-weight: 800; }
+.ai-recovery-copy, .ai-recovery-draft { display: block; margin-top: 9rpx; font-size: 28rpx; line-height: 1.55; }
+.ai-recovery-draft { margin-top: 5rpx; color: #6f766f; }
+.ai-recovery-actions { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 16rpx; }
+.ai-recovery-actions button { min-height: 48px; margin: 0; padding: 14rpx 20rpx; border-radius: 999rpx; font-size: 28rpx; font-weight: 800; line-height: 1.35; }
+.ai-recovery-actions button::after { border: 0; }
+.retry-ai { flex: 1 1 220rpx; background: #bd4933; color: #fffaf3; }
+.continue-current { flex: 1 1 280rpx; border: 2rpx solid #b76e5c; background: transparent; color: #914332; }
 .finish-row { margin-bottom: 16rpx; }
 .finish-action { width: 100%; min-height: 84rpx; margin: 0; padding: 16rpx 22rpx; display: flex; align-items: center; justify-content: space-between; border: 1rpx solid #c8d5cc; border-radius: 22rpx; background: #e4ece5; color: #315847; font-size: 23rpx; font-weight: 800; }
 .finish-action::after { border: 0; }

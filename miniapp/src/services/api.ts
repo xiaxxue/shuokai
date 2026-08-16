@@ -498,18 +498,29 @@ export async function requestExpressionClarification(
   turns: ClarificationTurn[],
 ) {
   const session = await activeSession();
-  const response = await request<unknown>({
-    url: apiUrl("/ai/clarify"),
-    method: "POST",
-    header: {
-      Authorization: `Bearer ${session.accessToken}`,
-      "content-type": "application/json",
-    },
-    data: { roomId, expectedRevision, sourceText, turns },
-    timeout: 25000,
-  });
+  let response: ApiResponse<unknown>;
+  try {
+    response = await request<unknown>({
+      url: apiUrl("/ai/clarify"),
+      method: "POST",
+      header: {
+        Authorization: `Bearer ${session.accessToken}`,
+        "content-type": "application/json",
+      },
+      data: { roomId, expectedRevision, sourceText, turns },
+      timeout: 25000,
+    });
+  } catch {
+    throw new ApiError(
+      "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
+      "NETWORK_UNAVAILABLE",
+    );
+  }
   if (response.statusCode !== 200 || !response.data || typeof response.data !== "object") {
-    throw new Error(errorMessage(response.data, "AI 暂时没有接住这句话，请稍后再试。"));
+    throw new ApiError(
+      errorMessage(response.data, "这次没有收到 AI 回复。请重新尝试，或按现有内容继续整理。"),
+      responseErrorCode(response.data),
+    );
   }
   const result = response.data as Record<string, unknown>;
   const dispositions = ["ALLOW", "WARN", "BLOCK_SHARE", "PAUSE"] as const;
@@ -533,7 +544,10 @@ export async function requestExpressionClarification(
         !nextQuestion.purpose.trim() ||
         understanding.coverage[nextQuestion.focusDimension].status !== "MISSING" ||
         isRepeatedDiscoveryQuestion(nextQuestion.text, turns))) {
-    throw new Error("AI 私人对话返回了无效内容，请稍后重试。");
+    throw new ApiError(
+      "AI 这次没有生成可用回复。请重新尝试，或按现有内容继续整理。",
+      "AI_RESPONSE_INVALID",
+    );
   }
   return {
     question: understanding.nextQuestion.text,

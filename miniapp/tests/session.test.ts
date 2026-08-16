@@ -13,7 +13,7 @@ vi.stubGlobal("uni", {
   request,
 });
 
-import { loginForPlatform } from "../src/services/api";
+import { loginForPlatform, requestExpressionClarification } from "../src/services/api";
 import {
   clearActiveRoom,
   clearEditorDraft,
@@ -54,6 +54,12 @@ function requestReturns(statusCode: number, data: unknown) {
   };
 }
 
+function requestFails(errMsg: string) {
+  return ({ fail }: { fail: (error: { errMsg: string }) => void }) => {
+    fail({ errMsg });
+  };
+}
+
 describe("wechat session recovery", () => {
   beforeEach(() => {
     storage.clear();
@@ -89,6 +95,48 @@ describe("wechat session recovery", () => {
     await expect(Promise.all([first, second])).resolves.toEqual([freshSession, freshSession]);
     expect(login).toHaveBeenCalledTimes(1);
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AI clarification request recovery", () => {
+  beforeEach(() => {
+    storage.clear();
+    request.mockReset();
+    storage.set(sessionKey, freshSession);
+  });
+
+  it("turns a network failure into a recoverable user-facing error", async () => {
+    request.mockImplementationOnce(requestFails("request:fail timeout"));
+
+    const result = requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: "ApiError",
+      code: "NETWORK_UNAVAILABLE",
+      message: "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
+    });
+  });
+
+  it("preserves the server error code while offering recovery", async () => {
+    request.mockImplementationOnce(requestReturns(502, {
+      code: "AI_CLARIFICATION_FAILED",
+      message: "AI 暂时没有接住这句话，请稍后再试。",
+    }));
+
+    await expect(requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    )).rejects.toEqual(expect.objectContaining({
+      code: "AI_CLARIFICATION_FAILED",
+      message: "AI 暂时没有接住这句话，请稍后再试。",
+    }));
   });
 });
 
