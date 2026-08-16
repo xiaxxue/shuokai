@@ -27,7 +27,7 @@
     </template>
 
     <template v-else-if="isSharedStep">
-      <button v-if="role === 'A'" class="skip-top" role="button" tabindex="0" @tap="saveSkipped" @keydown.enter.prevent="saveSkipped" @keydown.space.prevent="saveSkipped">暂不补充关系背景</button>
+      <button v-if="role === 'A'" class="skip-top" role="button" tabindex="0" @tap="saveSkipped" @keydown.enter.prevent="saveSkipped" @keydown.space.prevent="saveSkipped">暂不说明关系，继续沟通</button>
       <ChoiceGroup label="你们是什么关系？" :items="relationshipTypeOptions" :model-value="mineShared.relationshipType" @update:model-value="mineShared.relationshipType = $event" />
       <view v-if="mineShared.relationshipType === 'OTHER'" class="custom-field">
         <label for="relationship-other">其他关系类型</label>
@@ -36,7 +36,7 @@
       </view>
       <ChoiceGroup label="大约相处多久了？" :items="durationOptions" :model-value="mineShared.durationRange" @update:model-value="mineShared.durationRange = $event" />
       <ChoiceGroup label="现在通常怎样相处？" :items="interactionOptions" :model-value="mineShared.interactionMode" @update:model-value="mineShared.interactionMode = $event" />
-      <text class="optional-note">以上都可以暂不选择。受邀者可以确认，也可以保留自己的版本。</text>
+      <text class="optional-note">这是你的版本，不是系统认定的事实。对方可以确认、填写自己的版本或暂不回答。</text>
     </template>
 
     <template v-else-if="step === 2 && role === 'A' || step === 3 && role === 'B'">
@@ -210,8 +210,12 @@ defineExpose({ focusError });
 const heading = computed(() => {
   if (props.role === "B" && step.value === 1) return hasConfirmableInviterVersion.value
     ? { title: "对方这样介绍你们的关系", description: "这是邀请方的版本，不是系统认定的事实。" }
-    : { title: "你想怎样继续？", description: "没有可确认的邀请方版本，不影响你提供自己的信息或暂不回答。" };
-  if (step.value === 1 || props.role === "B" && step.value === 2) return { title: props.role === "A" ? "先介绍一下你们" : "填写我的版本", description: "只选你愿意说明的部分，所有题都可以跳过。" };
+    : { title: "邀请方没有说明你们的关系", description: "你仍然可以填写自己的版本，或暂不回答。" };
+  if (step.value === 1 || props.role === "B" && step.value === 2) {
+    return props.role === "A"
+      ? { title: "你准备邀请谁来沟通？", description: "先选择你理解的关系。对方可以确认、填写自己的版本或暂不回答。" }
+      : { title: "填写我的版本", description: "只选你愿意说明的部分，所有题都可以跳过。" };
+  }
   if (step.value === 2 || props.role === "B" && step.value === 3) return { title: "发生分歧时，你通常怎样沟通？", description: "这里只描述你自己，不评价对方。" };
   if (step.value === 3) return { title: "你眼中的关系现在怎样？", description: "这是你的私人视角，不会展示给对方。" };
   return { title: "确认这次会怎样使用", description: "提交前，逐项看清谁能看到、AI 会不会参考。" };

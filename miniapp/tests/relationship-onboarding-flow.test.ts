@@ -5,6 +5,7 @@ import {
   normalizeRecipientRelationshipDecision,
   recipientRelationshipDecisions,
   relationshipOnboardingStage,
+  summarizeInviteRelationship,
 } from "../src/services/relationship-onboarding-flow";
 import { parseRoomRelationshipContext } from "../src/domain/profile-context";
 
@@ -76,11 +77,25 @@ describe("relationship onboarding submission flow", () => {
     expect(page).toContain('@save="saveRelationshipOnboarding"');
   });
 
+  it("makes the invite recipient explicit and blocks sharing until that choice is saved", () => {
+    const component = readFileSync(new URL("../src/components/RelationshipOnboarding.vue", import.meta.url), "utf8");
+    const page = readFileSync(new URL("../src/pages/index/index.vue", import.meta.url), "utf8");
+
+    expect(component).toContain("你准备邀请谁来沟通？");
+    expect(component).toContain("暂不说明关系，继续沟通");
+    expect(component).toContain('v-for="item in decisions"');
+    expect(page).toContain("分享给谁");
+    expect(page).toContain("!inviteRelationshipSummary.ready");
+    expect(page).toContain("关系说明尚未保存。请补充关系说明，或选择暂不说明后再分享。");
+    expect(page).toContain('return message(error, "关系背景没有保存。');
+  });
+
   it.each([
-    ["A", false, "GOAL"],
-    ["B", false, "INVITATION_INTRO"],
-    ["B", true, "RECORD"],
-  ] as const)("moves role %s to the next stage after one successful save", async (role, invitationAcknowledged, nextStage) => {
+    ["A", "GOAL_SETTING", false, "GOAL"],
+    ["A", "WAITING_FOR_B", false, "INVITE"],
+    ["B", "B_DRAFTING", false, "INVITATION_INTRO"],
+    ["B", "B_DRAFTING", true, "RECORD"],
+  ] as const)("moves role %s in %s to the next stage after one successful save", async (role, roomState, invitationAcknowledged, nextStage) => {
     const request = deferred<{ revision: number }>();
     const save = vi.fn(() => request.promise);
     const state = {
@@ -102,8 +117,8 @@ describe("relationship onboarding submission flow", () => {
       focusError: vi.fn(),
     });
 
-    const first = submitter.submit({ role, invitationAcknowledged, save, isCurrent: () => true, recoverError: vi.fn() });
-    const duplicate = await submitter.submit({ role, invitationAcknowledged, save, isCurrent: () => true, recoverError: vi.fn() });
+    const first = submitter.submit({ role, roomState, invitationAcknowledged, save, isCurrent: () => true, recoverError: vi.fn() });
+    const duplicate = await submitter.submit({ role, roomState, invitationAcknowledged, save, isCurrent: () => true, recoverError: vi.fn() });
     expect(state.busy).toBe(true);
     expect(state.error).toBe("");
     expect(duplicate).toBe("ignored");
@@ -133,6 +148,7 @@ describe("relationship onboarding submission flow", () => {
 
     const result = await submitter.submit({
       role: "A",
+      roomState: "GOAL_SETTING",
       invitationAcknowledged: false,
       save: async () => { throw new Error("internal rpc signature mismatch"); },
       isCurrent: () => true,
@@ -165,6 +181,7 @@ describe("relationship onboarding submission flow", () => {
 
     const pending = submitter.submit({
       role: "A",
+      roomState: "GOAL_SETTING",
       invitationAcknowledged: false,
       save: () => request.promise,
       isCurrent: () => current,
@@ -178,6 +195,7 @@ describe("relationship onboarding submission flow", () => {
     expect(applyError).not.toHaveBeenCalled();
     await expect(submitter.submit({
       role: "A",
+      roomState: "GOAL_SETTING",
       invitationAcknowledged: false,
       save: async () => ({ revision: 5 }),
       isCurrent: () => true,
@@ -208,6 +226,16 @@ describe("relationship onboarding restoration routing", () => {
       relationshipContext({ sharedStatus: "CONFIRMED" }),
       false,
     )).toBe("GOAL");
+    expect(relationshipOnboardingStage(
+      { workflowVersion: 2, role: "A", state: "WAITING_FOR_B" },
+      relationshipContext({ sharedStatus: "MISSING", sharedRevision: 0 }),
+      false,
+    )).toBe("RELATIONSHIP_SETUP");
+    expect(relationshipOnboardingStage(
+      { workflowVersion: 2, role: "A", state: "WAITING_FOR_B" },
+      relationshipContext({ sharedStatus: "SKIPPED" }),
+      false,
+    )).toBe("INVITE");
   });
 
   it("only advances role B after responding to the latest shared revision", () => {
@@ -221,5 +249,23 @@ describe("relationship onboarding restoration routing", () => {
     expect(relationshipOnboardingStage(room, relationshipContext({
       role: "B", mineStatus: "CONFIRMED", sharedRevision: 3, seenSharedRevision: 3,
     }), true)).toBe("RECORD");
+    expect(relationshipOnboardingStage(room, relationshipContext({
+      role: "B", sharedStatus: "MISSING", mineStatus: "DIFFERENT", sharedRevision: 0, seenSharedRevision: 0,
+    }), false)).toBe("INVITATION_INTRO");
+  });
+});
+
+describe("invite relationship summary", () => {
+  it("blocks sharing while the inviter version is missing or still a draft", () => {
+    expect(summarizeInviteRelationship(null)).toMatchObject({ ready: false, state: "尚未保存" });
+    expect(summarizeInviteRelationship(relationshipContext({ sharedStatus: "DRAFT" })))
+      .toMatchObject({ ready: false, title: "先说明你准备邀请谁" });
+  });
+
+  it("distinguishes an explicit skip from a confirmed inviter version", () => {
+    expect(summarizeInviteRelationship(relationshipContext({ sharedStatus: "SKIPPED" })))
+      .toMatchObject({ ready: true, state: "已选择暂不说明", title: "这次暂不说明关系" });
+    expect(summarizeInviteRelationship(relationshipContext({ sharedStatus: "CONFIRMED" })))
+      .toMatchObject({ ready: true, state: "你的版本", title: "朋友" });
   });
 });

@@ -370,6 +370,17 @@
         <text class="eyebrow">你的部分已经保存</text>
         <text class="title">现在，邀请对方讲自己的版本。</text>
         <text class="description centered">对方会先看见一段你确认过的主题说明，再在自己的私人空间表达。不会提前看到其余表达内容或私人草稿。</text>
+        <view class="invite-recipient" :class="{ incomplete: !inviteRelationshipSummary.ready }" role="group" aria-label="分享对象关系">
+          <view class="invite-recipient-meta">
+            <text class="invite-recipient-label">分享给谁</text>
+            <text class="invite-recipient-state">{{ inviteRelationshipSummary.state }}</text>
+          </view>
+          <text class="invite-recipient-title">{{ inviteRelationshipSummary.title }}</text>
+          <text class="invite-recipient-note">{{ inviteRelationshipSummary.note }}</text>
+          <button class="invite-preview-edit" :disabled="busy || !relationshipContext" @tap="editInviteRelationship">
+            {{ inviteRelationshipSummary.ready ? "修改关系说明" : "补充关系说明" }}
+          </button>
+        </view>
         <view class="invite-preview">
           <view class="invite-preview-meta">
             <text class="invite-preview-label">对方将先看到</text>
@@ -386,10 +397,10 @@
           <text class="room-hint">长按或点击下方按钮分享</text>
         </view>
         <!-- #ifdef MP-WEIXIN -->
-        <button class="primary full" open-type="share" :disabled="!resolvedInvitationContext.topic">微信邀请对方</button>
+        <button class="primary full" open-type="share" :disabled="busy || !resolvedInvitationContext.topic || !inviteRelationshipSummary.ready">微信邀请对方</button>
         <!-- #endif -->
         <!-- #ifndef MP-WEIXIN -->
-        <button class="primary full" :disabled="!resolvedInvitationContext.topic" @tap="shareInvite">分享邀请链接</button>
+        <button class="primary full" :disabled="busy || !resolvedInvitationContext.topic || !inviteRelationshipSummary.ready" @tap="shareInvite">分享邀请链接</button>
         <!-- #endif -->
         <button class="secondary refresh" :loading="busy" :disabled="busy" @tap="refreshRoom">
           {{ busy ? "正在确认进展" : "我已邀请，检查对方进展" }}
@@ -579,6 +590,8 @@ import {
   emptyParticipantContextDraft,
   emptyProfileDraft,
   emptySharedContextDraft,
+  toParticipantContextDraft,
+  toSharedContextDraft,
   type ParticipantContextDraft,
   type ProfileDraft,
   type RoomRelationshipContext,
@@ -673,6 +686,7 @@ import { runCommittedRoomEntry } from "../../services/room-entry";
 import {
   createRelationshipOnboardingSubmitter,
   relationshipOnboardingStage,
+  summarizeInviteRelationship,
 } from "../../services/relationship-onboarding-flow";
 
 const goals = [
@@ -997,6 +1011,7 @@ const resolvedInvitationContext = computed<InvitationContext>(() => {
     !inviter || ["我", "Lin"].includes(inviter) ? "邀请你的人" : inviter,
   );
 });
+const inviteRelationshipSummary = computed(() => summarizeInviteRelationship(relationshipContext.value));
 const currentInvitationClarificationMessage = computed(() => invitationClarificationMessage(
   resolvedInvitationContext.value,
   room.value?.code ?? "",
@@ -1145,7 +1160,7 @@ function persistRelationshipDraft(draft: RelationshipDraft) {
 
 async function routeRelationshipOnboarding(roomSession: RoomSession): Promise<ClientStage> {
   if (roomSession.workflowVersion !== 2 || ![
-    "GOAL_SETTING", "B_DRAFTING", "B_REVIEWING",
+    "GOAL_SETTING", "WAITING_FOR_B", "B_DRAFTING", "B_REVIEWING",
   ].includes(roomSession.state)) return stageForCurrentRoom(roomSession);
   const context = await roomApi.relationshipContext(roomSession.roomId);
   relationshipContext.value = context;
@@ -1171,6 +1186,7 @@ async function saveRelationshipOnboarding(payload: {
   const currentUserId = authUserId.value;
   const outcome = await relationshipSubmitter.submit({
     role: currentRoom.role,
+    roomState: currentRoom.state,
     invitationAcknowledged: hasAcknowledgedInvitation(currentRoom.roomId),
     isCurrent: () => authUserId.value === currentUserId &&
       room.value?.roomId === currentRoom.roomId && room.value.role === currentRoom.role,
@@ -1197,12 +1213,15 @@ async function saveRelationshipOnboarding(payload: {
       if (isWorkspaceConflict(error)) {
         return recoverRelationshipConflict(currentRoom, currentUserId);
       }
-      return "关系背景没有保存。请重新保存；如果仍然失败，请检查网络连接。刚才的输入仍保留。";
+      return message(error, "关系背景没有保存。请重新保存；如果仍然失败，请检查网络连接。刚才的输入仍保留。");
     },
   });
   if (outcome !== "saved") return;
   if (currentRoom.role === "A") {
-    setNotice("success", payload.status === "SKIPPED" ? "已跳过关系背景，可以继续沟通。" : "关系背景已保存，接下来确认这次的意图。");
+    const returningToInvite = currentRoom.state !== "GOAL_SETTING";
+    setNotice("success", payload.status === "SKIPPED"
+      ? returningToInvite ? "已选择暂不说明关系，可以继续分享邀请。" : "已选择暂不说明关系，可以继续沟通。"
+      : returningToInvite ? "关系说明已保存，可以分享邀请。" : "关系说明已保存，接下来确认这次的意图。");
   } else {
     setNotice("success", "你的选择已保存。私人视角不会展示给邀请方。");
   }
@@ -2441,12 +2460,30 @@ async function refreshRoom() {
 
 async function shareInvite() {
   if (!room.value) return;
+  if (!inviteRelationshipSummary.value.ready) {
+    setNotice("error", "关系说明尚未保存。请补充关系说明，或选择暂不说明后再分享。");
+    return;
+  }
   const topic = resolvedInvitationContext.value.topic;
   if (!topic) {
     setNotice("error", "还没有可供对方理解的主题说明，请先返回修改表达卡。 ");
     return;
   }
   await shareRoomLink();
+}
+
+function editInviteRelationship() {
+  if (!room.value || room.value.role !== "A" || !relationshipContext.value) return;
+  relationshipError.value = "";
+  relationshipDraft.value = {
+    step: 1,
+    shared: toSharedContextDraft(relationshipContext.value.shared),
+    mine: toParticipantContextDraft(relationshipContext.value.mine),
+    sharedRevision: relationshipContext.value.shared.revision,
+    privateRevision: relationshipContext.value.mine.revision,
+  };
+  saveRelationshipDraft(authUserId.value, room.value.roomId, room.value.role, relationshipDraft.value);
+  stage.value = "RELATIONSHIP_SETUP";
 }
 
 async function shareRoomLink() {
