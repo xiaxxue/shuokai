@@ -125,7 +125,7 @@ select is(
 
 reset role;
 update private.participant_workspaces_v2 workspace
-set revision = revision + 1
+set revision = workspace.revision + 1
 from test_v2_context context
 where workspace.room_id = context.room_id;
 update private.ai_jobs job
