@@ -10,12 +10,13 @@ const roomId = "22222222-2222-4222-8222-222222222222";
 
 function understanding() {
   return {
+    schemaVersion: 2,
     coverage: {
       event: { status: "ENOUGH", evidence: ["晚上约好沟通"], missingInfo: "" },
-      impact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
-      intention: { status: "ENOUGH", evidence: ["希望提前说明"], missingInfo: "" },
+      userImpact: { status: "ENOUGH", evidence: ["我很失望"], missingInfo: "" },
+      communicationGoal: { status: "ENOUGH", evidence: ["希望提前说明"], missingInfo: "" },
     },
-    latestAnswerUpdate: { absorbed: true, updatedDimensions: ["intention"] },
+    latestAnswerUpdate: { absorbed: true, updatedDimensions: ["communicationGoal"] },
     nextQuestion: { focusDimension: "none", text: "", purpose: "" },
   };
 }

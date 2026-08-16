@@ -530,7 +530,8 @@ export async function requestExpressionClarification(
   const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(String(result.safetyDisposition));
   const hasStopped = Boolean(result.ready || safetyStopped);
   const nextQuestion = understanding?.nextQuestion;
-  if (!understanding || typeof result.ready !== "boolean" ||
+  if (!understanding || understanding.schemaVersion !== 2 || result.schemaVersion !== 2 ||
+    typeof result.ready !== "boolean" ||
     result.ready !== allCovered ||
     !dispositions.includes(result.safetyDisposition as typeof dispositions[number]) ||
     typeof result.safetyMessage !== "string" || result.safetyMessage.length > 1000 ||

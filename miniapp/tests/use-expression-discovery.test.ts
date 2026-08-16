@@ -15,25 +15,27 @@ import { useExpressionDiscovery } from "../src/composables/use-expression-discov
 
 function discoveryResponse(question: string, ready = false, absorbed = false) {
   return {
+    schemaVersion: 2 as const,
     question,
     ready,
     understanding: {
+      schemaVersion: 2 as const,
       coverage: {
         event: { status: "ENOUGH" as const, evidence: ["男朋友不想提醒我睡觉"], missingInfo: "" },
-        impact: ready
-          ? { status: "ENOUGH" as const, evidence: ["觉得很烦"], missingInfo: "" }
+        userImpact: ready
+          ? { status: "ENOUGH" as const, evidence: ["我很难过"], missingInfo: "" }
           : { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
-        intention: ready
+        communicationGoal: ready
           ? { status: "ENOUGH" as const, evidence: ["希望他知道"], missingInfo: "" }
           : { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
       },
       latestAnswerUpdate: {
         absorbed,
-        updatedDimensions: absorbed ? ["intention" as const] : [],
+        updatedDimensions: absorbed ? ["communicationGoal" as const] : [],
       },
       nextQuestion: ready
         ? { focusDimension: "none" as const, text: "", purpose: "" }
-        : { focusDimension: "impact" as const, text: question, purpose: "补充具体影响" },
+        : { focusDimension: "userImpact" as const, text: question, purpose: "补充用户本人的感受或后果" },
     },
     safetyDisposition: "ALLOW" as const,
     safetyMessage: "",
@@ -94,7 +96,7 @@ describe("expression discovery orchestration", () => {
     );
     expect(state.flow.started.value).toBe(true);
     expect(state.flow.question.value).toContain("最希望他理解");
-    expect(state.flow.understanding.value?.nextQuestion.purpose).toBe("补充具体影响");
+    expect(state.flow.understanding.value?.nextQuestion.purpose).toBe("补充用户本人的感受或后果");
     expect(state.stage.value).toBe("RECORD");
     expect(state.busy.value).toBe(false);
   });

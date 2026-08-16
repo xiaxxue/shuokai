@@ -7,10 +7,13 @@ export type ClarificationTurn = {
   answer: string;
 };
 
-export const discoveryDimensions = ["event", "impact", "intention"] as const;
+export const discoveryDimensions = ["event", "userImpact", "communicationGoal"] as const;
 export type DiscoveryDimension = typeof discoveryDimensions[number];
+const legacyDiscoveryDimensions = ["event", "impact", "intention"] as const;
+type LegacyDiscoveryDimension = typeof legacyDiscoveryDimensions[number];
 
 export type DiscoveryUnderstandingState = {
+  schemaVersion: 1 | 2;
   coverage: Record<DiscoveryDimension, {
     status: "ENOUGH" | "MISSING";
     evidence: string[];
@@ -62,9 +65,26 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]) {
   return Object.keys(value).length === keys.length && keys.every((key) => key in value);
 }
 
+function normalizedDiscoveryDimension(
+  value: DiscoveryDimension | LegacyDiscoveryDimension,
+): DiscoveryDimension {
+  if (value === "impact") return "userImpact";
+  if (value === "intention") return "communicationGoal";
+  return value;
+}
+
 export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnderstandingState | null {
-  if (!isRecord(value) || !isRecord(value.coverage) ||
-    !hasExactKeys(value.coverage, discoveryDimensions) ||
+  if (!isRecord(value) || !isRecord(value.coverage)) return null;
+  const legacyCoverage = value.schemaVersion === undefined &&
+    hasExactKeys(value.coverage, legacyDiscoveryDimensions);
+  const currentCoverage = value.schemaVersion === 2 &&
+    hasExactKeys(value.coverage, discoveryDimensions);
+  if (!legacyCoverage && !currentCoverage) return null;
+  const acceptedDimensions: readonly string[] = legacyCoverage
+    ? legacyDiscoveryDimensions
+    : discoveryDimensions;
+
+  if (
     !isRecord(value.latestAnswerUpdate) ||
     !hasExactKeys(value.latestAnswerUpdate, ["absorbed", "updatedDimensions"]) ||
     typeof value.latestAnswerUpdate.absorbed !== "boolean" ||
@@ -73,16 +93,24 @@ export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnder
     new Set(value.latestAnswerUpdate.updatedDimensions).size !==
       value.latestAnswerUpdate.updatedDimensions.length ||
     !value.latestAnswerUpdate.updatedDimensions.every((item) =>
-      discoveryDimensions.includes(item as DiscoveryDimension)) ||
+      typeof item === "string" && acceptedDimensions.includes(item)) ||
     !isRecord(value.nextQuestion) ||
     !hasExactKeys(value.nextQuestion, ["focusDimension", "text", "purpose"]) ||
-    ![...discoveryDimensions, "none"].includes(String(value.nextQuestion.focusDimension)) ||
+    ![...acceptedDimensions, "none"].includes(String(value.nextQuestion.focusDimension)) ||
     typeof value.nextQuestion.text !== "string" || value.nextQuestion.text.length > 500 ||
     typeof value.nextQuestion.purpose !== "string" || value.nextQuestion.purpose.length > 300) return null;
 
+  const normalizedCoverage = legacyCoverage
+    ? {
+      event: value.coverage.event,
+      userImpact: value.coverage.impact,
+      communicationGoal: value.coverage.intention,
+    }
+    : value.coverage;
+
   const coverage = {} as DiscoveryUnderstandingState["coverage"];
   for (const dimension of discoveryDimensions) {
-    const item = value.coverage[dimension];
+    const item = normalizedCoverage[dimension];
     if (!isRecord(item) || !hasExactKeys(item, ["status", "evidence", "missingInfo"]) ||
       (item.status !== "ENOUGH" && item.status !== "MISSING") ||
       !Array.isArray(item.evidence) || item.evidence.length > 3 ||
@@ -99,13 +127,19 @@ export function parseDiscoveryUnderstandingState(value: unknown): DiscoveryUnder
   }
 
   return {
+    schemaVersion: legacyCoverage ? 1 : 2,
     coverage,
     latestAnswerUpdate: {
       absorbed: value.latestAnswerUpdate.absorbed,
-      updatedDimensions: value.latestAnswerUpdate.updatedDimensions as DiscoveryDimension[],
+      updatedDimensions: value.latestAnswerUpdate.updatedDimensions.map((dimension) =>
+        normalizedDiscoveryDimension(dimension as DiscoveryDimension | LegacyDiscoveryDimension)),
     },
     nextQuestion: {
-      focusDimension: value.nextQuestion.focusDimension as DiscoveryDimension | "none",
+      focusDimension: value.nextQuestion.focusDimension === "none"
+        ? "none"
+        : normalizedDiscoveryDimension(
+          value.nextQuestion.focusDimension as DiscoveryDimension | LegacyDiscoveryDimension,
+        ),
       text: value.nextQuestion.text,
       purpose: value.nextQuestion.purpose,
     },

@@ -367,14 +367,15 @@ describe("private editor draft recovery", () => {
       discoveryReady: false,
       discoveryFollowUpLimitReached: false,
       discoveryUnderstanding: {
+        schemaVersion: 2 as const,
         coverage: {
           event: { status: "ENOUGH" as const, evidence: ["当时具体说了什么"], missingInfo: "" },
-          impact: { status: "MISSING" as const, evidence: [], missingInfo: "缺少具体影响" },
-          intention: { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
+          userImpact: { status: "MISSING" as const, evidence: [], missingInfo: "缺少用户本人的感受或后果" },
+          communicationGoal: { status: "MISSING" as const, evidence: [], missingInfo: "缺少沟通意图" },
         },
         latestAnswerUpdate: { absorbed: true, updatedDimensions: ["event" as const] },
         nextQuestion: {
-          focusDimension: "impact" as const,
+          focusDimension: "userImpact" as const,
           text: "这件事对你造成了什么影响？",
           purpose: "补充具体影响",
         },

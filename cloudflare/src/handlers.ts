@@ -254,6 +254,7 @@ export async function handleExpressionClarification(
         ready: discoveryResult.ready,
         question: discoveryResult.nextQuestion.text,
         understanding: {
+          schemaVersion: discoveryResult.schemaVersion,
           coverage: discoveryResult.coverage,
           latestAnswerUpdate: discoveryResult.latestAnswerUpdate,
           nextQuestion: discoveryResult.nextQuestion,

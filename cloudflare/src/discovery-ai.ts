@@ -7,7 +7,7 @@ export type DiscoveryTurn = {
   answer: string;
 };
 
-type DiscoveryDimension = "event" | "impact" | "intention";
+type DiscoveryDimension = "event" | "userImpact" | "communicationGoal";
 
 type DiscoveryCoverage = {
   status: "ENOUGH" | "MISSING";
@@ -16,6 +16,7 @@ type DiscoveryCoverage = {
 };
 
 export type DiscoveryResult = {
+  schemaVersion: 2;
   ready: boolean;
   coverage: Record<DiscoveryDimension, DiscoveryCoverage>;
   latestAnswerUpdate: {
@@ -55,7 +56,12 @@ export type DiscoveryMemoryContext = {
   };
 };
 
-const discoveryDimensions = ["event", "impact", "intention"] as const;
+const discoveryDimensions = ["event", "userImpact", "communicationGoal"] as const;
+export const discoveryDimensionDefinitions = {
+  event: "用户描述的具体事件、背景和双方言行；对方的态度、情绪或对用户的评价也只能放在这里。只要具体互动已经能被理解就算 ENOUGH，不要求与理解无关的时间、地点或在场人员。",
+  userImpact: "事件已经对当前用户本人造成、且由用户明确说出的情绪感受、身体反应或现实后果。对方的言行、态度、情绪和评价不属于 userImpact；用户希望对方理解的意义、需要或未来变化属于 communicationGoal。",
+  communicationGoal: "当前用户希望对方理解的意义、需要或立场，或者希望这次沟通带来的具体变化。",
+} as const;
 const discoveryDimensionSchema = { type: "string", enum: [...discoveryDimensions] } as const;
 const coverageDimensionSchema = {
   type: "object",
@@ -76,20 +82,24 @@ export const discoveryResultSchema = {
   type: "object",
   additionalProperties: false,
   required: [
-    "ready", "coverage", "latestAnswerUpdate",
+    "schemaVersion", "ready", "coverage", "latestAnswerUpdate",
     "nextQuestion", "safetyDisposition", "safetyMessage",
     "conversationSummary", "memoryCandidates",
   ],
   properties: {
+    schemaVersion: { type: "integer", enum: [2] },
     ready: { type: "boolean" },
     coverage: {
       type: "object",
       additionalProperties: false,
       required: [...discoveryDimensions],
       properties: {
-        event: coverageDimensionSchema,
-        impact: coverageDimensionSchema,
-        intention: coverageDimensionSchema,
+        event: { ...coverageDimensionSchema, description: discoveryDimensionDefinitions.event },
+        userImpact: { ...coverageDimensionSchema, description: discoveryDimensionDefinitions.userImpact },
+        communicationGoal: {
+          ...coverageDimensionSchema,
+          description: discoveryDimensionDefinitions.communicationGoal,
+        },
       },
     },
     latestAnswerUpdate: {
@@ -204,6 +214,7 @@ export function normalizeDiscoveryResult(
 
   return {
     ...value,
+    schemaVersion: 2,
     ready: allCovered,
     coverage,
     latestAnswerUpdate: {
@@ -245,10 +256,10 @@ export function isDiscoveryResult(
   input: { sourceText: string; turns: DiscoveryTurn[] },
 ): value is DiscoveryResult {
   if (!isRecord(value) || !hasExactKeys(value, [
-    "ready", "coverage", "latestAnswerUpdate",
+    "schemaVersion", "ready", "coverage", "latestAnswerUpdate",
     "nextQuestion", "safetyDisposition", "safetyMessage",
     "conversationSummary", "memoryCandidates",
-  ]) || typeof value.ready !== "boolean" ||
+  ]) || value.schemaVersion !== 2 || typeof value.ready !== "boolean" ||
     !isRecord(value.latestAnswerUpdate) ||
     !hasExactKeys(value.latestAnswerUpdate, ["absorbed", "updatedDimensions"]) ||
     typeof value.latestAnswerUpdate.absorbed !== "boolean" ||
@@ -321,13 +332,15 @@ export function generateDiscoveryQuestion(
     schema: discoveryResultSchema,
     systemText: [
       "你是‘说开’的私人倾听助手。用户还没有选择表达路径；此时只通过对话理解背景，绝不能生成表达卡，也不能推荐或预设非暴力沟通、事实争议、边界声明等路径。",
-      "你必须维护三类理解状态：event=对方能理解的具体事件、言行和必要背景；impact=这件事对用户造成的感受、影响或在意之处；intention=用户希望对方理解什么，或希望沟通带来什么变化。",
+      `你必须严格按以下互斥定义维护三类理解状态：event=${discoveryDimensionDefinitions.event} userImpact=${discoveryDimensionDefinitions.userImpact} communicationGoal=${discoveryDimensionDefinitions.communicationGoal}`,
+      "userImpact 的主体永远是当前正在说话的用户本人。比如“他嫌我烦”描述的是对方的态度，只能作为 event；它没有说明用户本人感到什么或受到什么后果，因此不能作为 userImpact。比如“提醒我代表被爱”说明用户希望对方理解的意义，应放在 communicationGoal，也不能代替 userImpact。不得根据对方的反应推断用户的感受。",
+      "如果用户已经说清“我请伴侣提醒我休息，他嫌我烦”这样的具体互动，event 就是 ENOUGH；不要追问不影响理解的具体时间、地点或其他在场人员。",
       "每个 coverage 项都必须填写 status、evidence、missingInfo。evidence 只能逐字摘录 sourceText 或用户回答中的短句，不能概括、推断或虚构；ENOUGH 至少需要一条证据且 missingInfo 为空，MISSING 必须具体说明还缺什么。",
       "如果已有问答，先吸收用户最新回答：latestAnswerUpdate.absorbed 必须为 true，并用 updatedDimensions 标记它补充或修正了哪些维度；首次讲述时 absorbed=false、updatedDimensions=[]。",
-      "只有 event、impact、intention 全部为 ENOUGH 时，ready 才能为 true。只要还有 MISSING，ready 必须为 false，nextQuestion 必须针对最影响准确表达的一项，只问一个简短、具体、非诱导的问题，并在 purpose 中说明要补的具体信息。",
+      "只有 event、userImpact、communicationGoal 全部为 ENOUGH 时，ready 才能为 true。只要还有 MISSING，ready 必须为 false，nextQuestion 必须针对最影响准确表达的一项，只问一个简短、具体、非诱导的问题，并在 purpose 中说明要补的具体信息。",
       "下一问必须结合用户最新回答，不得重复、轻微改写或重新索取 privateConversation 中已经回答的信息。第一次讲述如果三类都足够，可以直接 ready；轮数不是理解完成的依据。",
       "不要为了显得深入而追问；已经回答过的问题不得换标点后重复。ready 或安全停止时，nextQuestion 必须为 {focusDimension:'none',text:'',purpose:''}。",
-      "conversationSummary 用不超过 600 字概括这次私人对话已经讲清的事件、影响和沟通意图，不能添加用户没说过的事实。",
+      "conversationSummary 用不超过 600 字概括已经讲清的事件、当前用户本人的体验或后果，以及沟通目标，不能添加用户没说过的事实。",
       "confirmedMemory 只包含用户亲自确认的个人记忆和双方共同确认的关系记忆。仅在与本次明显相关时用它避免重复追问；不要向用户宣称你知道未在当前对话出现的隐私，也不要把记忆当成永远正确的事实。",
       "onboardingContext 只包含当前用户主动允许私人 AI 参考的资料。profile 用来调整表达方式；myContext 是用户对自己的描述；sharedContext 若 source=INVITER，表示邀请方尚未成为共同事实的版本，只能帮助理解语境，绝不能据此定义用户、推断对方动机或判断谁对谁错。不得依据年龄、性别、地域、关系类型或沟通风格套用刻板印象。",
       "只有 ready=true 且安全状态为 ALLOW 或 WARN 时，才可给出最多 3 条 memoryCandidates。候选必须是用户关于自己的、跨对象和跨沟通仍可能有用的需要、触发情境、沟通偏好、边界或有效修复方式；不得把只针对当前对方的评价、姓名、身份、一次性事件细节或对第三方的推断保存成个人记忆。content 是可编辑的简短表述，reason 说明以后何时有用，evidence 必须逐字摘录用户原话。其他情况输出空数组。",
@@ -335,6 +348,7 @@ export function generateDiscoveryQuestion(
       "不要评价谁对谁错，不诊断人格或关系，不推断动机，不把用户的感受改写成事实，不索取姓名、地址、联系方式、账号或诊断等非必要敏感信息。",
       "普通的难过、嫉妒、失望、争吵、关系不安或分手本身不是危险。只有分享可能带来现实危险时使用 WARN；明确的胁迫、暴力、自伤、伤人或迫近危险才使用 BLOCK_SHARE 或 PAUSE。没有真实安全风险时 safetyDisposition 必须为 ALLOW，safetyMessage 必须为空。",
       "只输出中文。",
+      "始终用“你”称呼用户，不用“您”。",
     ].join("\n"),
     userData: {
       sourceText: input.sourceText,
@@ -350,6 +364,7 @@ export function generateDiscoveryQuestion(
     maxTokens: 1100,
     validationRetryText: [
       "evidence 只能来自 sourceText 或 privateConversation[].answer，绝不能引用 privateConversation[].question。",
+      "再次检查 userImpact：证据必须是当前用户亲口说出的本人情绪、身体反应或现实后果；对方的言行、态度、情绪、评价，以及用户希望对方理解的意义或未来变化，都不能填入 userImpact。",
       "updatedDimensions 只能包含用户最新一条 answer 实际补充且 coverage.evidence 引用了该 answer 的维度。",
       "如果上一次问题与 privateConversation 中的问题重复，必须改问仍为 MISSING 的另一项具体信息。",
     ].join("\n"),
