@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { signInH5, signUpH5, type H5AuthResult } from "../services/auth";
+import { userFacingErrorMessage } from "../services/user-facing-error";
 
 defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{
@@ -64,7 +65,7 @@ async function submit() {
     }
     emit("authenticated", result);
   } catch (error) {
-    emit("notice", "error", error instanceof Error ? error.message : "认证没有完成，请稍后重试。");
+    emit("notice", "error", userFacingErrorMessage(error, "认证没有完成，请检查网络后重试。"));
   } finally {
     submitting.value = false;
   }

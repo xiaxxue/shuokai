@@ -105,7 +105,7 @@ describe("AI clarification request recovery", () => {
     storage.set(sessionKey, freshSession);
   });
 
-  it("turns a network failure into a recoverable user-facing error", async () => {
+  it("turns a timeout into a recoverable user-facing error and allows the bounded model retry", async () => {
     request.mockImplementationOnce(requestFails("request:fail timeout"));
 
     const result = requestExpressionClarification(
@@ -117,6 +117,21 @@ describe("AI clarification request recovery", () => {
 
     await expect(result).rejects.toMatchObject({
       name: "ApiError",
+      code: "AI_RESPONSE_TIMEOUT",
+      message: "AI 这次理解得比较慢。你的内容仍在，请重新尝试；如果结果已经保存，会直接恢复，不会重复追问。",
+    });
+    expect(request.mock.calls[0]?.[0].timeout).toBe(60000);
+  });
+
+  it("keeps non-timeout network failures separate from slow AI responses", async () => {
+    request.mockImplementationOnce(requestFails("request:fail network error"));
+
+    await expect(requestExpressionClarification(
+      "11111111-1111-4111-8111-111111111111",
+      2,
+      "需要整理的原话",
+      [],
+    )).rejects.toMatchObject({
       code: "NETWORK_UNAVAILABLE",
       message: "没有连接到 AI。请检查网络后重试，或按现有内容继续整理。",
     });
