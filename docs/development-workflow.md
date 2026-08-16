@@ -14,7 +14,8 @@
   → 从 GitHub main 的干净检出部署测试环境
 ```
 
-共享测试环境是 `shuokai-supabase-test`。生产 Worker 不在这条流程中，任何生产部署都必须另行获得明确授权。
+共享测试环境是 `shuokai-supabase-test`。正式 H5 使用独立 Worker `shuokai-ai` 与域名
+`app.shuokai.me`。任何生产部署都必须另行获得明确授权。
 
 ## 1. 同步本地 main
 
@@ -118,3 +119,35 @@ npm run cloudflare:deploy:test:main
 - 不 force push `main`。
 - 不把真实密钥写入仓库、命令日志或构建产物。
 - 未获明确授权时不部署生产环境。
+
+## 7. 生产 H5 发布（必须单独授权）
+
+生产 H5 与测试环境不得共享 Supabase 项目、Worker、Queue 或 Secret。首次发布前必须完成：
+
+1. 创建独立生产 Supabase 项目，应用仓库内全部 migration，并通过 pgTAP 与 RLS 检查；
+2. 在 Supabase Auth 中把 `https://app.shuokai.me` 加入 Site URL 与 Redirect URLs；
+3. 创建 `shuokai-ai-jobs-production` 与 `shuokai-ai-jobs-production-dlq`；
+4. 为 `shuokai-ai` 配置唯一的私密 Secret `SUPABASE_SECRET_KEY`；生产 URL 与 publishable key
+   由受保护的发布命令同时注入客户端和 Worker，避免两端指向不同项目。若远端曾把
+   `SUPABASE_URL` 或 `SUPABASE_PUBLISHABLE_KEY` 保存为 Secret，发布前必须删除，避免遮蔽；
+5. 从 GitHub `main` 的干净检出执行受保护命令。
+
+```bash
+SHUOKAI_PRODUCTION_DEPLOY_APPROVED="app.shuokai.me" \
+SHUOKAI_PRODUCTION_SUPABASE_PROJECT_REF="<production-project-ref>" \
+SHUOKAI_SUPABASE_URL="https://<production-project-ref>.supabase.co" \
+SHUOKAI_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..." \
+npm run cloudflare:deploy:production:main
+```
+
+命令会拒绝功能分支、脏工作区、未推送提交、错误 Supabase project ref、客户端 secret key、
+缺失 Worker Secrets、错误 Worker 名称、错误 Custom Domain 或测试 Queue。生产数据库密钥不得
+写入仓库、`.env` 示例、命令历史、CI 日志或客户端构建产物。
+
+生产 H5 验收完成后，才能部署包含体验入口的新版官网：
+
+```bash
+SHUOKAI_PRODUCTION_DEPLOY_APPROVED="shuokai.me" \
+SHUOKAI_APP_RELEASE_APPROVED="app.shuokai.me" \
+npm run cloudflare:deploy:site:production:main
+```

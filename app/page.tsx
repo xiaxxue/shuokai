@@ -1,48 +1,101 @@
-const moments = [
-  {
-    number: "01",
-    title: "越解释，越像在辩解",
-    copy: "你明明想让对方理解自己，最后却只剩下谁对谁错。",
-  },
-  {
-    number: "02",
-    title: "有些话，想说又怕说坏",
-    copy: "道歉、拒绝、提出边界——越重要的话，越难找到合适的开头。",
-  },
-  {
-    number: "03",
-    title: "同一件事，反复争了很多遍",
-    copy: "双方都在回应，却没有真正说清事实、感受和期待。",
-  },
-];
+const appUrl = "https://app.shuokai.me";
 
 const steps = [
   {
-    number: "一",
-    title: "各自说清楚",
-    copy: "先在只属于自己的空间里表达。AI 帮你整理，但不会替你下结论。",
-    note: "草稿仅自己可见",
+    number: "01",
+    kicker: "先在自己的空间",
+    title: "把真正想说的，慢慢说清楚",
+    copy: "可以说、可以写，也可以停下来。AI 只帮你追问遗漏的背景，不替你判断谁对谁错。",
+    visual: "private",
   },
   {
-    number: "二",
-    title: "一起看懂彼此",
-    copy: "只有你确认过的内容才会共享。双方先确认理解，再进入回应。",
-    note: "理解不等于同意",
+    number: "02",
+    kicker: "确认以后再分享",
+    title: "只有你认可的表达，才会被对方看见",
+    copy: "原话、中间草稿和私人 AI 对话都不会自动进入共同空间。你拥有最后的删改权。",
+    visual: "card",
   },
   {
-    number: "三",
-    title: "决定下一步",
-    copy: "找到共同点，也可以准确地保留分歧，或约定一个可复盘的小实验。",
-    note: "不强迫达成共识",
+    number: "03",
+    kicker: "先确认听懂",
+    title: "从互相反驳，回到共同面对问题",
+    copy: "双方分别确认理解，再回应、保留分歧，或决定暂停。不强迫共识，也不制造和解。",
+    visual: "together",
   },
 ];
 
 const promises = [
-  ["01", "不偷看", "原始语音、私人草稿和 AI 追问，默认只属于你。"],
-  ["02", "不代言", "任何 AI 整理都要经过本人修改和确认。"],
-  ["03", "不裁判", "AI 不判断谁输谁赢，也不给任何一方贴标签。"],
-  ["04", "不强迫", "暂停、保留分歧、体面结束，都是有效结果。"],
+  ["私人原话", "默认仅自己可见"],
+  ["AI 整理", "必须由本人确认"],
+  ["不同意见", "可以准确地保留"],
+  ["结束方式", "继续、暂停都有效"],
 ];
+
+function ProductPreview() {
+  return (
+    <div className="product-stage" aria-label="说开 H5 产品界面预览">
+      <div className="stage-orbit orbit-a" />
+      <div className="stage-orbit orbit-b" />
+      <div className="stage-word" aria-hidden="true">说</div>
+
+      <article className="phone phone-main">
+        <div className="phone-top"><span>9:41</span><i /><span>•••</span></div>
+        <div className="phone-screen">
+          <div className="app-brand"><strong>说开</strong><small>SHUOKAI</small></div>
+          <span className="app-eyebrow">当普通聊天失效</span>
+          <h2>换一个空间，<br />把话<span>说开。</span></h2>
+          <p>不裁判谁对谁错。先各自表达，再一起看清真正的分歧。</p>
+          <div className="preview-button">发起一次沟通 <span>→</span></div>
+          <div className="room-entry"><span>已有房间码</span><strong>SAY 2026</strong></div>
+          <div className="app-trust"><span>✓</span> 私人草稿默认不共享</div>
+        </div>
+      </article>
+
+      <article className="phone phone-card">
+        <div className="phone-top"><span>9:41</span><i /><span>•••</span></div>
+        <div className="phone-screen card-screen">
+          <span className="screen-step">02 / 03 · 我的表达</span>
+          <h3>我真正想让你<br />听见的是……</h3>
+          <div className="expression-field"><span>发生了什么</span><p>我们说好一起决定，但我最后才知道结果。</p></div>
+          <div className="expression-field accent-field"><span>我的感受</span><p>我有些失落，也担心自己的意见并不重要。</p></div>
+          <div className="share-check"><i>✓</i><span><strong>由我确认后分享</strong><small>原话和 AI 对话仍然保密</small></span></div>
+        </div>
+      </article>
+
+      <div className="stage-note note-private"><span>01</span> 私人空间</div>
+      <div className="stage-note note-shared"><span>02</span> 确认后共享</div>
+    </div>
+  );
+}
+
+function StepVisual({ type }: { type: string }) {
+  if (type === "private") {
+    return (
+      <div className="step-visual private-visual" aria-hidden="true">
+        <div className="chat ai">你最希望对方先听懂哪一点？</div>
+        <div className="chat me">我不是想责怪，只是不想再被排除在决定之外。</div>
+        <span>🔒 只有你和 AI 能看见</span>
+      </div>
+    );
+  }
+  if (type === "card") {
+    return (
+      <div className="step-visual card-visual" aria-hidden="true">
+        <span className="mini-label">待本人确认</span>
+        <strong>我的表达卡</strong>
+        <i /><i /><i className="short" />
+        <div className="preview-button">确认这就是我想说的</div>
+      </div>
+    );
+  }
+  return (
+    <div className="step-visual together-visual" aria-hidden="true">
+      <div><span>我听见你在意的是</span><strong>一起做决定</strong></div>
+      <b>理解</b>
+      <div><span>这不代表我同意</span><strong>但我听懂了</strong></div>
+    </div>
+  );
+}
 
 export default function Home() {
   return (
@@ -50,150 +103,96 @@ export default function Home() {
       <header className="site-header">
         <a className="brand" href="#top" aria-label="说开官网首页">
           <span className="brand-mark" aria-hidden="true">说</span>
-          <span>
-            <strong>说开</strong>
-            <small>SHUOKAI</small>
-          </span>
+          <span><strong>说开</strong><small>SHUOKAI</small></span>
         </a>
-
         <nav aria-label="主要导航">
-          <a href="#why">为什么说开</a>
+          <a href="#product">产品体验</a>
           <a href="#how">如何使用</a>
-          <a href="#trust">隐私原则</a>
+          <a href="#trust">隐私边界</a>
         </nav>
-
-        <span className="header-cta is-disabled" aria-disabled="true">产品内测中</span>
+        <a className="header-cta" href={appUrl}>进入说开 <span aria-hidden="true">↗</span></a>
       </header>
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="eyebrow"><span /> 当聊天失效</p>
-          <h1>有些话，<br />不该在气头上<span>说完。</span></h1>
-          <p className="hero-lead">
-            先各自说清，再一起看懂。说开帮助两个人准确表达、看见真正的分歧，并决定下一步。
-          </p>
+          <div className="release-pill"><span /> H5 正式版 · 浏览器直接使用</div>
+          <h1>不是为了<br />把对方<span>说服。</span></h1>
+          <p className="hero-statement">是为了让两个人，都有机会被准确听见。</p>
+          <p className="hero-lead">当一段对话开始打转，说开提供一个更慢、更安全的空间：先各自说清，再一起看懂，最后决定下一步。</p>
           <div className="hero-actions">
-            <span className="primary-button is-disabled" aria-disabled="true">
-              产品内测中 <span aria-hidden="true">·</span>
-            </span>
-            <a className="text-link" href="#how">看看它怎么工作 <span aria-hidden="true">↓</span></a>
+            <a className="primary-button" href={appUrl}>开始一次说开 <span aria-hidden="true">→</span></a>
+            <a className="text-link" href="#product">先看看怎么用</a>
           </div>
-          <p className="privacy-line"><span aria-hidden="true">●</span> 私人表达默认不共享</p>
+          <div className="hero-facts"><span>无需下载 App</span><i /><span>私人表达默认不共享</span></div>
         </div>
-
-        <div className="hero-art" role="img" aria-label="说开将两个人分别确认的表达带到共同空间">
-          <div className="halo halo-one" />
-          <div className="halo halo-two" />
-          <article className="letter letter-left">
-            <div className="letter-topline"><span>我的版本</span><span>仅自己可见</span></div>
-            <p>“我不是想责怪你，<br />我只是希望……”</p>
-            <div className="letter-lines"><i /><i /><i /></div>
-            <span className="pencil-note">慢慢说，没关系</span>
-          </article>
-          <article className="letter letter-right">
-            <div className="letter-topline"><span>对方的版本</span><span>独立表达</span></div>
-            <p>“原来你在意的，<br />和我以为的不一样。”</p>
-            <div className="letter-lines"><i /><i /></div>
-            <span className="pencil-note">先听懂，再回应</span>
-          </article>
-          <div className="seal" aria-hidden="true"><span>理解</span><small>≠ 同意</small></div>
-          <div className="shared-strip"><span>共同空间</span><strong>两个人都确认后，才放到这里</strong></div>
-        </div>
-
-        <p className="hero-side-note">为那些重要，但不容易说的话</p>
+        <ProductPreview />
       </section>
 
-      <section className="moments" id="why">
-        <div className="section-intro">
-          <p className="section-kicker">你可能来过这里</p>
-          <h2>不是没话说，<br />是原来的方式已经说不明白。</h2>
-        </div>
-        <div className="moment-list">
-          {moments.map((moment) => (
-            <article className="moment-card" key={moment.number}>
-              <span className="card-number">{moment.number}</span>
-              <div>
-                <h3>{moment.title}</h3>
-                <p>{moment.copy}</p>
-              </div>
-              <span className="card-arrow" aria-hidden="true">↘</span>
-            </article>
-          ))}
+      <section className="product-intro" id="product">
+        <div className="intro-index"><span>ABOUT</span><strong>不是聊天室<br />是一条沟通路径</strong></div>
+        <div className="intro-copy">
+          <p>普通聊天常常要求我们同时表达、倾听、解释和保护自己。说开把这些动作拆开，让每一步只做一件事。</p>
+          <div><span>各自表达</span><b>→</b><span>确认分享</span><b>→</b><span>互相复述</span><b>→</b><span>决定下一步</span></div>
         </div>
       </section>
 
-      <section className="manifesto">
-        <p>说开的目标，不是让谁赢。</p>
-        <h2>让每个人的话有机会被<span>准确听见</span>，<br />让不同意见也能被好好放下。</h2>
-        <p className="manifesto-sign">理解，不必同意。</p>
-      </section>
-
-      <section className="process" id="how">
-        <div className="process-heading">
-          <p className="section-kicker light">一次说开</p>
-          <h2>三步，把对抗<br />变成共同面对问题。</h2>
-          <p>不用学习沟通理论，也不用一次把所有话说完。</p>
+      <section className="workflow" id="how">
+        <div className="section-heading">
+          <p>一次说开</p>
+          <h2>把最难聊的部分，<br />拆成三个可以完成的动作。</h2>
         </div>
-
-        <div className="step-list">
+        <div className="workflow-grid">
           {steps.map((step) => (
-            <article className="step" key={step.number}>
-              <span className="step-number">{step.number}</span>
-              <div className="step-copy">
-                <h3>{step.title}</h3>
-                <p>{step.copy}</p>
-                <span>{step.note}</span>
-              </div>
+            <article className="workflow-card" key={step.number}>
+              <div className="card-meta"><span>{step.number}</span><p>{step.kicker}</p></div>
+              <h3>{step.title}</h3>
+              <p className="workflow-copy">{step.copy}</p>
+              <StepVisual type={step.visual} />
             </article>
           ))}
         </div>
       </section>
 
       <section className="trust" id="trust">
-        <div className="trust-heading">
-          <p className="section-kicker">安全感不是一句口号</p>
-          <h2>你的话，<br />由你决定怎样被听见。</h2>
-          <p>说开把边界写进产品流程，而不是藏进很长的用户协议。</p>
+        <div className="trust-copy">
+          <p className="section-label">边界写进流程</p>
+          <h2>你的话，<br />始终由你决定<br />怎样被听见。</h2>
+          <p>说开不会把“安全”藏进很长的协议。什么时候只有你能看见、什么时候会分享给对方，每一步都明确告诉你。</p>
+          <a href={appUrl}>亲自体验隐私流程 <span>→</span></a>
         </div>
-        <div className="promise-grid">
-          {promises.map(([number, title, copy]) => (
-            <article className="promise" key={number}>
-              <span>{number}</span>
-              <h3>{title}</h3>
-              <p>{copy}</p>
+        <div className="promise-list">
+          {promises.map(([title, copy], index) => (
+            <article key={title}>
+              <span>0{index + 1}</span><div><h3>{title}</h3><p>{copy}</p></div><i>✓</i>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="use-cases">
-        <p className="section-kicker">从哪一句开始</p>
-        <div className="use-case-track" aria-label="说开适用的沟通场景">
-          <span>我想认真道个歉</span>
-          <span>我们需要一起做个决定</span>
-          <span>我想说清自己的边界</span>
-          <span>这件事不想再互相误解</span>
+      <section className="situations">
+        <p>为那些重要，但不容易说的话</p>
+        <div className="situation-track">
+          <span>认真道一次歉</span><span>说清自己的边界</span><span>一起做一个决定</span><span>停止反复误解</span>
         </div>
       </section>
 
       <section className="closing">
-        <div className="closing-note">
-          <p>写给一段值得认真对待的关系</p>
-          <h2>聊不明白的时候，<br />我们一起<span>说开。</span></h2>
-          <span className="primary-button inverse is-disabled" aria-disabled="true">
-            产品内测中 <span aria-hidden="true">·</span>
-          </span>
-          <small>加入不代表同意 · 随时可以暂停</small>
+        <div className="closing-mark" aria-hidden="true">说</div>
+        <div>
+          <p>理解，不必同意。</p>
+          <h2>聊不明白的时候，<br />我们换个方式<span>说开。</span></h2>
+          <a className="primary-button light-button" href={appUrl}>进入 H5 正式版 <span>→</span></a>
+          <small>无需下载 · 使用邮箱即可开始 · 随时可以暂停</small>
         </div>
       </section>
 
       <footer>
-        <a className="brand footer-brand" href="#top">
+        <a className="brand" href="#top">
           <span className="brand-mark" aria-hidden="true">说</span>
           <span><strong>说开</strong><small>SHUOKAI</small></span>
         </a>
         <p>让人们不只能够联系，也能够相互理解。</p>
-        <div><span>© 2026 说开</span><a href="#trust">隐私原则</a></div>
+        <div><span>© 2026 说开</span><a href="#trust">隐私边界</a><a href={appUrl}>打开产品</a></div>
       </footer>
     </main>
   );
