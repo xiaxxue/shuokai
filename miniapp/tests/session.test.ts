@@ -387,6 +387,7 @@ describe("private editor draft recovery", () => {
       detachedDiscoveryDrafts: [{ answer: "尚未发送的旧问题回答", question: "旧问题是什么？", revision: 3 }],
       discoveryQuestion: "你当时具体说了什么？",
       discoveryReady: false,
+      discoveryModeSelectionOpen: true,
       discoveryFollowUpLimitReached: false,
       discoveryUnderstanding: {
         schemaVersion: 2 as const,
@@ -419,6 +420,7 @@ describe("private editor draft recovery", () => {
       detachedDiscoveryDrafts: draft.detachedDiscoveryDrafts,
       discoveryQuestion: draft.discoveryQuestion,
       discoveryReady: false,
+      discoveryModeSelectionOpen: true,
       discoveryUnderstanding: draft.discoveryUnderstanding,
       discoverySafetyDisposition: "ALLOW",
       discoverySafetyMessage: "",

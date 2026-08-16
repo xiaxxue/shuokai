@@ -4,7 +4,6 @@ import type {
   DiscoveryUnderstandingState,
 } from "../domain/clarification";
 import type { ExpressionMode, SafetyDisposition } from "../domain/expression";
-import type { ClientStage } from "../domain/room-state";
 import type { RoomSession } from "../domain/types";
 import { requestExpressionClarification } from "../services/api";
 import type {
@@ -17,7 +16,6 @@ type NoticeKind = "info" | "success" | "error";
 
 type DiscoveryOptions = {
   room: Ref<RoomSession | null>;
-  stage: Ref<ClientStage>;
   busy: Ref<boolean>;
   recording: Ref<boolean>;
   transcript: Ref<string>;
@@ -43,6 +41,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   const saveState = ref<"idle" | "local" | "saving" | "saved">("idle");
   const failureMessage = ref("");
   const detachedDrafts = ref<DetachedDiscoveryDraft[]>([]);
+  const modeSelectionOpen = ref(false);
 
   function reset() {
     started.value = false;
@@ -58,6 +57,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     saveState.value = "idle";
     failureMessage.value = "";
     detachedDrafts.value = [];
+    modeSelectionOpen.value = false;
   }
 
   function restore(conversation: AiPrivateConversation) {
@@ -78,6 +78,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     started.value = true;
     question.value = conversation.question;
     ready.value = conversation.ready;
+    modeSelectionOpen.value = conversation.ready;
     understanding.value = conversation.understanding;
     safetyDisposition.value = conversation.safetyDisposition;
     safetyMessage.value = conversation.safetyMessage;
@@ -149,6 +150,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
       }
       question.value = result.question;
       ready.value = result.ready;
+      modeSelectionOpen.value = result.ready;
       understanding.value = result.understanding;
       safetyDisposition.value = result.safetyDisposition;
       safetyMessage.value = result.safetyMessage;
@@ -184,7 +186,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
   function enterModeSelection(message: string) {
     failureMessage.value = "";
     options.selectedMode.value = null;
-    options.stage.value = "MODE_SELECT";
+    modeSelectionOpen.value = true;
     options.setNotice("info", message);
   }
 
@@ -213,7 +215,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     started, question, ready, understanding,
     safetyDisposition, safetyMessage, thinking, reset, send, finish,
     conversationRevision, memoryProposals, restored, saveState, restore,
-    detachedDrafts, failureMessage, continueAfterFailure,
+    detachedDrafts, failureMessage, modeSelectionOpen, continueAfterFailure,
     markLocalDraft, reapplyDetachedDraft, discardDetachedDraft, appendTranscription,
   };
 }
