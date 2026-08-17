@@ -80,9 +80,7 @@
   nav { display: flex; align-items: center; gap: 34px; }
   nav a { min-width: 48px; min-height: 48px; display: grid; place-items: center; font-size: 13px; opacity: .68; transition: opacity 180ms ease; }
   nav a:hover, nav a:focus-visible { opacity: 1; }
-  .build-status { justify-self: end; min-height: 48px; padding: 0 18px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; transition: color 180ms ease, border-color 180ms ease, background 180ms ease; }
-  .build-status b, .closing-status b { font-size: 14px; font-weight: 500; }
-  .build-status:hover, .build-status:focus-visible { border-color: rgba(200,77,55,.52); background: rgba(255,255,255,.42); color: var(--brand-deep); }
+  .build-status { justify-self: end; min-height: 48px; padding: 0 18px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; }
   .build-status i, .closing-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 4px rgba(200,77,55,.13); }
 
   .hero {
@@ -213,8 +211,7 @@
   .closing > p { position: relative; z-index: 2; color: var(--muted); font-size: 13px; letter-spacing: .08em; }
   .closing h2 { position: relative; z-index: 2; margin-top: 30px; font-size: clamp(58px,7vw,108px); line-height: 1.24; letter-spacing: -.07em; }
   .closing h2 em { color: var(--brand); }
-  .closing-status { position: relative; z-index: 2; min-height: 52px; margin-top: 52px; padding: 0 20px; display: inline-flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; transition: color 180ms ease, border-color 180ms ease, background 180ms ease, transform 180ms ease; }
-  .closing-status:hover, .closing-status:focus-visible { border-color: rgba(200,77,55,.52); background: var(--paper); color: var(--brand-deep); transform: translateY(-2px); }
+  .closing-status { position: relative; z-index: 2; min-height: 52px; margin-top: 52px; padding: 0 20px; display: inline-flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
   .closing small { position: relative; z-index: 2; margin-top: 16px; color: var(--muted); font-size: 11px; }
   .closing-orbit { position: absolute; border: 1px solid var(--line); border-radius: 50%; }
   .orbit-one { width: 620px; height: 620px; border-color: rgba(200,77,55,.2); transform: translateX(-38%); }
