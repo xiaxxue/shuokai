@@ -1,5 +1,7 @@
 import DialogueMechanism from "./components/dialogue-mechanism";
 
+const h5Url = "https://app.shuokai.me";
+
 const useCases = [
   {
     index: "01",
@@ -80,7 +82,15 @@ export default function Home() {
           <a href="#mechanism">怎么工作</a>
           <a href="#privacy">隐私边界</a>
         </nav>
-        <span className="build-status"><i /> H5 正式版打磨中</span>
+        <a
+          className="build-status"
+          href={h5Url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="打开说开 H5；当前版本仍在打磨中"
+        >
+          <i /> H5 入口 <b aria-hidden="true">↗</b>
+        </a>
       </header>
 
       <section className="hero">
@@ -162,8 +172,10 @@ export default function Home() {
         <div className="closing-orbit orbit-two" aria-hidden="true" />
         <p>理解，不必同意。</p>
         <h2>聊不明白的时候，<br /><em>我们一起说开。</em></h2>
-        <div className="closing-status"><i /> H5 正式版打磨中</div>
-        <small>核心流程和隐私边界完成验证后开放</small>
+        <a className="closing-status" href={h5Url} target="_blank" rel="noreferrer">
+          <i /> 打开说开 H5 <b aria-hidden="true">↗</b>
+        </a>
+        <small>当前仍在打磨；部署完成后，此入口将直接可用</small>
       </section>
 
       <footer>
