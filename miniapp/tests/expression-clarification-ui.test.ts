@@ -43,8 +43,21 @@ describe("ExpressionClarification direct editor", () => {
       /function openExpressionCandidate\(\) \{[\s\S]*?\n\}/,
     )?.[0] ?? "";
 
-    expect(componentSource).toContain('v-if="question" class="message-row assistant"');
+    expect(componentSource).toContain('v-if="question && !organizationPending" class="message-row assistant"');
     expect(openCandidate).toContain("expressionCandidateClarificationQuestion(");
     expect(openCandidate).not.toContain("optionalClarificationQuestion(");
+  });
+
+  it("shows a standalone AI loading message before rendering the expression card", () => {
+    const loadingMessage = componentSource.indexOf('v-if="organizationPending" class="message-row assistant organization-loading"');
+    const expressionCard = componentSource.indexOf('v-else class="card-message-row"');
+
+    expect(loadingMessage).toBeGreaterThan(-1);
+    expect(expressionCard).toBeGreaterThan(loadingMessage);
+    expect(componentSource).toContain("AI 正在整理表达卡");
+    expect(componentSource).toContain("整理完成后，表达卡会出现在这里。");
+    expect(componentSource).toContain('role="status" aria-live="polite"');
+    expect(componentSource).toContain('v-if="question && !organizationPending"');
+    expect(componentSource).not.toContain('class="organization-status loading"');
   });
 });

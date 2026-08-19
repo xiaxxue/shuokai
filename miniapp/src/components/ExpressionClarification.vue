@@ -51,7 +51,18 @@
         <view class="message-bubble assistant-bubble"><text>好，不用离开这里。我会把卡片直接放在这段对话下面。</text></view>
       </view>
 
-      <view class="card-message-row">
+      <view v-if="organizationPending" class="message-row assistant organization-loading" role="status" aria-live="polite">
+        <view class="ai-avatar">AI</view>
+        <view class="message-bubble assistant-bubble organization-loading-bubble">
+          <view class="typing" aria-hidden="true"><text /><text /><text /></view>
+          <view>
+            <text class="organization-loading-title">AI 正在整理表达卡</text>
+            <text class="organization-loading-copy">整理完成后，表达卡会出现在这里。</text>
+          </view>
+        </view>
+      </view>
+
+      <view v-else class="card-message-row">
         <view class="ai-avatar">AI</view>
         <view class="expression-card" aria-label="AI 协助整理的可编辑表达卡">
           <view class="card-heading">
@@ -66,11 +77,7 @@
             </view>
           </view>
 
-          <view v-if="organizationPending" class="organization-status loading" role="status">
-            <text class="status-mark" aria-hidden="true">···</text>
-            <view><text class="status-title">AI 正在更新这张卡片</text><text>上一版仍然保留，完成后会在这里更新。</text></view>
-          </view>
-          <view v-else-if="organizationFailure" class="organization-status failure" role="alert" aria-live="assertive">
+          <view v-if="organizationFailure" class="organization-status failure" role="alert" aria-live="assertive">
             <text class="status-mark" aria-hidden="true">!</text>
             <view class="status-copy">
               <text class="status-title">AI 这次没有更新表达卡</text><text>{{ organizationFailure }}</text>
@@ -132,11 +139,10 @@
           <view class="message-bubble user-bubble"><text>{{ turn.answer }}</text></view>
         </view>
       </template>
-      <view v-if="question" class="message-row assistant">
+      <view v-if="question && !organizationPending" class="message-row assistant">
         <view class="ai-avatar">AI</view>
         <view class="message-bubble assistant-bubble">
-          <view v-if="organizationPending" class="typing" aria-label="AI 正在结合你的补充更新表达卡"><text /><text /><text /></view>
-          <text v-else>{{ question }}</text>
+          <text>{{ question }}</text>
         </view>
       </view>
     </view>
@@ -377,6 +383,10 @@ function updateAnswer(event: Event) {
 .user-bubble { border-radius: 23rpx 8rpx 23rpx 23rpx; background: #315847; color: #fffaf2; }
 .typing { display: flex; gap: 7rpx; min-width: 58rpx; height: 28rpx; align-items: center; }
 .typing text { width: 9rpx; height: 9rpx; border-radius: 50%; background: #749083; }
+.organization-loading-bubble { display: flex; align-items: center; gap: 16rpx; }
+.organization-loading-title, .organization-loading-copy { display: block; }
+.organization-loading-title { color: #29483b; font-weight: 800; }
+.organization-loading-copy { margin-top: 4rpx; color: #6d7772; font-size: 20rpx; }
 .selected-path { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; margin-left: 55rpx; padding: 20rpx 22rpx; border: 1rpx solid #c6d5cc; border-radius: 8rpx 22rpx 22rpx 22rpx; background: #e5eee7; }
 .selected-path text { display: block; }.selected-path-title { margin-top: 5rpx; color: #183029; font-size: 28rpx; font-weight: 800; }.selected-path-copy { margin-top: 5rpx; color: #68766f; font-size: 19rpx; line-height: 1.5; }
 .selected-path button, .direct-edit-trigger { min-width: 48px; min-height: 48px; margin: 0; padding: 0 15rpx; border-radius: 999rpx; background: #fffdf8; color: #a74432; font-size: 20rpx; font-weight: 800; line-height: 48px; }
@@ -387,7 +397,7 @@ function updateAnswer(event: Event) {
 .card-title { margin-top: 5rpx; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 32rpx; font-weight: 700; }.card-caption { margin-top: 5rpx; color: #7b8580; font-size: 18rpx; }
 .card-progress { padding: 8rpx 12rpx; border-radius: 999rpx; background: #f7ded7; color: #a54532; font-size: 18rpx; font-weight: 800; }.card-progress.complete { background: #dce9df; color: #315b49; }
 .direct-edit-trigger { min-width: 88px; background: #315847; color: #fffdf8; }
-.organization-status { display: flex; align-items: flex-start; gap: 13rpx; padding: 17rpx 20rpx; color: #66726c; font-size: 20rpx; line-height: 1.55; }.organization-status.loading { background: #e8eee8; }.organization-status.failure { background: #fae8e2; color: #805146; }.organization-status.updated { background: #e4eee7; color: #365e4d; }
+.organization-status { display: flex; align-items: flex-start; gap: 13rpx; padding: 17rpx 20rpx; color: #66726c; font-size: 20rpx; line-height: 1.55; }.organization-status.failure { background: #fae8e2; color: #805146; }.organization-status.updated { background: #e4eee7; color: #365e4d; }
 .status-mark { width: 38rpx; height: 38rpx; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: #315847; color: #fff; font-weight: 800; }.failure .status-mark { background: #c84b34; }.status-copy { min-width: 0; flex: 1; }.status-title { display: block; color: #29483b; font-weight: 800; }.failure .status-title { color: #9d3f2e; }
 .status-actions { display: flex; gap: 12rpx; margin-top: 11rpx; }.status-actions button { min-height: 48px; margin: 0; padding: 0 18rpx; border-radius: 999rpx; font-size: 20rpx; }.retry-action { background: #c94d36; color: #fff; }.edit-action { background: #fffaf4; color: #a74432; }
 .card-field { display: flex; align-items: flex-start; gap: 13rpx; min-height: 48px; padding: 19rpx 21rpx; border-left: 5rpx solid transparent; box-sizing: border-box; }.card-field + .card-field { border-top: 1rpx solid #ebe6dd; }.card-field.missing { border-left-color: #d75a42; background: rgba(250,232,226,.3); }.card-field:active { background: #edf2ed; }
