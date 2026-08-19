@@ -42,8 +42,8 @@ describe("private AI clarification", () => {
     ])).toBe("");
   });
 
-  it("never skips the private chat for an initial candidate with no model question", () => {
-    expect(expressionCandidateClarificationQuestion([], [])).toContain("具体细节");
+  it("does not invent a generic follow-up when the expression card is complete", () => {
+    expect(expressionCandidateClarificationQuestion([], [])).toBe("");
     expect(expressionCandidateClarificationQuestion([], [
       { question: "发生了什么？", answer: "我们在视频通话。" },
     ])).toBe("");
