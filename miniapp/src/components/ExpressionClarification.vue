@@ -1,10 +1,11 @@
 <template>
   <view class="workspace-screen" :class="{ 'direct-editing': directEditing }">
-    <view class="discovery-heading">
-      <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
-      <text class="title">先说给我听。</text>
-      <text class="description">路径和表达卡都留在这段对话里。你可以继续告诉 AI 怎么改，也可以点卡片直接编辑。</text>
-    </view>
+    <view class="workspace-content" :aria-hidden="directEditing">
+      <view class="discovery-heading">
+        <view class="heading-meta"><text class="eyebrow">AI 私人对话</text><text class="privacy-pill">仅自己可见</text></view>
+        <text class="title">先说给我听。</text>
+        <text class="description">路径和表达卡都留在这段对话里。你可以继续告诉 AI 怎么改，也可以点卡片直接编辑。</text>
+      </view>
 
     <view v-if="modelValue.safetyDisposition !== 'ALLOW'" class="safety-note">
       <text class="safety-title">{{ safetyLabel }}</text>
@@ -61,7 +62,7 @@
             </view>
             <view class="card-heading-actions">
               <text class="card-progress" :class="{ complete: missingRequiredCount === 0 }">{{ completedRequiredCount }} / {{ requiredFieldCount }}</text>
-              <button class="direct-edit-trigger" :disabled="busy" @tap="enterDirectEdit">{{ directEditing ? "编辑中" : "直接编辑" }}</button>
+              <button class="direct-edit-trigger" :disabled="busy" @tap="enterDirectEdit">直接编辑</button>
             </view>
           </view>
 
@@ -83,81 +84,42 @@
             <text class="status-mark" aria-hidden="true">✓</text><text>AI 已根据你的补充更新：{{ updatedLabels.join("、") }}</text>
           </view>
 
-          <view v-if="directEditing" class="direct-editor" role="group" aria-label="直接编辑表达卡">
-            <view class="direct-editor-heading">
-              <view><text class="direct-editor-title">直接编辑整张卡</text><text class="direct-editor-copy">修改只留在你的私人草稿里；保存后仍停留在当前对话。</text></view>
-              <text class="edit-state">未分享</text>
+          <view class="card-fields">
+            <view v-for="(field, index) in fieldProgress" :key="field.key" class="card-field" :class="{ missing: !field.complete }" role="button" :aria-label="`直接编辑${field.label}`" @tap="enterDirectEdit">
+              <text class="field-index">{{ String(index + 1).padStart(2, "0") }}</text>
+              <view class="field-content">
+                <view class="field-heading">
+                  <view><text class="field-label">{{ field.label }}</text><text class="field-status" :class="{ user: fieldOwnership(field.key) === 'USER_EDITED' }">{{ fieldStatusLabel(field) }}</text></view>
+                  <text class="field-edit-hint">点此编辑</text>
+                </view>
+                <text v-if="field.value" class="field-value">{{ field.value }}</text>
+                <text v-else class="field-placeholder">{{ field.prompt }}</text>
+              </view>
             </view>
-            <label v-for="(field, index) in fieldProgress" :key="field.key" class="direct-field">
-              <view class="direct-field-label"><text>{{ String(index + 1).padStart(2, "0") }} · {{ field.label }}</text><text>{{ editFieldValue(field.key).length }} / 3000</text></view>
-              <text class="field-prompt">{{ field.prompt }}</text>
-              <textarea
-                class="field-input"
-                :value="editFieldValue(field.key)"
-                :maxlength="3000"
-                :placeholder="field.placeholder"
-                :aria-label="`${field.label}卡片内容`"
-                :focus="index === 0"
-                @input="updateBufferedField(field.key, $event)"
-              />
-            </label>
-            <view class="direct-invitation">
-              <text class="direct-editor-title">邀请说明</text>
-              <text class="direct-editor-copy">对方会先看到这里，再决定是否加入沟通。</text>
-              <label class="invitation-field">
-                <view class="invitation-label"><text>邀请标题</text><text>{{ invitationBuffer.title.length }} / 40</text></view>
-                <input class="invitation-title-input" :value="invitationBuffer.title" :maxlength="40" placeholder="例如：关于睡觉提醒和被关心的方式" aria-label="邀请标题" @input="updateBufferedInvitation('title', $event)" />
-              </label>
-              <label class="invitation-field">
-                <view class="invitation-label"><text>给对方的一段说明</text><text>{{ invitationBuffer.summary.length }} / 300</text></view>
-                <textarea class="invitation-summary-input" :value="invitationBuffer.summary" :maxlength="300" placeholder="说明发生了什么，以及为什么想邀请对方一起说说。" aria-label="给对方的邀请说明" @input="updateBufferedInvitation('summary', $event)" />
-              </label>
-            </view>
-            <view class="direct-editor-actions">
-              <button class="collapse-edit" @tap="collapseDirectEdit">收起编辑</button>
-              <button class="save-edit" @tap="saveDirectEdit">保存修改</button>
-            </view>
-            <text class="collapse-note">收起后修改仍会保留；再次点“直接编辑”可继续。</text>
           </view>
 
-          <template v-else>
-            <view class="card-fields">
-              <view v-for="(field, index) in fieldProgress" :key="field.key" class="card-field" :class="{ missing: !field.complete }" role="button" :aria-label="`直接编辑${field.label}`" @tap="enterDirectEdit">
-                <text class="field-index">{{ String(index + 1).padStart(2, "0") }}</text>
-                <view class="field-content">
-                  <view class="field-heading">
-                    <view><text class="field-label">{{ field.label }}</text><text class="field-status" :class="{ user: fieldOwnership(field.key) === 'USER_EDITED' }">{{ fieldStatusLabel(field) }}</text></view>
-                    <text class="field-edit-hint">点此编辑</text>
-                  </view>
-                  <text v-if="field.value" class="field-value">{{ field.value }}</text>
-                  <text v-else class="field-placeholder">{{ field.prompt }}</text>
-                </view>
-              </view>
-            </view>
+          <text v-if="missingRequiredCount" class="card-note">还有 {{ missingRequiredCount }} 个必要部分待补充。可以回答 AI，也可以直接编辑整张卡。</text>
+          <text v-else class="card-note ready">必要部分都已有内容。仍可继续补充或直接修改，确认前不会分享。</text>
 
-            <text v-if="missingRequiredCount" class="card-note">还有 {{ missingRequiredCount }} 个必要部分待补充。可以回答 AI，也可以直接编辑整张卡。</text>
-            <text v-else class="card-note ready">必要部分都已有内容。仍可继续补充或直接修改，确认前不会分享。</text>
+          <view class="card-edit-actions">
+            <button class="conversation-edit" :disabled="busy" @tap="beginConversationEdit"><text class="action-title">对话修改</text><text class="action-copy">告诉 AI 你想怎么改</text></button>
+            <button class="direct-edit" :disabled="busy" @tap="enterDirectEdit"><text class="action-title">直接编辑</text><text class="action-copy">在卡片里逐项修改</text></button>
+          </view>
 
-            <view class="card-edit-actions">
-              <button class="conversation-edit" :disabled="busy" @tap="beginConversationEdit"><text class="action-title">对话修改</text><text class="action-copy">告诉 AI 你想怎么改</text></button>
-              <button class="direct-edit" :disabled="busy" @tap="enterDirectEdit"><text class="action-title">直接编辑</text><text class="action-copy">在卡片里逐项修改</text></button>
+          <view v-if="missingRequiredCount === 0" class="invitation-inline">
+            <view class="invitation-heading">
+              <view><text class="invitation-kicker">对方打开邀请时会先看到</text><text class="invitation-title">这次想谈什么</text></view>
+              <text class="ai-badge">{{ modelValue.invitation.generatedByAi ? "AI 协助起草" : "待你确认" }}</text>
             </view>
-
-            <view v-if="missingRequiredCount === 0" class="invitation-inline">
-              <view class="invitation-heading">
-                <view><text class="invitation-kicker">对方打开邀请时会先看到</text><text class="invitation-title">这次想谈什么</text></view>
-                <text class="ai-badge">{{ modelValue.invitation.generatedByAi ? "AI 协助起草" : "待你确认" }}</text>
-              </view>
-              <text class="invitation-preview-title">{{ modelValue.invitation.title || "还没有填写邀请标题" }}</text>
-              <text class="invitation-preview-summary">{{ modelValue.invitation.summary || "还没有填写给对方的说明" }}</text>
-              <text v-if="!invitationComplete" class="invitation-requirement">确认前需要：标题 4—40 字，说明 20—300 字。可点“直接编辑”补充。</text>
-              <view class="confirm-area">
-                <text>只会分享你确认的表达卡和邀请说明；原话与 AI 对话不会分享。</text>
-                <button v-if="canConfirm" class="confirm-card" :disabled="busy" @tap="$emit('confirm')">确认并分享这张表达卡</button>
-                <text v-else-if="shareBlocked" class="confirm-blocked">当前安全状态下不能分享，请先更换路径或暂停。</text>
-              </view>
+            <text class="invitation-preview-title">{{ modelValue.invitation.title || "还没有填写邀请标题" }}</text>
+            <text class="invitation-preview-summary">{{ modelValue.invitation.summary || "还没有填写给对方的说明" }}</text>
+            <text v-if="!invitationComplete" class="invitation-requirement">确认前需要：标题 4—40 字，说明 20—300 字。可点“直接编辑”补充。</text>
+            <view class="confirm-area">
+              <text>只会分享你确认的表达卡和邀请说明；原话与 AI 对话不会分享。</text>
+              <button v-if="canConfirm" class="confirm-card" :disabled="busy" @tap="$emit('confirm')">确认并分享这张表达卡</button>
+              <text v-else-if="shareBlocked" class="confirm-blocked">当前安全状态下不能分享，请先更换路径或暂停。</text>
             </view>
-          </template>
+          </view>
         </view>
       </view>
 
@@ -179,7 +141,7 @@
       </view>
     </view>
 
-    <view v-if="!directEditing" class="composer-dock">
+    <view class="composer-dock">
       <view class="composer-tools"><text>卡片和对话会一起保留</text><button :disabled="busy" @tap="$emit('change-mode')">更换表达路径</button></view>
       <view class="composer-heading"><text class="composer-label">回复 AI</text><text>{{ answer.length }} / 1200</text></view>
       <view class="composer" :class="{ 'composer-busy': busy }">
@@ -199,6 +161,58 @@
       <view class="composer-meta" aria-live="polite"><text>🔒 私人补充自动保存，退出后可以继续</text><text v-if="busy">AI 正在整理…</text></view>
     </view>
     <view id="clarification-tail" class="clarification-tail" aria-hidden="true" />
+    </view>
+
+    <view v-if="directEditing" class="editor-layer" role="dialog" aria-modal="true" aria-label="直接编辑表达卡" @touchmove.stop>
+      <view class="editor-backdrop" aria-hidden="true" @tap="collapseDirectEdit" />
+      <view class="editor-card">
+        <view class="editor-card-header">
+          <view class="editor-card-heading">
+            <text class="editor-kicker">私人草稿 · 未分享</text>
+            <text class="editor-title">直接编辑表达卡</text>
+            <text class="editor-description">逐项修改内容，关闭后回到原来的对话卡片。</text>
+          </view>
+          <button class="editor-close" aria-label="暂存修改并关闭编辑卡片" @tap="collapseDirectEdit">×</button>
+        </view>
+
+        <scroll-view class="editor-card-body" scroll-y>
+          <view class="editor-fields">
+            <label v-for="(field, index) in fieldProgress" :key="field.key" class="direct-field">
+              <view class="direct-field-label"><text>{{ String(index + 1).padStart(2, "0") }} · {{ field.label }}</text><text>{{ editFieldValue(field.key).length }} / 3000</text></view>
+              <text class="field-prompt">{{ field.prompt }}</text>
+              <textarea
+                class="field-input"
+                :value="editFieldValue(field.key)"
+                :maxlength="3000"
+                :placeholder="field.placeholder"
+                :aria-label="`${field.label}卡片内容`"
+                @input="updateBufferedField(field.key, $event)"
+              />
+            </label>
+            <view class="direct-invitation">
+              <text class="direct-editor-title">邀请说明</text>
+              <text class="direct-editor-copy">对方会先看到这里，再决定是否加入沟通。</text>
+              <label class="invitation-field">
+                <view class="invitation-label"><text>邀请标题</text><text>{{ invitationBuffer.title.length }} / 40</text></view>
+                <input class="invitation-title-input" :value="invitationBuffer.title" :maxlength="40" placeholder="例如：关于睡觉提醒和被关心的方式" aria-label="邀请标题" @input="updateBufferedInvitation('title', $event)" />
+              </label>
+              <label class="invitation-field">
+                <view class="invitation-label"><text>给对方的一段说明</text><text>{{ invitationBuffer.summary.length }} / 300</text></view>
+                <textarea class="invitation-summary-input" :value="invitationBuffer.summary" :maxlength="300" placeholder="说明发生了什么，以及为什么想邀请对方一起说说。" aria-label="给对方的邀请说明" @input="updateBufferedInvitation('summary', $event)" />
+              </label>
+            </view>
+          </view>
+        </scroll-view>
+
+        <view class="editor-card-footer">
+          <text class="editor-save-hint">修改会自动保留在你的私人草稿中</text>
+          <view class="direct-editor-actions">
+            <button class="collapse-edit" @tap="collapseDirectEdit">暂存并关闭</button>
+            <button class="save-edit" @tap="saveDirectEdit">保存修改</button>
+          </view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -239,7 +253,6 @@ const emit = defineEmits<{
 }>();
 
 const directEditing = ref(false);
-const editBufferReady = ref(false);
 const editBuffer = ref<Record<string, string>>({});
 const invitationBuffer = ref({ title: "", summary: "" });
 const composerFocused = ref(false);
@@ -285,12 +298,11 @@ function initializeEditBuffer() {
     title: props.modelValue.invitation.title,
     summary: props.modelValue.invitation.summary,
   };
-  editBufferReady.value = true;
 }
 
 function enterDirectEdit() {
   if (props.busy) return;
-  if (!editBufferReady.value) initializeEditBuffer();
+  initializeEditBuffer();
   directEditing.value = true;
 }
 
@@ -315,7 +327,6 @@ function commitBufferedEdits() {
 function saveDirectEdit() {
   commitBufferedEdits();
   directEditing.value = false;
-  editBufferReady.value = false;
   emit("direct-edit-saved");
 }
 
@@ -324,11 +335,15 @@ function editFieldValue(key: string) {
 }
 
 function updateBufferedField(key: string, event: Event) {
-  editBuffer.value = { ...editBuffer.value, [key]: eventValue(event) };
+  const value = eventValue(event);
+  editBuffer.value = { ...editBuffer.value, [key]: value };
+  emit("update-field", key, value);
 }
 
 function updateBufferedInvitation(key: "title" | "summary", event: Event) {
-  invitationBuffer.value = { ...invitationBuffer.value, [key]: eventValue(event) };
+  const value = eventValue(event);
+  invitationBuffer.value = { ...invitationBuffer.value, [key]: value };
+  emit("update-invitation", key, value);
 }
 
 async function beginConversationEdit() {
@@ -345,7 +360,7 @@ function updateAnswer(event: Event) {
 
 <style scoped lang="scss">
 .workspace-screen { min-height: calc(100dvh - 184rpx); padding: 48rpx 38rpx calc(22rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
-.heading-meta, .card-heading, .card-heading-actions, .field-heading, .invitation-heading, .invitation-label, .composer-tools, .composer-heading, .composer-meta, .direct-editor-heading, .direct-field-label, .direct-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.heading-meta, .card-heading, .card-heading-actions, .field-heading, .invitation-heading, .invitation-label, .composer-tools, .composer-heading, .composer-meta, .direct-field-label, .direct-editor-actions, .editor-card-header { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
 .eyebrow, .card-kicker, .invitation-kicker, .selected-path-kicker { color: #bd4933; font-size: 20rpx; font-weight: 800; letter-spacing: .1em; }
 .privacy-pill, .ai-badge, .edit-state { padding: 8rpx 13rpx; border: 1rpx solid rgba(49,91,71,.2); border-radius: 999rpx; color: #315b49; font-size: 18rpx; font-weight: 800; }
 .title { display: block; margin-top: 18rpx; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 50rpx; font-weight: 700; line-height: 1.3; }
@@ -380,14 +395,24 @@ function updateAnswer(event: Event) {
 .field-value, .field-placeholder, .field-prompt { display: block; margin-top: 7rpx; font-size: 22rpx; line-height: 1.6; white-space: pre-wrap; }.field-value { color: #4f5f57; }.field-placeholder, .field-prompt { color: #8d7973; }
 .card-note { display: block; padding: 16rpx 21rpx; border-top: 1rpx solid #e5e0d7; background: #faf0ec; color: #89584d; font-size: 19rpx; line-height: 1.55; }.card-note.ready { background: #e6eee7; color: #4e6b5d; }
 .card-edit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx; padding: 18rpx 21rpx; border-top: 1rpx solid #e5e0d7; }.card-edit-actions button { min-height: 64px; margin: 0; padding: 12rpx 14rpx; border-radius: 18rpx; text-align: left; }.card-edit-actions button::after { border: 0; }.conversation-edit { background: #e5eee7; color: #24493a; }.direct-edit { background: #315847; color: #fffdf8; }.action-title, .action-copy { display: block; }.action-title { font-size: 22rpx; font-weight: 800; }.action-copy { margin-top: 4rpx; font-size: 17rpx; opacity: .78; }
-.direct-editor { padding: 22rpx; background: #f7f2e9; }.direct-editor-heading { align-items: flex-start; padding-bottom: 18rpx; border-bottom: 1rpx solid #ddd6ca; }.direct-editor-title { display: block; color: #183029; font-size: 25rpx; font-weight: 800; }.direct-editor-copy { display: block; margin-top: 5rpx; color: #6d7772; font-size: 18rpx; line-height: 1.55; }.direct-field { display: block; padding: 20rpx 0; border-bottom: 1rpx solid #ddd6ca; }.direct-field-label { color: #315847; font-size: 20rpx; font-weight: 800; }.direct-field-label text:last-child { color: #868c87; font-weight: 500; }
+.editor-layer { position: fixed; z-index: 90; inset: 0; display: flex; align-items: center; justify-content: center; padding: calc(24rpx + env(safe-area-inset-top)) 24rpx calc(24rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
+.editor-backdrop { position: absolute; inset: 0; background: rgba(23,43,35,.54); backdrop-filter: blur(5rpx); animation: editor-fade-in .18s ease-out both; }
+.editor-card { position: relative; z-index: 1; display: flex; flex-direction: column; width: 100%; max-width: 720rpx; max-height: min(88dvh, 1320rpx); overflow: hidden; border: 1rpx solid rgba(255,255,255,.72); border-radius: 34rpx; background: #f8f3ea; box-shadow: 0 36rpx 100rpx rgba(18,37,29,.34); animation: editor-card-in .22s cubic-bezier(.2,.8,.2,1) both; }
+.editor-card-header { flex: none; align-items: flex-start; padding: 26rpx 24rpx 22rpx; border-bottom: 1rpx solid #ded7cb; background: rgba(255,253,248,.96); }
+.editor-card-heading { min-width: 0; }.editor-kicker { display: block; color: #bd4933; font-size: 18rpx; font-weight: 800; letter-spacing: .1em; }.editor-title { display: block; margin-top: 7rpx; color: #183029; font-family: "Songti SC", "STSong", serif; font-size: 34rpx; font-weight: 700; line-height: 1.35; }.editor-description { display: block; margin-top: 7rpx; color: #6c7771; font-size: 19rpx; line-height: 1.55; }
+.editor-close { width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #ebe6dd; color: #29483b; font-size: 28px; font-weight: 300; line-height: 1; }.editor-close::after { border: 0; }
+.editor-card-body { min-height: 0; height: min(62dvh, 900rpx); flex: 1; background: #f8f3ea; }.editor-fields { padding: 0 24rpx 30rpx; }
+.direct-editor-title { display: block; color: #183029; font-size: 25rpx; font-weight: 800; }.direct-editor-copy { display: block; margin-top: 5rpx; color: #6d7772; font-size: 18rpx; line-height: 1.55; }.direct-field { display: block; padding: 22rpx 0; border-bottom: 1rpx solid #ddd6ca; }.direct-field-label { color: #315847; font-size: 20rpx; font-weight: 800; }.direct-field-label text:last-child { color: #868c87; font-weight: 500; }
 .field-input { box-sizing: border-box; width: 100%; min-height: 210rpx; margin-top: 12rpx; padding: 17rpx; border: 2rpx solid #cbc5ba; border-radius: 18rpx; background: #fffdf8; color: #233a32; font-size: 24rpx; line-height: 1.65; }.field-input:focus { border-color: #315847; }
 .direct-invitation { padding-top: 22rpx; }.invitation-field { display: block; margin-top: 18rpx; }.invitation-label { margin-bottom: 8rpx; color: #315b49; font-size: 19rpx; font-weight: 800; }.invitation-label text:last-child { color: #8a8f89; font-weight: 500; }
 .invitation-title-input, .invitation-summary-input { box-sizing: border-box; width: 100%; border: 1rpx solid #d5cec2; border-radius: 17rpx; background: rgba(255,253,248,.95); color: #20372f; font-size: 24rpx; line-height: 1.6; }.invitation-title-input { min-height: 48px; padding: 0 17rpx; }.invitation-summary-input { min-height: 180rpx; padding: 16rpx 17rpx; }
-.direct-editor-actions { margin-top: 22rpx; }.direct-editor-actions button { min-height: 52px; margin: 0; border-radius: 999rpx; font-size: 22rpx; font-weight: 800; }.collapse-edit { flex: 1; background: #e6e1d7; color: #4f5c56; }.save-edit { flex: 1.4; background: #d9543b; color: #fffaf3; }.collapse-note { display: block; margin-top: 10rpx; color: #747d78; font-size: 17rpx; text-align: center; }
+.editor-card-footer { flex: none; padding: 16rpx 24rpx 18rpx; border-top: 1rpx solid #d8d2c7; background: rgba(255,253,248,.98); box-shadow: 0 -12rpx 32rpx rgba(35,48,41,.06); }.editor-save-hint { display: block; margin-bottom: 12rpx; color: #6b7771; font-size: 18rpx; text-align: center; }.direct-editor-actions button { min-height: 52px; margin: 0; border-radius: 999rpx; font-size: 22rpx; font-weight: 800; }.collapse-edit { flex: 1; background: #e6e1d7; color: #4f5c56; }.save-edit { flex: 1.4; background: #d9543b; color: #fffaf3; }
 .invitation-inline { padding: 23rpx; border-top: 1rpx solid #e5e0d7; background: linear-gradient(145deg,#fffaf4,#f9ede6); }.invitation-heading { align-items: flex-start; }.invitation-title { display: block; margin-top: 5rpx; color: #183029; font-family: "Songti SC",serif; font-size: 28rpx; font-weight: 700; }.invitation-preview-title { display: block; margin-top: 18rpx; color: #24453a; font-size: 23rpx; font-weight: 800; }.invitation-preview-summary { display: block; margin-top: 8rpx; color: #65716b; font-size: 21rpx; line-height: 1.6; white-space: pre-wrap; }.invitation-requirement { display: block; margin-top: 10rpx; color: #7a625b; font-size: 18rpx; }
 .confirm-area { margin-top: 20rpx; padding-top: 18rpx; border-top: 1rpx solid rgba(179,126,107,.2); color: #6c746f; font-size: 19rpx; line-height: 1.55; }.confirm-card { width: 100%; min-height: 56px; margin: 16rpx 0 0; border-radius: 999rpx; background: #d9543b; color: #fffaf3; font-size: 23rpx; font-weight: 800; }.confirm-blocked { display: block; margin-top: 10rpx; color: #a43f2e; font-weight: 800; }
 .composer-dock { position: sticky; bottom: 0; margin: 24rpx -8rpx 0; padding: 18rpx 8rpx calc(8rpx + env(safe-area-inset-bottom)); background: linear-gradient(180deg,rgba(243,239,230,0),#f3efe6 20%,#f3efe6); }.composer-tools { color: #7b8580; font-size: 18rpx; }.composer-tools button { min-height: 48px; margin: 0; padding: 0 10rpx; background: transparent; color: #a74432; font-size: 20rpx; line-height: 48px; }.composer-tools button::after { border: 0; }.composer-heading { margin: 2rpx 4rpx 9rpx; color: #858c87; font-size: 18rpx; }.composer-label { color: #315847; font-weight: 800; }
 .composer { display: flex; align-items: flex-end; gap: 11rpx; padding: 9rpx 9rpx 9rpx 18rpx; border: 2rpx solid #cbc8bf; border-radius: 28rpx; background: #fffdf9; }.answer { box-sizing: border-box; flex: 1; width: auto; min-height: 48px; max-height: 230rpx; padding: 12rpx 3rpx 10rpx; background: transparent; color: #233a32; font-size: 25rpx; line-height: 1.6; }.send { width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #d9543b; color: #fffaf3; font-size: 28px; }.send[disabled] { background: #e2e2dc; color: #929893; }.composer-meta { margin: 8rpx 4rpx 0; color: #7b8580; font-size: 18rpx; }.clarification-tail { height: 2rpx; }
 @media (max-width: 360px) { .workspace-screen { padding-right: 30rpx; padding-left: 30rpx; }.title { font-size: 44rpx; }.card-heading { flex-direction: column; }.card-heading-actions { width: 100%; flex-direction: row; align-items: center; }.card-edit-actions { grid-template-columns: 1fr; } }
+@keyframes editor-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes editor-card-in { from { opacity: 0; transform: translateY(24rpx) scale(.975); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .editor-backdrop, .editor-card { animation: none; } }
 </style>
