@@ -338,8 +338,7 @@ export function expressionCandidateClarificationQuestion(
   fields: readonly ClarificationField[] = [],
 ) {
   return nextClarificationQuestion(uncertainties, turns) ||
-    nextMissingFieldQuestion(expression, fields, turns) ||
-    (turns.length === 0 ? optionalClarificationQuestion(turns) : "");
+    nextMissingFieldQuestion(expression, fields, turns);
 }
 
 export function nextMissingFieldQuestion(

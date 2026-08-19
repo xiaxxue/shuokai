@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import componentSource from "../src/components/ExpressionClarification.vue?raw";
+import pageSource from "../src/pages/index/index.vue?raw";
 
 describe("ExpressionClarification direct editor", () => {
   it("opens a separate modal card instead of expanding the conversation card", () => {
@@ -35,5 +36,15 @@ describe("ExpressionClarification direct editor", () => {
     expect(source).toMatch(/\.editor-close \{[^}]*min-width: 48px;[^}]*min-height: 48px;/s);
     expect(source).toContain("env(safe-area-inset-top)");
     expect(source).toContain("env(safe-area-inset-bottom)");
+  });
+
+  it("shows a follow-up below the card only when there is a real question", () => {
+    const openCandidate = pageSource.match(
+      /function openExpressionCandidate\(\) \{[\s\S]*?\n\}/,
+    )?.[0] ?? "";
+
+    expect(componentSource).toContain('v-if="question" class="message-row assistant"');
+    expect(openCandidate).toContain("expressionCandidateClarificationQuestion(");
+    expect(openCandidate).not.toContain("optionalClarificationQuestion(");
   });
 });

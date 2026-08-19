@@ -1352,7 +1352,7 @@ function addOptionalClarificationQuestion() {
 }
 
 function openExpressionCandidate() {
-  let question = expressionCandidateClarificationQuestion(
+  const question = expressionCandidateClarificationQuestion(
     editableExpression.value.uncertainties,
     clarificationTurns.value,
     editableExpression.value,
@@ -1360,10 +1360,6 @@ function openExpressionCandidate() {
   );
   if (question && !currentClarificationQuestion.value) {
     editableExpression.value = { ...editableExpression.value, uncertainties: [question] };
-  }
-  if (!question) {
-    question = optionalClarificationQuestion(clarificationTurns.value);
-    if (question) editableExpression.value = { ...editableExpression.value, uncertainties: [question] };
   }
   clarificationSkipped.value = false;
   stage.value = "CLARIFICATION_CHAT";
