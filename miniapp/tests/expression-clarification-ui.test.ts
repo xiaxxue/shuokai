@@ -1,0 +1,39 @@
+import { describe, expect, it } from "vitest";
+import componentSource from "../src/components/ExpressionClarification.vue?raw";
+
+describe("ExpressionClarification direct editor", () => {
+  it("opens a separate modal card instead of expanding the conversation card", () => {
+    const source = componentSource;
+    const expressionCard = source.indexOf('class="expression-card"');
+    const composer = source.indexOf('class="composer-dock"');
+    const editorLayer = source.indexOf('class="editor-layer"');
+
+    expect(expressionCard).toBeGreaterThan(-1);
+    expect(composer).toBeGreaterThan(expressionCard);
+    expect(editorLayer).toBeGreaterThan(composer);
+    expect(source).not.toContain('v-if="directEditing" class="direct-editor"');
+    expect(source).toContain('class="editor-backdrop"');
+    expect(source).toContain('class="editor-card"');
+    expect(source).toMatch(/\.editor-layer \{[^}]*position: fixed;/s);
+    expect(source).toMatch(/\.editor-card \{[^}]*border-radius: 34rpx;/s);
+  });
+
+  it("keeps dismissal, draft protection, and accessibility explicit", () => {
+    const source = componentSource;
+
+    expect(source).toContain('role="dialog"');
+    expect(source).toContain('aria-modal="true"');
+    expect(source).toContain('aria-label="暂存修改并关闭编辑卡片"');
+    expect(source).toContain("暂存并关闭");
+    expect(source).toContain("保存修改");
+    expect(source).toContain("修改会自动保留在你的私人草稿中");
+    expect(source).toContain("commitBufferedEdits();");
+    expect(source).toContain('emit("update-field", key, value);');
+    expect(source).toContain('emit("update-invitation", key, value);');
+    expect(source).toMatch(/function enterDirectEdit\(\) \{[\s\S]*initializeEditBuffer\(\);[\s\S]*directEditing\.value = true;/);
+    expect(source).not.toContain("editBufferReady");
+    expect(source).toMatch(/\.editor-close \{[^}]*min-width: 48px;[^}]*min-height: 48px;/s);
+    expect(source).toContain("env(safe-area-inset-top)");
+    expect(source).toContain("env(safe-area-inset-bottom)");
+  });
+});
