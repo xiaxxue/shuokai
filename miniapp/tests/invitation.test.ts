@@ -50,7 +50,7 @@ describe("receiver invitation guidance", () => {
     expression.invitation = invitationDraftFromExpression(expression);
     expect(topicFromEditableExpression(expression)).toBe("视频聊天时提到另一个女生好看");
     expect(invitationContextFromEditableExpression(expression)).toMatchObject({
-      title: "关于这次具体经历",
+      title: "想和你谈谈：视频聊天时提到另一个女生好看",
       confirmedSummary: true,
     });
   });
