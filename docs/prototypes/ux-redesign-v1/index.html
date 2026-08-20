@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#162f34" />
+  <title>说开体验重构 · 两套方向</title>
+  <style>
+    :root { --ink:#163038; --cream:#f4efe3; --paper:#fffaf0; --coral:#bd5038; --teal:#2b7278; --gold:#dfb45e; }
+    * { box-sizing: border-box; }
+    body { margin:0; color:var(--ink); background:linear-gradient(135deg,#0d242c,#173c43); font-family:"LXGW WenKai","Kaiti SC","STKaiti","Songti SC",serif; }
+    main { width:min(1120px,100%); min-height:100svh; margin:auto; padding:clamp(28px,6vw,76px) 20px; }
+    .eyebrow { color:var(--gold); font-size:12px; font-weight:900; letter-spacing:.18em; }
+    h1 { max-width:800px; margin:17px 0 18px; color:var(--cream); font-size:clamp(36px,7vw,76px); line-height:1.08; letter-spacing:-.045em; }
+    .intro { max-width:700px; color:rgba(244,239,227,.7); font-size:16px; line-height:1.8; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; margin-top:45px; }
+    article { position:relative; min-height:490px; padding:clamp(24px,4vw,42px); overflow:hidden; border:1px solid rgba(255,255,255,.18); background:var(--cream); box-shadow:0 30px 80px rgba(0,0,0,.22); }
+    article:first-child { border-radius:42px 10px 42px 10px; background:linear-gradient(rgba(22,48,56,.035) 1px,transparent 1px) 0 0/100% 27px,var(--cream); }
+    article:last-child { clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,26px 100%,0 calc(100% - 26px)); }
+    .number { color:var(--coral); font-family:Georgia,serif; font-size:12px; letter-spacing:.16em; }
+    h2 { margin:17px 0 11px; font-size:clamp(27px,4vw,39px); line-height:1.18; }
+    .metaphor { min-height:53px; color:#687675; font-size:14px; line-height:1.7; }
+    ul { margin:25px 0 30px; padding:0; list-style:none; }
+    li { padding:11px 0; border-top:1px solid rgba(22,48,56,.16); font-size:14px; line-height:1.5; }
+    li::before { margin-right:9px; color:var(--coral); content:"◆"; font-size:8px; }
+    a { display:inline-flex; min-height:49px; padding:0 19px; align-items:center; justify-content:center; color:white; background:var(--ink); font-weight:900; text-decoration:none; }
+    a:focus-visible { outline:3px solid var(--gold); outline-offset:4px; }
+    .demo-link { margin-top:18px; color:var(--ink); background:var(--gold); }
+    .recommended { position:absolute; top:24px; right:-35px; width:150px; padding:7px; color:white; background:var(--coral); font-size:10px; font-weight:900; text-align:center; transform:rotate(37deg); }
+    .summary { margin-top:22px; padding:20px; border-left:5px solid var(--gold); color:rgba(244,239,227,.77); background:rgba(255,255,255,.06); font-size:14px; line-height:1.7; }
+    .summary strong { color:white; }
+    @media(max-width:760px){.grid{grid-template-columns:1fr}article{min-height:0}h1{font-size:42px}.metaphor{min-height:0}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">SHUOKAI · UX REDESIGN V1</p>
+    <h1>先和 AI 说一会儿，<br>再决定要留下什么。</h1>
+    <p class="intro">两套方向都把“与 AI 的私人对话”作为表达主界面：用户一段一段讲，AI 先复述、一次只问一件事。只有用户主动结束讲述，才出现可编辑候选。差异不在配色，而在用户如何理解私人空间、对方状态与内容汇合。</p>
+    <a class="demo-link" href="conversation-demo.html">先体验可输入的 AI 私人对话 →</a>
+    <section class="grid" aria-label="原型方向">
+      <article>
+        <span class="recommended">推荐骨架</span><span class="number">DIRECTION A</span>
+        <h2>安静的<br>私人准备室</h2>
+        <p class="metaphor">像和一位克制的引导者在私人准备室里慢慢讲；讲完以后，才把一页放到共同桌面。</p>
+        <ul><li>最适合情绪混乱与第一次使用</li><li>AI 先听和复述，再顺着原话问一句</li><li>私人、候选、已确认三层最直观</li></ul>
+        <a href="direction-a/index.html">进入方向 A →</a>
+      </article>
+      <article>
+        <span class="number">DIRECTION B</span>
+        <h2>两条互不<br>窥视的路径</h2>
+        <p class="metaphor">双方各自在封闭路径里与 AI 对话；只有两边亲自确认当前版本，中间的门才打开。</p>
+        <ul><li>最适合被邀请者与隐私敏感用户</li><li>私人对话之外，持续呈现双方对称状态</li><li>版本变化与重新确认尤其清楚</li></ul>
+        <a href="direction-b/index.html">进入方向 B →</a>
+      </article>
+    </section>
+    <div class="summary"><strong>建议：</strong>用方向 A 的私人 AI 对话承载表达主流程，吸收方向 B 的双人进度轨、汇合前版本检查和内容变化后“门重新关闭”的反馈。正式开发前先验证用户是否真正感到自己在讲述，而不是回答一组换了样式的表单问题。</div>
+  </main>
+</body>
+</html>
