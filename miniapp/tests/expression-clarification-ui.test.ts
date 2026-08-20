@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import componentSource from "../src/components/ExpressionClarification.vue?raw";
+import shareModalSource from "../src/components/ShareCardModal.vue?raw";
 import pageSource from "../src/pages/index/index.vue?raw";
 
 describe("ExpressionClarification direct editor", () => {
@@ -19,23 +20,52 @@ describe("ExpressionClarification direct editor", () => {
     expect(source).toMatch(/\.editor-card \{[^}]*border-radius: 34rpx;/s);
   });
 
-  it("keeps dismissal, draft protection, and accessibility explicit", () => {
+  it("keeps cancellation, save behavior, and accessibility explicit", () => {
     const source = componentSource;
 
     expect(source).toContain('role="dialog"');
     expect(source).toContain('aria-modal="true"');
-    expect(source).toContain('aria-label="暂存修改并关闭编辑卡片"');
-    expect(source).toContain("暂存并关闭");
+    expect(source).toContain('aria-label="取消并关闭编辑卡片"');
+    expect(source).toContain(">取消</button>");
     expect(source).toContain("保存修改");
-    expect(source).toContain("修改会自动保留在你的私人草稿中");
+    expect(source).toContain("保存后会回到原对话，确认前不会分享");
     expect(source).toContain("commitBufferedEdits();");
-    expect(source).toContain('emit("update-field", key, value);');
-    expect(source).toContain('emit("update-invitation", key, value);');
+    expect(source).toMatch(/function collapseDirectEdit\(\) \{\s*directEditing\.value = false;\s*\}/);
+    expect(source).toMatch(/function saveDirectEdit\(\) \{[\s\S]*commitBufferedEdits\(\);[\s\S]*emit\("direct-edit-saved"\);/);
+    expect(source).toMatch(/function updateBufferedField[\s\S]*editBuffer\.value = \{ \.\.\.editBuffer\.value, \[key\]: value \};\s*\}/);
     expect(source).toMatch(/function enterDirectEdit\(\) \{[\s\S]*initializeEditBuffer\(\);[\s\S]*directEditing\.value = true;/);
     expect(source).not.toContain("editBufferReady");
     expect(source).toMatch(/\.editor-close \{[^}]*min-width: 48px;[^}]*min-height: 48px;/s);
     expect(source).toContain("env(safe-area-inset-top)");
     expect(source).toContain("env(safe-area-inset-bottom)");
+  });
+
+  it("keeps the share card out of the expression card and opens a separate modal", () => {
+    const invitationInline = componentSource.indexOf('class="invitation-inline"');
+    const expressionCard = componentSource.indexOf('class="expression-card"');
+    const shareModal = componentSource.indexOf("<ShareCardModal");
+
+    expect(expressionCard).toBeGreaterThan(-1);
+    expect(invitationInline).toBe(-1);
+    expect(shareModal).toBeGreaterThan(expressionCard);
+    expect(componentSource).toContain("确认表达内容");
+    expect(componentSource).toContain("确认后才会生成独立分享卡");
+    expect(componentSource).not.toContain("这次想谈什么");
+    expect(componentSource).not.toContain("确认并分享这张表达卡");
+  });
+
+  it("shows generation, preview, sharing, and recoverable error in one share modal", () => {
+    expect(shareModalSource).toContain("正在生成分享卡");
+    expect(shareModalSource).toContain("确认分享给对方吗？");
+    expect(shareModalSource).toContain("确认并分享");
+    expect(shareModalSource).toContain("正在分享…");
+    expect(shareModalSource).toContain("分享没有完成");
+    expect(shareModalSource).toContain("重新分享");
+    expect(shareModalSource).toContain('v-if="modelValue" class="share-layer"');
+    expect(shareModalSource).toContain('role="dialog"');
+    expect(shareModalSource).toContain('aria-modal="true"');
+    expect(shareModalSource).toContain("原话、AI 对话和完整表达卡不会分享");
+    expect(shareModalSource).not.toContain("这次想谈什么");
   });
 
   it("shows a follow-up below the card only when there is a real question", () => {

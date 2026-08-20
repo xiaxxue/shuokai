@@ -320,10 +320,13 @@
         :organization-pending="Boolean(aiJobId)"
         :organization-failure="expressionOrganizationFailure"
         :updated-field-keys="expressionUpdatedFieldKeys"
+        :share-failure="expressionShareFailure"
         @update:answer="clarificationAnswer = $event"
         @continue="continueClarification"
         @retry="retryExpressionOrganization"
         @confirm="confirmExpressionWorkspace"
+        @prepare-share="expressionShareFailure = ''"
+        @prepare-invitation="prepareInvitationDraft"
         @update-field="updateExpressionField"
         @update-invitation="updateInvitationDraft"
         @change-mode="changeExpressionMode"
@@ -800,6 +803,7 @@ const workspaceRevision = ref(0);
 const aiJobId = ref("");
 const expressionOrganizationFailure = ref("");
 const expressionUpdatedFieldKeys = ref<string[]>([]);
+const expressionShareFailure = ref("");
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const modeSelectionTurnCount = ref(0);
 const clarificationAnswer = ref("");
@@ -1383,6 +1387,7 @@ function resetPrivateWorkspace() {
   aiJobId.value = "";
   expressionOrganizationFailure.value = "";
   expressionUpdatedFieldKeys.value = [];
+  expressionShareFailure.value = "";
   expressionReviewStep.value = 0;
   resetClarification();
   expressionDiscovery.reset();
@@ -2054,6 +2059,10 @@ function updateInvitationDraft(key: "title" | "summary", value: string) {
   };
 }
 
+function prepareInvitationDraft(invitation: EditableExpression["invitation"]) {
+  editableExpression.value = { ...editableExpression.value, invitation };
+}
+
 function changeExpressionMode() {
   stopExpressionJobPolling();
   expressionOrganizationFailure.value = "";
@@ -2253,6 +2262,7 @@ async function confirmExpressionWorkspace() {
     !invitationDraftIsComplete(editableExpression.value.invitation) ||
     ["BLOCK_SHARE", "PAUSE"].includes(editableExpression.value.safetyDisposition)) return;
   clearNotice();
+  expressionShareFailure.value = "";
   busy.value = true;
   try {
     const confirmed = await roomApi.confirmExpression(
@@ -2287,7 +2297,8 @@ async function confirmExpressionWorkspace() {
       setNotice("success", "你的表达卡已确认，私人原话和 AI 对话没有分享。 ");
     }
   } catch (error) {
-    setNotice("error", message(error, "卡片没有分享。请检查网络后重试，对话和草稿仍然保留。"));
+    expressionShareFailure.value = message(error, "网络连接中断，分享卡还没有发送。");
+    setNotice("error", "分享卡还没有发送。检查网络后可以在弹窗中重试，内容不会丢失。");
   } finally {
     busy.value = false;
   }

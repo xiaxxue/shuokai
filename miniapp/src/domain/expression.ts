@@ -39,12 +39,6 @@ export type EditableInvitationDraft = {
   generatedByAi: boolean;
 };
 
-const invitationFallbackTitles: Record<Exclude<ExpressionMode, "PAUSE">, string> = {
-  NVC: "关于这次具体经历",
-  FACT_DISPUTE: "关于一件待核实的事",
-  BOUNDARY: "关于需要被尊重的边界",
-};
-
 function compactText(value: string, maxLength: number) {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
@@ -64,7 +58,7 @@ export function invitationDraftFromExpression(expression: Pick<EditableExpressio
   const event = source && !/[。！？!?]$/u.test(source) ? `${source}。` : source;
   return {
     ready: Boolean(source),
-    title: invitationFallbackTitles[expression.mode],
+    title: source ? `想和你谈谈：${source.slice(0, 28)}` : "",
     summary: source
       ? `发起方确认的背景是：${event}这份邀请希望你也讲讲自己记得的情况和期待。`
       : "",
