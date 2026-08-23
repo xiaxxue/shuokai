@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import componentSource from "../src/components/ExpressionClarification.vue?raw";
 import shareModalSource from "../src/components/ShareCardModal.vue?raw";
 import pageSource from "../src/pages/index/index.vue?raw";
+
+const pageStyles = readFileSync(new URL("../src/pages/index/index.scss", import.meta.url), "utf8");
 
 describe("ExpressionClarification direct editor", () => {
   it("opens a separate modal card instead of expanding the conversation card", () => {
@@ -17,7 +20,7 @@ describe("ExpressionClarification direct editor", () => {
     expect(source).toContain('class="editor-backdrop"');
     expect(source).toContain('class="editor-card"');
     expect(source).toMatch(/\.editor-layer \{[^}]*position: fixed;/s);
-    expect(source).toMatch(/\.editor-card \{[^}]*border-radius: 34rpx;/s);
+    expect(source).toMatch(/\.editor-card \{[^}]*max-width: 430px;[^}]*border-radius: 34rpx 34rpx 0 0;/s);
   });
 
   it("keeps cancellation, save behavior, and accessibility explicit", () => {
@@ -26,21 +29,21 @@ describe("ExpressionClarification direct editor", () => {
     expect(source).toContain('role="dialog"');
     expect(source).toContain('aria-modal="true"');
     expect(source).toContain('aria-label="取消并关闭编辑卡片"');
-    expect(source).toContain(">取消</button>");
+    expect(source).toContain(">取消修改</button>");
     expect(source).toContain("保存修改");
-    expect(source).toContain("保存后会回到原对话，确认前不会分享");
+    expect(source).toContain("保存后回到原对话，确认前不会分享");
     expect(source).toContain("commitBufferedEdits();");
-    expect(source).toMatch(/function collapseDirectEdit\(\) \{\s*directEditing\.value = false;\s*\}/);
+    expect(source).toMatch(/function collapseDirectEdit\(\) \{\s*directEditing\.value = false;\s*editorFocusKey\.value = "";\s*\}/);
     expect(source).toMatch(/function saveDirectEdit\(\) \{[\s\S]*commitBufferedEdits\(\);[\s\S]*emit\("direct-edit-saved"\);/);
-    expect(source).toMatch(/function updateBufferedField[\s\S]*editBuffer\.value = \{ \.\.\.editBuffer\.value, \[key\]: value \};\s*\}/);
-    expect(source).toMatch(/function enterDirectEdit\(\) \{[\s\S]*initializeEditBuffer\(\);[\s\S]*directEditing\.value = true;/);
+    expect(source).toMatch(/function updateBufferedField[\s\S]*editBuffer\.value = \{ \.\.\.editBuffer\.value, \[key\]: eventValue\(event\) \};\s*\}/);
+    expect(source).toMatch(/async function enterDirectEdit\(fieldKey = ""\) \{[\s\S]*initializeEditBuffer\(\);[\s\S]*directEditing\.value = true;/);
     expect(source).not.toContain("editBufferReady");
     expect(source).toMatch(/\.editor-close \{[^}]*min-width: 48px;[^}]*min-height: 48px;/s);
     expect(source).toContain("env(safe-area-inset-top)");
     expect(source).toContain("env(safe-area-inset-bottom)");
   });
 
-  it("keeps the share card out of the expression card and opens a separate modal", () => {
+  it("separates expression confirmation from generating and sharing", () => {
     const invitationInline = componentSource.indexOf('class="invitation-inline"');
     const expressionCard = componentSource.indexOf('class="expression-card"');
     const shareModal = componentSource.indexOf("<ShareCardModal");
@@ -49,7 +52,10 @@ describe("ExpressionClarification direct editor", () => {
     expect(invitationInline).toBe(-1);
     expect(shareModal).toBeGreaterThan(expressionCard);
     expect(componentSource).toContain("确认表达内容");
-    expect(componentSource).toContain("确认后才会生成独立分享卡");
+    expect(componentSource).toContain("生成分享卡");
+    expect(componentSource).toContain("生成后仍需由你确认，才会分享给对方");
+    expect(componentSource).toMatch(/function confirmExpressionContent\(\) \{[\s\S]*expressionConfirmed\.value = true;[\s\S]*emit\("prepare-share"\);\s*\}/);
+    expect(componentSource).toMatch(/function openSharePreview\(\) \{[\s\S]*shareModalOpen\.value = true;\s*\}/);
     expect(componentSource).not.toContain("这次想谈什么");
     expect(componentSource).not.toContain("确认并分享这张表达卡");
   });
@@ -73,21 +79,41 @@ describe("ExpressionClarification direct editor", () => {
       /function openExpressionCandidate\(\) \{[\s\S]*?\n\}/,
     )?.[0] ?? "";
 
-    expect(componentSource).toContain('v-if="question && !organizationPending" class="message-row assistant"');
+    expect(componentSource).toContain('v-if="question && !organizationPending && !shareCompleted" class="message-row assistant next-question"');
     expect(openCandidate).toContain("expressionCandidateClarificationQuestion(");
     expect(openCandidate).not.toContain("optionalClarificationQuestion(");
   });
 
   it("shows a standalone AI loading message before rendering the expression card", () => {
     const loadingMessage = componentSource.indexOf('v-if="organizationPending" class="message-row assistant organization-loading"');
-    const expressionCard = componentSource.indexOf('v-else class="card-message-row"');
+    const expressionCard = componentSource.indexOf('v-if="shareCompleted" class="expression-card shared-card"');
 
     expect(loadingMessage).toBeGreaterThan(-1);
     expect(expressionCard).toBeGreaterThan(loadingMessage);
     expect(componentSource).toContain("AI 正在整理表达卡");
-    expect(componentSource).toContain("整理完成后，表达卡会出现在这里。");
+    expect(componentSource).toContain("整理完成后会直接放在这段对话里。");
     expect(componentSource).toContain('role="status" aria-live="polite"');
-    expect(componentSource).toContain('v-if="question && !organizationPending"');
+    expect(componentSource).toContain('v-if="question && !organizationPending && !shareCompleted"');
     expect(componentSource).not.toContain('class="organization-status loading"');
+  });
+
+  it("keeps share success in the AI conversation until the user continues", () => {
+    const confirmWorkspace = pageSource.match(
+      /async function confirmExpressionWorkspace\(\) \{[\s\S]*?\n\}/,
+    )?.[0] ?? "";
+
+    expect(componentSource).toContain("分享卡已发送");
+    expect(componentSource).toContain('@tap="$emit(\'continue-after-share\')"');
+    expect(pageSource).toContain(':share-completed="expressionShareCompleted"');
+    expect(pageSource).toContain('@continue-after-share="continueAfterExpressionShare"');
+    expect(confirmWorkspace).toContain("expressionShareCompleted.value = true");
+    expect(confirmWorkspace).not.toContain('stage.value = "DIALOGUE"');
+    expect(confirmWorkspace).not.toContain('stage.value = "INVITE"');
+  });
+
+  it("keeps the conversation on a phone-width canvas", () => {
+    expect(pageStyles).toMatch(/\.page-shell\.stage-record,[\s\S]*?\.page-shell\.stage-clarification_chat \{\s*max-width: 430px;/);
+    expect(componentSource).toMatch(/\.composer-dock \{[^}]*max-width: 430px;/s);
+    expect(shareModalSource).toMatch(/\.share-dialog \{[^}]*max-width: 400px;/s);
   });
 });

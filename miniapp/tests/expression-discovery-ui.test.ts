@@ -9,6 +9,7 @@ describe("ExpressionDiscovery inline path selection", () => {
     expect(discoverySource).toContain('v-if="!readOnly" class="composer-dock"');
     expect(discoverySource).not.toContain('v-if="!readOnly && !selectionVisible" class="composer-dock"');
     expect(discoverySource).toContain("也可以告诉 AI 你还想补充什么");
+    expect(discoverySource).toMatch(/\.composer-dock \{[^}]*max-width: 430px;/s);
   });
 
   it("uses a local selected state and only starts organization after confirmation", () => {

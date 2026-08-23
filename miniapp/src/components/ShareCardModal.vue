@@ -1,8 +1,8 @@
 <template>
   <view v-if="modelValue" class="share-layer" role="dialog" aria-modal="true" :aria-label="dialogTitle" @touchmove.stop>
     <view class="share-backdrop" aria-hidden="true" @tap="close" />
-    <view class="share-dialog">
-      <button class="share-close" aria-label="暂时关闭分享卡" @tap="close">×</button>
+    <view class="share-dialog" :class="`phase-${phase}`">
+      <button v-if="phase !== 'sharing'" class="share-close" aria-label="暂时关闭分享卡" @tap="close">×</button>
 
       <template v-if="phase === 'generating'">
         <text class="share-kicker">AI 正在整理</text>
@@ -85,6 +85,7 @@ function beginGeneration() {
 }
 
 function close() {
+  if (phase.value === "sharing") return;
   emit("update:modelValue", false);
 }
 
@@ -94,6 +95,7 @@ function returnToEdit() {
 }
 
 function confirmShare() {
+  if (props.busy || phase.value === "sharing") return;
   phase.value = "sharing";
   emit("confirm");
 }
@@ -118,7 +120,8 @@ onUnmounted(() => {
 <style scoped lang="scss">
 .share-layer { position: fixed; z-index: 100; inset: 0; display: flex; align-items: center; justify-content: center; padding: calc(24rpx + env(safe-area-inset-top)) 28rpx calc(24rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
 .share-backdrop { position: absolute; inset: 0; background: rgba(18,35,29,.62); backdrop-filter: blur(5rpx); animation: share-fade-in .18s ease-out both; }
-.share-dialog { position: relative; z-index: 1; width: 100%; max-width: 680rpx; padding: 36rpx 34rpx 30rpx; box-sizing: border-box; border: 1rpx solid rgba(255,255,255,.72); border-radius: 38rpx; background: #fffdf8; box-shadow: 0 42rpx 110rpx rgba(15,31,25,.38); animation: share-dialog-in .22s cubic-bezier(.2,.8,.2,1) both; }
+.share-dialog { position: relative; z-index: 1; width: 100%; max-width: 400px; padding: 36rpx 34rpx 30rpx; box-sizing: border-box; border: 1rpx solid rgba(255,255,255,.72); border-radius: 38rpx; background: #fffdf8; box-shadow: 0 42rpx 110rpx rgba(15,31,25,.38); animation: share-dialog-in .22s cubic-bezier(.2,.8,.2,1) both; }
+.share-dialog.phase-sharing { text-align: center; }
 .share-close { position: absolute; top: 22rpx; right: 22rpx; width: 48px; min-width: 48px; height: 48px; min-height: 48px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #eee9e0; color: #29483b; font-size: 28px; font-weight: 300; line-height: 1; }.share-close::after { border: 0; }
 .share-kicker { display: block; padding-right: 96rpx; color: #c84c35; font-size: 20rpx; font-weight: 800; letter-spacing: .08em; }
 .share-title { display: block; max-width: 84%; margin-top: 12rpx; color: #18372d; font-family: "Songti SC", "STSong", serif; font-size: 40rpx; font-weight: 700; line-height: 1.35; }

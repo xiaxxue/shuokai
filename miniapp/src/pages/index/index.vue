@@ -321,10 +321,13 @@
         :organization-failure="expressionOrganizationFailure"
         :updated-field-keys="expressionUpdatedFieldKeys"
         :share-failure="expressionShareFailure"
+        :share-completed="expressionShareCompleted"
+        :share-continuation-label="expressionShareContinuationLabel"
         @update:answer="clarificationAnswer = $event"
         @continue="continueClarification"
         @retry="retryExpressionOrganization"
         @confirm="confirmExpressionWorkspace"
+        @continue-after-share="continueAfterExpressionShare"
         @prepare-share="expressionShareFailure = ''"
         @prepare-invitation="prepareInvitationDraft"
         @update-field="updateExpressionField"
@@ -804,6 +807,7 @@ const aiJobId = ref("");
 const expressionOrganizationFailure = ref("");
 const expressionUpdatedFieldKeys = ref<string[]>([]);
 const expressionShareFailure = ref("");
+const expressionShareCompleted = ref(false);
 const clarificationTurns = ref<ClarificationTurn[]>([]);
 const modeSelectionTurnCount = ref(0);
 const clarificationAnswer = ref("");
@@ -946,6 +950,9 @@ const currentClarificationQuestion = computed(() => clarificationSkipped.value
   ? ""
   : nextClarificationQuestion(editableExpression.value.uncertainties, clarificationTurns.value));
 const currentExpressionOption = computed(() => expressionModeOption(editableExpression.value.mode));
+const expressionShareContinuationLabel = computed(() => room.value?.role === "B"
+  ? "继续双方对话"
+  : "继续邀请对方");
 const expressionReviewIsSummary = computed(() => isExpressionReviewSummary(
   expressionReviewStep.value,
   currentExpressionOption.value.fields.length,
@@ -1388,6 +1395,7 @@ function resetPrivateWorkspace() {
   expressionOrganizationFailure.value = "";
   expressionUpdatedFieldKeys.value = [];
   expressionShareFailure.value = "";
+  expressionShareCompleted.value = false;
   expressionReviewStep.value = 0;
   resetClarification();
   expressionDiscovery.reset();
@@ -2067,6 +2075,7 @@ function changeExpressionMode() {
   stopExpressionJobPolling();
   expressionOrganizationFailure.value = "";
   expressionUpdatedFieldKeys.value = [];
+  expressionShareCompleted.value = false;
   expressionReviewStep.value = 0;
   selectedMode.value = null;
   discoveryReady.value = true;
@@ -2088,6 +2097,7 @@ async function chooseExpressionMode(mode: ExpressionMode) {
   if (!room.value || busy.value) return;
   clearNotice();
   selectedMode.value = mode;
+  expressionShareCompleted.value = false;
   if (mode === "PAUSE") {
     if (!await confirmPause()) {
       selectedMode.value = null;
@@ -2277,28 +2287,45 @@ async function confirmExpressionWorkspace() {
     expressionOrganizationFailure.value = "";
     draftSaveState.value = "empty";
     updateRoom({ ...room.value, state: confirmed.state });
+    expressionShareCompleted.value = true;
+    setNotice("success", "分享卡已发送。对方只会看到你确认过的简短内容。 ");
+  } catch (error) {
+    expressionShareFailure.value = message(error, "网络连接中断，分享卡还没有发送。");
+    setNotice("error", "分享卡还没有发送。检查网络后可以在弹窗中重试，内容不会丢失。");
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function continueAfterExpressionShare() {
+  if (!room.value || busy.value || !expressionShareCompleted.value) return;
+  clearNotice();
+  busy.value = true;
+  try {
     if (room.value.role === "B") {
       dialogueState.value = await roomApi.startDialogue(room.value.roomId);
       updateRoom({ ...room.value, phaseV2: "DIALOGUE" });
+      expressionShareCompleted.value = false;
       stage.value = "DIALOGUE";
-      setNotice("success", "这张表达卡已由你确认。先互相确认听懂，再进入共同理解。 ");
+      setNotice("success", "表达卡已分享。接下来先互相确认是否真正听懂。 ");
       return;
     }
+
     invitationContext.value = invitationContextFromEditableExpression(editableExpression.value);
     invitationContextStatus.value = "ready";
+    expressionShareCompleted.value = false;
     stage.value = "INVITE";
     try {
       await requestSharedUnderstanding(room.value.roomId);
       updateRoom({ ...room.value, phaseV2: "UNDERSTANDING_GENERATING" });
-      setNotice("success", "这张表达卡已由你确认，正在生成新的共同理解。 ");
-      void pollUnderstanding();
       stage.value = "AI_PENDING";
+      setNotice("success", "双方表达都已确认，正在生成新的共同理解。 ");
+      void pollUnderstanding();
     } catch {
-      setNotice("success", "你的表达卡已确认，私人原话和 AI 对话没有分享。 ");
+      setNotice("success", "邀请已经准备好，可以发给对方。 ");
     }
   } catch (error) {
-    expressionShareFailure.value = message(error, "网络连接中断，分享卡还没有发送。");
-    setNotice("error", "分享卡还没有发送。检查网络后可以在弹窗中重试，内容不会丢失。");
+    setNotice("error", message(error, "分享已经完成，但下一步暂时没有打开。请再次点击继续。"));
   } finally {
     busy.value = false;
   }

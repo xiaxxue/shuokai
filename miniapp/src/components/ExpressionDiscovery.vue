@@ -341,7 +341,7 @@ function updateCurrentValue(event: Event) {
 .memory-actions button { min-height: 48px; margin: 0; padding: 0 18rpx; border-radius: 999rpx; background: #f2eee6; color: #456557; font-size: 20rpx; font-weight: 700; }
 .memory-actions button:first-child { background: #315847; color: #fffaf2; }
 .memory-actions button::after { border: 0; }
-.composer-dock { position: fixed; z-index: 15; bottom: 0; left: 50%; width: 100%; max-width: 560px; max-height: calc(100vh - 92px); max-height: calc(100dvh - 92px); padding: 24rpx 44rpx calc(12rpx + env(safe-area-inset-bottom)); overflow-y: auto; box-sizing: border-box; background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 16%, #f3efe6); transform: translateX(-50%); }
+.composer-dock { position: fixed; z-index: 15; bottom: 0; left: 50%; width: 100%; max-width: 430px; max-height: calc(100vh - 92px); max-height: calc(100dvh - 92px); padding: 24rpx 34rpx calc(12rpx + env(safe-area-inset-bottom)); overflow-y: auto; box-sizing: border-box; background: linear-gradient(180deg, rgba(243,239,230,0), #f3efe6 16%, #f3efe6); transform: translateX(-50%); }
 .ai-recovery { margin-bottom: 16rpx; padding: 20rpx; border: 2rpx solid #e2a898; border-radius: 22rpx; background: #fff6f1; color: #6f4036; box-shadow: 0 8rpx 22rpx rgba(111,64,54,.08); }
 .ai-recovery-heading { display: flex; align-items: center; gap: 10rpx; }
 .ai-recovery-mark { width: 34rpx; height: 34rpx; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 50%; background: #bd4933; color: #fffaf3; font-size: 21rpx; font-weight: 900; }

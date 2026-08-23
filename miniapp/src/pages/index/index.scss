@@ -19,6 +19,23 @@ $ochre: #eedfbd;
   color: $ink;
 }
 
+.page-shell.stage-record,
+.page-shell.stage-clarification_chat {
+  max-width: 430px;
+}
+
+.stage-record .account-trigger,
+.stage-clarification_chat .account-trigger {
+  width: 48px;
+  min-width: 48px;
+  padding: 3px;
+}
+
+.stage-record .account-trigger > text:last-child,
+.stage-clarification_chat .account-trigger > text:last-child {
+  display: none;
+}
+
 .topbar {
   position: relative;
   z-index: 20;
