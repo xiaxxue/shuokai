@@ -122,10 +122,11 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     const sourceText = options.transcript.value.trim();
     if (!sourceText) return;
     const currentQuestion = question.value.trim();
+    const replyQuestion = currentQuestion || (ready.value ? "在开始整理前，你还想补充什么？" : "");
     const currentAnswer = options.answer.value.trim();
     const safetyStopped = ["BLOCK_SHARE", "PAUSE"].includes(safetyDisposition.value);
     if (!isInitialMessage && (
-      !currentQuestion || !currentAnswer || ready.value || safetyStopped
+      !replyQuestion || !currentAnswer || safetyStopped
     )) return;
 
     options.clearNotice();
@@ -135,7 +136,7 @@ export function useExpressionDiscovery(options: DiscoveryOptions) {
     saveState.value = "saving";
     const nextTurns = isInitialMessage
       ? options.turns.value
-      : [...options.turns.value, { question: currentQuestion, answer: currentAnswer }];
+      : [...options.turns.value, { question: replyQuestion, answer: currentAnswer }];
     try {
       const result = await requestExpressionClarification(
         options.room.value.roomId,

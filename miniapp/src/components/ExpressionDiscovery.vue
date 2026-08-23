@@ -1,5 +1,5 @@
 <template>
-  <view class="discovery-screen" :class="{ 'has-composer': !readOnly && !selectionVisible }">
+  <view class="discovery-screen" :class="{ 'has-composer': !readOnly }">
     <view v-if="role === 'B' && !readOnly" class="invitation-context">
       <view class="invitation-copy">
         <text class="invitation-label">正在回应这次沟通</text>
@@ -50,20 +50,24 @@
         <view v-if="thinking && started && answer.trim()" class="message-row user">
           <view class="message-bubble user-bubble"><text>{{ answer }}</text></view>
         </view>
-        <view v-if="thinking || selectionVisible" class="message-row assistant">
+        <view v-if="thinking" class="message-row assistant">
           <view class="ai-avatar">AI</view>
           <view class="message-bubble assistant-bubble">
-            <view v-if="thinking" class="typing" aria-label="AI 正在思考"><text /><text /><text /></view>
-            <text v-else>{{ readyMessage }}</text>
+            <view class="typing" aria-label="AI 正在思考"><text /><text /><text /></view>
           </view>
         </view>
-        <view v-if="selectionVisible && !thinking" class="mode-choice-row">
-          <ExpressionModeChooser
-            :model-value="selectedMode"
-            :disabled="busy"
-            inline
-            @update:model-value="$emit('selectMode', $event)"
-          />
+        <view v-else-if="selectionVisible" class="message-row assistant selection-message">
+          <view class="ai-avatar">AI</view>
+          <view class="message-bubble assistant-bubble path-picker-bubble">
+            <text class="ready-message">{{ readyMessage }}</text>
+            <ExpressionModeChooser
+              :model-value="pendingMode"
+              :disabled="busy || readOnly"
+              inline
+              @update:model-value="pendingMode = $event"
+              @confirm="confirmPendingMode"
+            />
+          </view>
         </view>
       </template>
     </view>
@@ -97,7 +101,7 @@
       </view>
     </view>
 
-    <view v-if="!readOnly && !selectionVisible" class="composer-dock">
+    <view v-if="!readOnly" class="composer-dock">
       <view
         v-if="failureMessage"
         class="ai-recovery"
@@ -116,7 +120,7 @@
         </view>
       </view>
       <view class="composer-heading">
-        <text class="composer-label">{{ started ? '回复 AI' : '先讲讲发生了什么' }}</text>
+        <text class="composer-label">{{ selectionVisible ? '继续补充给 AI' : started ? '回复 AI' : '先讲讲发生了什么' }}</text>
         <text>{{ currentValue.length }} / {{ started ? 1200 : 12000 }}</text>
       </view>
       <view class="composer" :class="{ 'composer-busy': busy }">
@@ -131,15 +135,15 @@
           class="answer"
           :value="currentValue"
           :maxlength="started ? 1200 : 12000"
-          :disabled="busy || recording || ready || safetyStopped"
+          :disabled="busy || recording || safetyStopped"
           :auto-height="true"
           :aria-label="started ? '回复 AI' : '告诉 AI 发生了什么'"
-          :placeholder="started ? '想到哪说到哪，不完整也没关系……' : '例如：刚才发生了一件事，我在意的是……'"
+          :placeholder="selectionVisible ? '也可以告诉 AI 你还想补充什么……' : started ? '想到哪说到哪，不完整也没关系……' : '例如：刚才发生了一件事，我在意的是……'"
           @input="updateCurrentValue"
         />
         <button
           class="send"
-          :disabled="busy || recording || !currentValue.trim() || (started && (ready || safetyStopped))"
+          :disabled="busy || recording || !currentValue.trim() || (started && safetyStopped)"
           :aria-label="busy ? 'AI 正在思考' : failureMessage ? '重新让 AI 理解' : '发送给 AI'"
           @tap="$emit('send')"
         ><text aria-hidden="true">{{ busy ? '…' : '↑' }}</text></button>
@@ -151,7 +155,7 @@
         <text v-else-if="busy" class="busy-hint">正在处理语音…</text>
       </view>
       <button
-        v-if="started && !busy && !ready && !safetyStopped && !failureMessage"
+        v-if="started && !busy && !selectionVisible && !safetyStopped && !failureMessage"
         class="skip-action"
         @tap="$emit('finish')"
       >先不继续追问，直接选择表达路径</button>
@@ -161,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import ExpressionModeChooser from "./ExpressionModeChooser.vue";
 import type { ClarificationTurn } from "../domain/clarification";
 import type { ExpressionMode, SafetyDisposition } from "../domain/expression";
@@ -223,6 +227,7 @@ const currentValue = computed(() => {
   return props.started ? props.answer : props.sourceText;
 });
 const selectionVisible = computed(() => props.modeSelectionOpen || props.ready);
+const pendingMode = ref<ExpressionMode | null>(props.selectedMode);
 const invitationTopicStatusCopy = computed(() => invitationTopicCopy(props.invitationStatus, props.invitationTopic));
 const invitationActionCopy = computed(() => {
   if (props.invitationStatus === "loading") return "读取中";
@@ -247,6 +252,20 @@ const durationLabel = computed(() => {
   const seconds = (props.recordingSeconds % 60).toString().padStart(2, "0");
   return `${minutes}:${seconds}`;
 });
+
+watch(selectionVisible, (visible) => {
+  if (visible && !pendingMode.value) pendingMode.value = props.selectedMode ?? "NVC";
+}, { immediate: true });
+
+watch(() => props.selectedMode, (mode) => {
+  if (mode) pendingMode.value = mode;
+  else if (selectionVisible.value) pendingMode.value = "NVC";
+});
+
+function confirmPendingMode() {
+  if (!pendingMode.value || props.busy) return;
+  emit("selectMode", pendingMode.value);
+}
 
 function handleInvitationAction() {
   if (props.invitationStatus === "error") emit("retryInvitation");
@@ -291,7 +310,10 @@ function updateCurrentValue(event: Event) {
 .message-bubble { max-width: 88%; padding: 19rpx 22rpx; box-sizing: border-box; font-size: 27rpx; line-height: 1.65; box-shadow: 0 7rpx 18rpx rgba(37,62,51,.06); }
 .assistant-bubble { border-radius: 8rpx 24rpx 24rpx 24rpx; background: #fffdf8; color: #29463b; }
 .user-bubble { border-radius: 24rpx 8rpx 24rpx 24rpx; background: #315847; color: #fffaf2; }
-.mode-choice-row { margin-left: 58rpx; padding: 2rpx 0 12rpx; }
+.selection-message { align-items: flex-start; padding-right: 0 !important; }
+.selection-message .ai-avatar { margin-top: 18rpx; }
+.path-picker-bubble { width: calc(100% - 58rpx); max-width: none; padding: 22rpx; }
+.ready-message { display: block; padding-bottom: 16rpx; border-bottom: 1rpx solid #ebe5db; }
 .typing { display: flex; align-items: center; gap: 7rpx; min-width: 58rpx; height: 28rpx; }
 .typing text { width: 9rpx; height: 9rpx; border-radius: 50%; background: #749083; animation: typing-pulse 1.1s infinite ease-in-out; }
 .typing text:nth-child(2) { animation-delay: .15s; }

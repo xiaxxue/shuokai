@@ -152,6 +152,33 @@ describe("expression discovery orchestration", () => {
     expect(state.stage.value).toBe("RECORD");
   });
 
+  it("lets the user add context without leaving route selection", async () => {
+    mocks.clarify
+      .mockResolvedValueOnce(discoveryResponse("你最希望他理解什么？"))
+      .mockResolvedValueOnce(discoveryResponse("", true, true))
+      .mockResolvedValueOnce(discoveryResponse("", true, true));
+    const state = useTestFlow();
+    await state.flow.send();
+    state.answer.value = "我希望他理解这对我意味着被关心。";
+    await state.flow.send();
+    state.answer.value = "我还想补充，我并不是要求他每次都做到。";
+
+    await state.flow.send();
+
+    expect(mocks.clarify).toHaveBeenLastCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      0,
+      state.transcript.value,
+      [
+        { question: "你最希望他理解什么？", answer: "我希望他理解这对我意味着被关心。" },
+        { question: "在开始整理前，你还想补充什么？", answer: "我还想补充，我并不是要求他每次都做到。" },
+      ],
+    );
+    expect(state.flow.ready.value).toBe(true);
+    expect(state.flow.modeSelectionOpen.value).toBe(true);
+    expect(state.answer.value).toBe("");
+  });
+
   it("continues schema-driven discovery beyond the former client and server cutoffs", async () => {
     mocks.clarify.mockResolvedValueOnce(discoveryResponse("还有哪一点会影响对方理解？", false, true));
     const state = useTestFlow();
