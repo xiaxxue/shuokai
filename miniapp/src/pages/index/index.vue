@@ -4,9 +4,9 @@
       <button
         v-if="stage !== 'WELCOME'"
         class="room-back"
-        aria-label="返回首页"
+        :aria-label="relationshipFlowActive && relationshipOnboardingStep > 1 ? '返回上一步' : '返回首页'"
         :disabled="busy && (stage !== 'CLARIFICATION_CHAT' || !aiJobId)"
-        @tap="returnToWelcome"
+        @tap="handleTopbarBack"
       >
         <text class="room-back-arrow">←</text>
         <text>返回</text>
@@ -178,6 +178,7 @@
         :error="relationshipError"
         @draft-change="persistRelationshipDraft"
         @checkpoint="saveRelationshipCheckpoint"
+        @step-change="relationshipOnboardingStep = $event"
         @save="saveRelationshipOnboarding"
         @leave="returnToWelcome"
       />
@@ -768,7 +769,11 @@ const pendingProfileAction = ref<"CREATE" | "JOIN" | null>(null);
 const relationshipContext = ref<RoomRelationshipContext | null>(null);
 const relationshipDraft = ref<RelationshipDraft | null>(null);
 const relationshipError = ref("");
-const relationshipOnboardingRef = ref<{ focusError: () => Promise<void> } | null>(null);
+const relationshipOnboardingStep = ref(1);
+const relationshipOnboardingRef = ref<{
+  focusError: () => Promise<void>;
+  backOrLeave: () => void;
+} | null>(null);
 const relationshipSubmitter = createRelationshipOnboardingSubmitter<RoomRelationshipContext>({
   setPending: (pending) => { busy.value = pending; },
   clearError: () => { relationshipError.value = ""; },
@@ -932,10 +937,11 @@ onHide(() => {
 });
 onUnload(flushEditorDraft);
 
-const totalSteps = 5;
-const currentStep = computed(() => phaseByStage[stage.value].step);
-const currentPhaseLabel = computed(() => phaseByStage[stage.value].label);
-const progressPercent = computed(() => (currentStep.value / totalSteps) * 100);
+const relationshipFlowActive = computed(() => stage.value === "RELATIONSHIP_SETUP" || stage.value === "RELATIONSHIP_CONFIRMATION");
+const totalSteps = computed(() => relationshipFlowActive.value ? 4 : 5);
+const currentStep = computed(() => relationshipFlowActive.value ? relationshipOnboardingStep.value : phaseByStage[stage.value].step);
+const currentPhaseLabel = computed(() => relationshipFlowActive.value ? "关系背景" : phaseByStage[stage.value].label);
+const progressPercent = computed(() => (currentStep.value / totalSteps.value) * 100);
 const activeNvcCard = computed(() => nvcCardForStage(stage.value));
 const activeNvcIndex = computed(() => activeNvcCard.value
   ? nvcPerspectiveCards.findIndex((card) => card.key === activeNvcCard.value?.key)
@@ -2791,6 +2797,14 @@ function returnToWelcome() {
   busy.value = false;
   clearNotice();
   stage.value = "WELCOME";
+}
+
+function handleTopbarBack() {
+  if (relationshipFlowActive.value) {
+    relationshipOnboardingRef.value?.backOrLeave();
+    return;
+  }
+  returnToWelcome();
 }
 
 function openArchivedDialogue() {

@@ -40,13 +40,13 @@
     </template>
 
     <template v-else-if="step === 2 && role === 'A' || step === 3 && role === 'B'">
-      <ChoiceGroup label="发生分歧时，你通常会？" :items="communicationPaceOptions" :model-value="mine.communicationPace" @update:model-value="mine.communicationPace = $event" />
-      <ChoiceGroup label="你更希望先得到什么？" :items="responsePreferenceOptions" :model-value="mine.responsePreference" @update:model-value="mine.responsePreference = $event" />
-      <ChoiceGroup label="一起行动时，你通常偏向？" :items="planningStyleOptions" :model-value="mine.planningStyle" @update:model-value="mine.planningStyle = $event" />
+      <ChoiceGroup :index="1" label="发生分歧时，你通常会？" :items="communicationPaceOptions" :model-value="mine.communicationPace" @update:model-value="mine.communicationPace = $event" />
+      <ChoiceGroup :index="2" label="你更希望先得到什么？" :items="responsePreferenceOptions" :model-value="mine.responsePreference" @update:model-value="mine.responsePreference = $event" />
+      <ChoiceGroup :index="3" label="一起行动时，你通常偏向？" :items="planningStyleOptions" :model-value="mine.planningStyle" @update:model-value="mine.planningStyle = $event" />
       <ChoiceGroup v-if="role === 'B'" label="你眼中的关系现在怎样？" :items="relationshipStateOptions" :model-value="mine.relationshipState" @update:model-value="mine.relationshipState = $event" />
       <label v-if="role === 'B'" class="text-field"><text>我观察到的主要差异 <text class="optional">选填</text></text><textarea v-model="mine.observedDifference" maxlength="300" placeholder="只描述你观察到的具体行为。" /><text>{{ mine.observedDifference.length }} / 300</text></label>
       <label v-if="role === 'B'" class="text-field"><text>文化背景为什么和这次有关 <text class="optional">选填</text></text><textarea v-model="mine.culturalContext" maxlength="300" placeholder="只在你认为确实有关时填写，不需要写籍贯或地址。" /><text>{{ mine.culturalContext.length }} / 300</text></label>
-      <label class="ai-toggle"><switch :checked="mine.useCommunicationAi" color="#315847" @change="mine.useCommunicationAi = eventChecked($event)" /><view><text>供我的私人 AI 参考</text><text>用来选择更适合你的提问节奏</text></view></label>
+      <label class="ai-toggle"><switch :checked="mine.useCommunicationAi" color="#315847" @change="mine.useCommunicationAi = eventChecked($event)" /><view><text>供我的私人 AI 参考</text><text>对方不可见，共同 Agent 不会读取</text></view></label>
     </template>
 
     <template v-else-if="step === 3 && role === 'A'">
@@ -85,13 +85,14 @@
       </view>
     </template>
 
-    <view class="flow-actions">
-      <button v-if="step > 1" class="back" role="button" :tabindex="busy ? -1 : 0" :disabled="busy" @tap="previous" @keydown.enter.prevent="!busy && previous()" @keydown.space.prevent="!busy && previous()">返回上一步</button>
-      <button v-else class="back" role="button" :tabindex="busy ? -1 : 0" :disabled="busy" @tap="$emit('leave')" @keydown.enter.prevent="!busy && $emit('leave')" @keydown.space.prevent="!busy && $emit('leave')">先离开</button>
-      <button v-if="step < 4" class="next" role="button" :tabindex="busy || !canContinue ? -1 : 0" :disabled="busy || !canContinue" @tap="next" @keydown.enter.prevent="!busy && canContinue && next()" @keydown.space.prevent="!busy && canContinue && next()">继续</button>
-      <button v-else class="next" role="button" :tabindex="busy ? -1 : 0" :loading="busy" :disabled="busy" @tap="submit" @keydown.enter.prevent="!busy && submit()" @keydown.space.prevent="!busy && submit()">{{ role === 'A' ? '保存背景并继续' : '保存我的选择' }}</button>
+    <view class="flow-footer">
+      <text v-if="!canContinue" class="disabled-reason" role="status">{{ disabledReason }}</text>
+      <view class="flow-actions" :class="{ single: step === 1 }">
+        <button v-if="step > 1" class="back" role="button" :tabindex="busy ? -1 : 0" :disabled="busy" @tap="previous" @keydown.enter.prevent="!busy && previous()" @keydown.space.prevent="!busy && previous()">返回上一步</button>
+        <button v-if="step < 4" class="next" role="button" :tabindex="busy || !canContinue ? -1 : 0" :loading="busy" :disabled="busy || !canContinue" @tap="next" @keydown.enter.prevent="!busy && canContinue && next()" @keydown.space.prevent="!busy && canContinue && next()">继续</button>
+        <button v-else class="next" role="button" :tabindex="busy ? -1 : 0" :loading="busy" :disabled="busy" @tap="submit" @keydown.enter.prevent="!busy && submit()" @keydown.space.prevent="!busy && submit()">{{ role === 'A' ? '保存背景并继续' : '保存我的选择' }}</button>
+      </view>
     </view>
-    <text v-if="!canContinue" class="disabled-reason">{{ disabledReason }}</text>
   </view>
 </template>
 
@@ -126,11 +127,15 @@ const ChoiceGroup = defineComponent({
     label: { type: String, required: true },
     items: { type: Array as PropType<readonly { value: string; label: string }[]>, required: true },
     modelValue: { type: String as PropType<string | null>, default: null },
+    index: { type: Number, default: 0 },
   },
   emits: ["update:modelValue"],
   setup(props, { emit }) {
     return () => h("view", { class: "choice-group", role: "radiogroup", "aria-label": props.label }, [
-      h("text", { class: "question" }, props.label),
+      h("view", { class: "question-row" }, [
+        props.index ? h("text", { class: "question-index", "aria-hidden": "true" }, String(props.index).padStart(2, "0")) : null,
+        h("text", { class: "question" }, props.label),
+      ]),
       h("view", { class: "choice-grid" }, props.items.map((item) => h("button", {
         class: ["choice", { selected: props.modelValue === item.value }],
         role: "radio",
@@ -142,7 +147,10 @@ const ChoiceGroup = defineComponent({
           event.preventDefault();
           emit("update:modelValue", props.modelValue === item.value ? null : item.value);
         },
-      }, item.label))),
+      }, [
+        h("text", { class: "choice-label" }, item.label),
+        props.modelValue === item.value ? h("text", { class: "choice-check", "aria-hidden": "true" }, "✓") : null,
+      ]))),
     ]);
   },
 });
@@ -159,6 +167,7 @@ const emit = defineEmits<{
   save: [payload: { status: "CONFIRMED" | "DIFFERENT" | "SKIPPED"; shared: SharedContextDraft; mine: ParticipantContextDraft }];
   checkpoint: [payload: { step: number; decision: "CONFIRMED" | "DIFFERENT" | "SKIPPED" | null; shared: SharedContextDraft; mine: ParticipantContextDraft }];
   "draft-change": [draft: RelationshipDraft];
+  "step-change": [step: number];
   leave: [];
 }>();
 
@@ -205,7 +214,12 @@ async function focusError() {
   element(errorRef.value)?.focus();
 }
 
-defineExpose({ focusError });
+function backOrLeave() {
+  if (step.value > 1) previous();
+  else emit("leave");
+}
+
+defineExpose({ focusError, backOrLeave });
 
 const heading = computed(() => {
   if (props.role === "B" && step.value === 1) return hasConfirmableInviterVersion.value
@@ -256,7 +270,10 @@ function load() {
 }
 
 watch(() => props.context, load, { immediate: true });
-watch(step, focusHeading);
+watch(step, (value) => {
+  emit("step-change", value);
+  void focusHeading();
+}, { immediate: true });
 onMounted(focusHeading);
 watch([step, decision, mineShared, mine, relationshipOther], () => {
   mineShared.relationshipOther = mineShared.relationshipType === "OTHER" ? relationshipOther.value : null;
@@ -322,50 +339,76 @@ function currentMinePayload(): ParticipantContextDraft {
 </script>
 
 <style scoped lang="scss">
-.relationship-flow { width: min(100%, 720px); margin: 0 auto; padding: 10rpx 0 50rpx; color: #1c2923; }
-.flow-heading { margin-bottom: 28rpx; }
+.relationship-flow {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 28px 24px 130px;
+  color: #1c2923;
+  box-sizing: border-box;
+}
+
+.flow-heading { margin-bottom: 28px; outline: none; }
 .eyebrow, .progress, .title, .description, .question, .optional-note, .version-label, .decision-title, .decision-copy, .preview-title, .text-field > text { display: block; }
-.eyebrow { color: #be442e; font-size: 21rpx; font-weight: 900; letter-spacing: .16em; }
-.progress { margin-top: 10rpx; color: #68726c; font-size: 22rpx; }
-.title { margin-top: 16rpx; font-family: serif; font-size: 48rpx; font-weight: 800; line-height: 1.18; }
-.description { margin-top: 13rpx; color: #68726c; font-size: 25rpx; line-height: 1.65; }
-.flow-error { margin-bottom: 20rpx; padding: 18rpx 20rpx; border-left: 6rpx solid #be442e; background: #fff0ec; color: #8e2d1c; font-size: 23rpx; line-height: 1.55; }
-.skip-top { min-height: 44px; margin-bottom: 16rpx; border: 0; background: transparent; color: #315847; font-size: 23rpx; text-decoration: underline; }
-:deep(.choice-group) { margin-top: 28rpx; }
-:deep(.question) { margin-bottom: 14rpx; font-size: 27rpx; font-weight: 800; }
-:deep(.choice-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12rpx; }
-:deep(.choice) { min-height: 48px; padding: 16rpx 18rpx; border: 2rpx solid #d0cec6; border-radius: 16rpx; background: #fff; color: #34433c; font-size: 23rpx; line-height: 1.35; }
-:deep(.choice.selected) { border-color: #315847; background: #e7efe9; color: #214b39; font-weight: 800; }
-.custom-field, .text-field { display: block; margin-top: 18rpx; }
-.custom-field label { display: block; margin-bottom: 10rpx; font-size: 23rpx; font-weight: 800; }
-.custom-field input { box-sizing: border-box; width: 100%; min-height: 48px; padding: 0 18rpx; border: 2rpx solid #c8c7bf; border-radius: 14rpx; background: #fff; }
-.custom-field > text, .text-field > text:last-child { display: block; margin-top: 7rpx; color: #68726c; font-size: 20rpx; text-align: right; }
-.optional-note { margin-top: 24rpx; padding: 20rpx; border-radius: 14rpx; background: #f1eee6; color: #59665f; font-size: 22rpx; line-height: 1.6; }
-.ai-toggle { display: flex; align-items: center; gap: 16rpx; min-height: 48px; margin-top: 24rpx; color: #264738; font-size: 23rpx; }
+.eyebrow { color: #be442e; font-size: 12px; font-weight: 900; letter-spacing: .18em; }
+.progress { margin-top: 10px; color: #68726c; font-size: 13px; }
+.title { margin-top: 14px; font-family: "Songti SC", "STSong", serif; font-size: 30px; font-weight: 800; line-height: 1.25; letter-spacing: -.4px; }
+.description { margin-top: 10px; color: #68726c; font-size: 15px; line-height: 1.65; }
+.flow-error { margin-bottom: 18px; padding: 14px 16px; border-left: 3px solid #be442e; border-radius: 0 12px 12px 0; background: #fff0ec; color: #8e2d1c; font-size: 14px; line-height: 1.55; outline: none; }
+.skip-top { min-height: 48px; margin: -10px 0 8px auto; padding: 0; border: 0; background: transparent; color: #315847; font-size: 14px; text-decoration: underline; }
+
+:deep(.choice-group) { margin-top: 28px; }
+:deep(.question-row) { min-height: 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+:deep(.question-index) { min-width: 30px; color: #be442e; font-size: 11px; font-weight: 800; letter-spacing: .06em; }
+:deep(.question) { flex: 1; font-size: 17px; font-weight: 800; line-height: 1.4; }
+:deep(.choice-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+:deep(.choice) { min-height: 52px; padding: 10px 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #d0cec6; border-radius: 12px; background: #fffdf9; color: #34433c; font-size: 14px; line-height: 1.35; }
+:deep(.choice:last-child:nth-child(odd)) { grid-column: 1 / -1; }
+:deep(.choice-label) { min-width: 0; }
+:deep(.choice-check) { width: 20px; height: 20px; flex: 0 0 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #315847; color: #fff; font-size: 12px; font-weight: 900; }
+:deep(.choice.selected) { border-color: #315847; background: #e7efe9; color: #214b39; font-weight: 800; box-shadow: inset 0 0 0 1px #315847; }
+
+.custom-field, .text-field { display: block; margin-top: 20px; }
+.custom-field label { display: block; margin-bottom: 8px; font-size: 15px; font-weight: 800; }
+.custom-field input { box-sizing: border-box; width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid #c8c7bf; border-radius: 12px; background: #fffdf9; }
+.custom-field > text, .text-field > text:last-child { display: block; margin-top: 6px; color: #68726c; font-size: 12px; text-align: right; }
+.optional-note { margin-top: 24px; padding: 16px; border-radius: 12px; background: #eee9de; color: #59665f; font-size: 13px; line-height: 1.65; }
+.ai-toggle { min-height: 64px; margin-top: 22px; padding: 8px 0; display: flex; align-items: center; gap: 14px; color: #264738; font-size: 15px; box-sizing: border-box; }
+.ai-toggle view { flex: 1; min-width: 0; }
 .ai-toggle view text { display: block; }
-.ai-toggle view text:last-child { margin-top: 4rpx; color: #68726c; font-size: 20rpx; }
-.text-field > text:first-child { margin-bottom: 10rpx; font-size: 25rpx; font-weight: 800; }
-.optional { color: #68726c; font-size: 20rpx; font-weight: 600; }
-.text-field textarea { box-sizing: border-box; width: 100%; min-height: 190rpx; padding: 18rpx; border: 2rpx solid #c8c7bf; border-radius: 16rpx; background: #fff; font-size: 25rpx; line-height: 1.6; }
-.inviter-version, .preview-section { margin-top: 22rpx; padding: 24rpx; border-radius: 20rpx; background: #f0ede4; }
-.version-label, .preview-title { margin-bottom: 15rpx; color: #315847; font-size: 23rpx; font-weight: 900; }
-.summary-list, .preview-section { display: grid; gap: 12rpx; }
-.summary-list view, .preview-row { display: flex; justify-content: space-between; gap: 20rpx; color: #536159; font-size: 23rpx; }
+.ai-toggle view text:last-child { margin-top: 4px; color: #68726c; font-size: 12px; line-height: 1.5; }
+.text-field > text:first-child { margin-bottom: 9px; font-size: 16px; font-weight: 800; }
+.optional { color: #68726c; font-size: 12px; font-weight: 600; }
+.text-field textarea { box-sizing: border-box; width: 100%; min-height: 112px; padding: 14px; border: 1px solid #c8c7bf; border-radius: 12px; background: #fffdf9; font-size: 15px; line-height: 1.6; }
+
+.inviter-version, .preview-section { margin-top: 20px; padding: 18px; border-radius: 16px; background: #f0ede4; }
+.version-label, .preview-title { margin-bottom: 12px; color: #315847; font-size: 15px; font-weight: 900; }
+.summary-list, .preview-section { display: grid; gap: 10px; }
+.summary-list view, .preview-row { min-height: 26px; display: flex; justify-content: space-between; gap: 18px; color: #536159; font-size: 14px; }
 .summary-list view text:last-child, .preview-row text:last-child { color: #1c2923; font-weight: 800; text-align: right; }
-.empty-copy { color: #59665f; font-size: 23rpx; line-height: 1.6; }
-.decision-list { display: grid; gap: 13rpx; margin-top: 24rpx; }
-.decision { min-height: 68px; padding: 20rpx; border: 2rpx solid #d0cec6; border-radius: 18rpx; background: #fff; text-align: left; }
-.decision.selected { border-color: #315847; background: #e7efe9; }
-.decision-title { color: #1c2923; font-size: 25rpx; font-weight: 900; }
-.decision-copy { margin-top: 5rpx; color: #68726c; font-size: 21rpx; line-height: 1.5; }
-.shared-preview { border: 2rpx solid #e2b8ae; background: #fff3ef; }
-.private-preview, .inviter-ai { border: 2rpx solid #c8dacd; background: #edf4ef; }
-.preview-section > text:not(.preview-title) { color: #58665f; font-size: 22rpx; line-height: 1.6; }
-.flow-actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 13rpx; margin-top: 32rpx; padding-bottom: env(safe-area-inset-bottom); }
-.flow-actions button { min-height: 50px; border-radius: 16rpx; font-size: 25rpx; font-weight: 900; }
-.back { border: 2rpx solid #315847; background: #fffdf8; color: #315847; }
-.next { border: 0; background: #be442e; color: #fff; }
-.next[disabled] { opacity: .52; }
-.disabled-reason { display: block; margin-top: 10rpx; color: #8d2f1f; font-size: 21rpx; text-align: right; }
-@media (min-width: 760px) { :deep(.choice-grid) { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.empty-copy { color: #59665f; font-size: 14px; line-height: 1.6; }
+.decision-list { display: grid; gap: 10px; margin-top: 22px; }
+.decision { min-height: 76px; padding: 16px; border: 1px solid #d0cec6; border-radius: 14px; background: #fffdf9; text-align: left; }
+.decision.selected { border-color: #315847; background: #e7efe9; box-shadow: inset 0 0 0 1px #315847; }
+.decision-title { color: #1c2923; font-size: 16px; font-weight: 900; }
+.decision-copy { margin-top: 5px; color: #68726c; font-size: 13px; line-height: 1.5; }
+.shared-preview { border: 1px solid #e3b3a8; background: #fff3ef; }
+.private-preview, .inviter-ai { border: 1px solid #c5d9ca; background: #edf4ef; }
+.preview-section > text:not(.preview-title) { color: #58665f; font-size: 13px; line-height: 1.6; }
+
+.flow-footer { position: fixed; z-index: 18; right: 0; bottom: 0; left: 50%; width: 100%; max-width: 430px; padding: 14px 24px calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: linear-gradient(180deg, rgba(243, 239, 230, 0) 0, rgba(243, 239, 230, .96) 18px, #f3efe6 34px); box-sizing: border-box; }
+.flow-actions { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.45fr); gap: 10px; padding-top: 20px; }
+.flow-actions.single { grid-template-columns: 1fr; }
+.flow-actions button { width: 100%; min-height: 56px; border-radius: 12px; font-size: 16px; font-weight: 900; }
+.back { border: 1px solid #315847; background: #fffdf8; color: #315847; }
+.next { border: 0; background: #c7432d; color: #fff; box-shadow: 0 8px 18px rgba(190, 68, 46, .18); }
+.next[disabled] { opacity: .48; box-shadow: none; }
+.disabled-reason { display: block; min-height: 20px; color: #8d2f1f; font-size: 12px; text-align: right; }
+
+@media (max-width: 359px) {
+  .title { font-size: 27px; }
+  :deep(.choice) { padding-right: 9px; padding-left: 9px; font-size: 13px; }
+  .flow-footer { padding-right: 18px; padding-left: 18px; }
+  .flow-actions button { font-size: 14px; }
+}
 </style>

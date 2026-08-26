@@ -90,6 +90,26 @@ describe("relationship onboarding submission flow", () => {
     expect(page).toContain('return message(error, "关系背景没有保存。');
   });
 
+  it("implements the approved relationship flow as a mobile-first four-step experience", () => {
+    const component = readFileSync(new URL("../src/components/RelationshipOnboarding.vue", import.meta.url), "utf8");
+    const page = readFileSync(new URL("../src/pages/index/index.vue", import.meta.url), "utf8");
+    const pageStyles = readFileSync(new URL("../src/pages/index/index.scss", import.meta.url), "utf8");
+
+    expect(component).toContain('class="flow-footer"');
+    expect(component).toContain("position: fixed");
+    expect(component).toContain("env(safe-area-inset-bottom)");
+    expect(component).toContain("max-width: 430px");
+    expect(component).toContain(".flow-actions button { width: 100%;");
+    expect(component).toContain('class: "choice-check"');
+    expect(component).toContain("对方不可见，共同 Agent 不会读取");
+    expect(component).toContain('emit("step-change", value)');
+    expect(page).toContain('@step-change="relationshipOnboardingStep = $event"');
+    expect(page).toContain("relationshipFlowActive.value ? 4 : 5");
+    expect(page).toContain("relationshipOnboardingRef.value?.backOrLeave()");
+    expect(pageStyles).toContain(".page-shell.stage-relationship_setup");
+    expect(pageStyles).toContain(".stage-relationship_setup .account-trigger");
+  });
+
   it.each([
     ["A", "GOAL_SETTING", false, "GOAL"],
     ["A", "WAITING_FOR_B", false, "INVITE"],

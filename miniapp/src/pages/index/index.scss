@@ -24,6 +24,16 @@ $ochre: #eedfbd;
   max-width: 430px;
 }
 
+.page-shell.stage-relationship_setup,
+.page-shell.stage-relationship_confirmation {
+  max-width: 430px;
+}
+
+.stage-relationship_setup .account-trigger,
+.stage-relationship_confirmation .account-trigger {
+  display: none;
+}
+
 .stage-record .account-trigger,
 .stage-clarification_chat .account-trigger {
   width: 48px;
