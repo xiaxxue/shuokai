@@ -51,13 +51,29 @@ describe("ExpressionClarification direct editor", () => {
     expect(expressionCard).toBeGreaterThan(-1);
     expect(invitationInline).toBe(-1);
     expect(shareModal).toBeGreaterThan(expressionCard);
-    expect(componentSource).toContain("确认表达内容");
-    expect(componentSource).toContain("生成分享卡");
-    expect(componentSource).toContain("生成后仍需由你确认，才会分享给对方");
+    expect(componentSource).toContain("确认这张表达卡");
+    expect(componentSource).toContain("预览对方将看到的内容");
+    expect(componentSource).toContain("预览后仍需由你确认，才会分享给对方");
     expect(componentSource).toMatch(/function confirmExpressionContent\(\) \{[\s\S]*expressionConfirmed\.value = true;[\s\S]*emit\("prepare-share"\);\s*\}/);
     expect(componentSource).toMatch(/function openSharePreview\(\) \{[\s\S]*shareModalOpen\.value = true;\s*\}/);
     expect(componentSource).not.toContain("这次想谈什么");
     expect(componentSource).not.toContain("确认并分享这张表达卡");
+  });
+
+  it("presents the AI draft as an editorial proposal instead of a table", () => {
+    expect(componentSource).toContain("AI 整理 · 只有你能看到");
+    expect(componentSource).toContain("给你的表达草稿");
+    expect(componentSource).toContain("这是 AI 根据刚才对话提出的草稿，不代表你的最终表达");
+    expect(componentSource).toContain('class="draft-progress-track"');
+    expect(componentSource).toContain('class="field-rail"');
+    expect(componentSource).toContain('class="field-edit-hint" aria-hidden="true">修改</text>');
+    expect(componentSource).toContain("继续告诉 AI");
+    expect(componentSource).toContain("整卡编辑");
+    expect(componentSource).toContain("点“继续告诉 AI”，或直接编辑卡片");
+    expect(componentSource).not.toContain("编辑 ›");
+    expect(componentSource).toMatch(/\.field-edit-hint \{[^}]*min-width: 48px;[^}]*min-height: 48px;/s);
+    expect(componentSource).toMatch(/\.primary-card-action[^}]*min-height: 54px;/s);
+    expect(componentSource).toMatch(/\.workspace-screen \{[^}]*padding:[^;]*320rpx \+ env\(safe-area-inset-bottom\)/s);
   });
 
   it("shows generation, preview, sharing, and recoverable error in one share modal", () => {
