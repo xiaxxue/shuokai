@@ -352,6 +352,42 @@ test("private discovery repairs grounded evidence instead of rejecting an otherw
   assert.deepEqual(generated.result, normalized);
 });
 
+test("private discovery completes after two automatic repair passes", async () => {
+  const input = {
+    sourceText: "昨晚他说不想每天提醒，我很失望。",
+    turns: [{ question: "你希望他以后怎么做？", answer: "希望他睡前问我一次" }],
+  };
+  let calls = 0;
+  const generated = await generateDiscoveryQuestion({
+    AI: {
+      async run() {
+        calls += 1;
+        return { response: JSON.stringify(calls < 3 ? {} : validDiscoveryReadyResult()) };
+      },
+    },
+  }, input);
+
+  assert.equal(calls, 3);
+  assert.equal((generated.result as { ready: boolean }).ready, true);
+});
+
+test("private discovery stops after its bounded automatic repair passes", async () => {
+  let calls = 0;
+  await assert.rejects(generateDiscoveryQuestion({
+    AI: {
+      async run() {
+        calls += 1;
+        return { response: "{}" };
+      },
+    },
+  }, {
+    sourceText: "昨晚他说不想每天提醒，我很失望。",
+    turns: [],
+  }), /CLOUDFLARE_AI_INVALID_OUTPUT/);
+
+  assert.equal(calls, 3);
+});
+
 test("private discovery does not turn an AI question into missing user evidence", () => {
   const input = {
     sourceText: "昨晚他没有提醒我休息，我很失望。",
@@ -1304,7 +1340,7 @@ test("AI clarification reports invalid model output separately from provider ava
   );
   assert.equal(invalidResponse.status, 502);
   assert.deepEqual(await invalidResponse.json(), {
-    message: "AI 这次回复没有通过安全校验，请重试或按现有内容继续整理。",
+    message: "AI 这次没能完成理解。你的内容仍然保留，可以按现有内容继续整理。",
     code: "AI_RESPONSE_INVALID",
   });
 

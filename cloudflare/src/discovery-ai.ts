@@ -496,6 +496,10 @@ export function generateDiscoveryQuestion(
       },
     },
     maxTokens: 2600,
+    // This synchronous flow keeps the user in a single thinking state while
+    // model-shape variance is repaired in the background. Keep the retry bound
+    // explicit so invalid output cannot turn into an unbounded inference loop.
+    validationAttempts: 3,
     validationRetryText: [
       "evidence 只能来自 sourceText 或 privateConversation[].answer，绝不能引用 privateConversation[].question。",
       "再次检查 userImpact：证据必须是当前用户亲口说出的本人情绪、身体反应或现实后果；对方的言行、态度、情绪、评价不能填入 userImpact。",

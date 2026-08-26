@@ -520,7 +520,7 @@ export async function requestExpressionClarification(
         "content-type": "application/json",
       },
       data: { roomId, expectedRevision, sourceText, turns },
-      // Discovery schema v3 may need one provider-side repair pass. Keep the
+      // Discovery schema v3 may need bounded provider-side repair passes. Keep the
       // transport alive long enough for that bounded retry to finish instead
       // of turning normal model variance into a false network failure.
       timeout: 60000,

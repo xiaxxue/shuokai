@@ -12,6 +12,7 @@ type StructuredOutputOptions = {
   userData: unknown;
   maxTokens: number;
   model?: string;
+  validationAttempts?: number;
   validationRetryText?: string;
   normalize?(value: unknown): unknown;
   validate(value: unknown): boolean;
@@ -73,8 +74,9 @@ export async function requestStructuredOutput(env: WorkerEnv, options: Structure
   const startedAt = Date.now();
   let tokenInput = 0;
   let tokenOutput = 0;
+  const validationAttempts = Math.max(1, Math.min(4, options.validationAttempts ?? 2));
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < validationAttempts; attempt += 1) {
     let response: unknown;
     const model = options.model ?? TEXT_MODEL;
     try {

@@ -48,7 +48,7 @@ PostgREST RPC，让数据库中的 `auth.uid()` 与 RLS 执行最终资源所有
 
 AI 表达整理使用 Cloudflare Queue。测试配置绑定 `shuokai-ai-jobs-test`，消息体只包含 `jobId`；
 原始表达由消费者以 Supabase secret key 从私有 schema 读取，不写 Worker 日志。模型调用通过 Workers AI
-binding 请求 JSON Schema 输出，结果必须通过本地严格校验；不合格时只重试一次，绝不回退到收费模型。
+binding 请求 JSON Schema 输出，结果必须通过本地严格校验；默认不合格时自动修复一次，私人对话允许两次有界自动修复，绝不无限重试或回退到收费模型。
 生产配置当前没有 Queue 绑定，因此不会伪装文本 AI 可用。
 
 ## 部署
