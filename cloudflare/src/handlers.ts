@@ -366,7 +366,7 @@ export async function handleExpressionClarification(
         request,
         env,
         "AI_RESPONSE_INVALID",
-        "AI 这次回复没有通过安全校验，请重试或按现有内容继续整理。",
+        "AI 这次没能完成理解。你的内容仍然保留，可以按现有内容继续整理。",
         502,
       );
     }
