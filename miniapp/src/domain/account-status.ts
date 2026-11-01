@@ -7,7 +7,7 @@ const stageLabels: Record<ClientStage, string> = {
   RELATIONSHIP_SETUP: "补充关系背景",
   RELATIONSHIP_CONFIRMATION: "确认邀请方的关系背景",
   INVITATION_INTRO: "阅读对方的沟通邀请",
-  GOAL: "确认沟通意图",
+  GOAL: "了解沟通顺序",
   RECORD: "与 AI 私下讲述背景",
   MODE_SELECT: "选择表达路径",
   AI_PENDING: "AI 整理处理中",

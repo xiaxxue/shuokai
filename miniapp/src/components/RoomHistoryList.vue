@@ -43,7 +43,7 @@
             </view>
             <text class="entry-topic-label">具体话题</text>
             <text class="entry-title">{{ item.topic || fallbackTopic(item) }}</text>
-            <text class="entry-intent">意图：{{ item.goal || "尚未选择沟通意图" }}</text>
+            <text class="entry-intent">沟通方向：{{ item.goal || "尚未开始" }}</text>
             <text class="entry-meta">{{ roleLabel(item) }} · {{ participantLabel(item) }}{{ roundLabel(item) }}</text>
             <view class="entry-foot">
               <text class="entry-code">{{ item.code }}</text>
@@ -69,7 +69,7 @@
             </view>
             <text class="entry-topic-label">具体话题</text>
             <text class="entry-title">{{ item.topic || fallbackTopic(item) }}</text>
-            <text class="entry-intent">意图：{{ item.goal || "尚未选择沟通意图" }}</text>
+            <text class="entry-intent">沟通方向：{{ item.goal || "尚未开始" }}</text>
             <text class="entry-meta">{{ roleLabel(item) }} · {{ participantLabel(item) }}{{ roundLabel(item) }}</text>
             <view class="entry-foot">
               <text class="entry-code">{{ item.code }}</text>
