@@ -16,7 +16,15 @@
         <view v-else class="summary-list">
           <view><text>关系</text><text>{{ relationshipLabel(shared) }}</text></view>
           <view><text>相处时间</text><text>{{ optionLabel(durationOptions, shared.durationRange) }}</text></view>
-          <view><text>相处方式</text><text>{{ optionLabel(interactionOptions, shared.interactionMode) }}</text></view>
+          <template v-if="hasContactHistory(shared.contactHistory)">
+            <view><text>现在住得近吗</text><text>{{ optionLabel(proximityOptions, shared.contactHistory.currentProximity) }}</text></view>
+            <view><text>现在多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, shared.contactHistory.currentFrequency) }}</text></view>
+            <view v-if="shared.contactHistory.changed"><text>以前也这样吗</text><text>{{ optionLabel(changeOptions, shared.contactHistory.changed) }}</text></view>
+            <view v-if="shared.contactHistory.changed === 'YES'"><text>以前住得近吗</text><text>{{ optionLabel(proximityOptions, shared.contactHistory.previousProximity) }}</text></view>
+            <view v-if="shared.contactHistory.changed === 'YES'"><text>以前多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, shared.contactHistory.previousFrequency) }}</text></view>
+            <view v-if="shared.contactHistory.changed === 'YES'"><text>变化开始于</text><text>{{ optionLabel(changeTimeOptions, shared.contactHistory.changeTime) }}</text></view>
+          </template>
+          <view v-else><text>相处方式（旧记录）</text><text>{{ optionLabel(interactionOptions, shared.interactionMode) }}</text></view>
         </view>
       </view>
       <view class="decision-list" role="radiogroup" :aria-label="decisionGroupLabel">
@@ -35,7 +43,14 @@
         <text>{{ relationshipOther.length }} / 30</text>
       </view>
       <ChoiceGroup label="大约相处多久了？" :items="durationOptions" :model-value="mineShared.durationRange" @update:model-value="mineShared.durationRange = $event" />
-      <ChoiceGroup label="现在通常怎样相处？" :items="interactionOptions" :model-value="mineShared.interactionMode" @update:model-value="mineShared.interactionMode = $event" />
+      <ChoiceGroup label="现在住得近吗？" :items="proximityOptions" :model-value="mineShared.contactHistory.currentProximity" @update:model-value="mineShared.contactHistory.currentProximity = $event" />
+      <ChoiceGroup label="现在大约多久见一次？" :items="meetingFrequencyOptions" :model-value="mineShared.contactHistory.currentFrequency" @update:model-value="mineShared.contactHistory.currentFrequency = $event" />
+      <ChoiceGroup label="以前也是这样吗？" :items="changeOptions" :model-value="mineShared.contactHistory.changed" @update:model-value="setChanged($event)" />
+      <template v-if="mineShared.contactHistory.changed === 'YES'">
+        <ChoiceGroup label="以前住得近吗？" :items="proximityOptions" :model-value="mineShared.contactHistory.previousProximity" @update:model-value="mineShared.contactHistory.previousProximity = $event" />
+        <ChoiceGroup label="以前大约多久见一次？" :items="meetingFrequencyOptions" :model-value="mineShared.contactHistory.previousFrequency" @update:model-value="mineShared.contactHistory.previousFrequency = $event" />
+        <ChoiceGroup label="这种变化大约从什么时候开始？" :items="changeTimeOptions" :model-value="mineShared.contactHistory.changeTime" @update:model-value="mineShared.contactHistory.changeTime = $event" />
+      </template>
       <text class="optional-note">这是你的版本，不是系统认定的事实。对方可以确认、填写自己的版本或暂不回答。</text>
     </template>
 
@@ -61,7 +76,15 @@
         <template v-if="role === 'A' || decision === 'DIFFERENT'">
           <view class="preview-row"><text>关系</text><text>{{ relationshipLabel(mineShared) }}</text></view>
           <view class="preview-row"><text>时长</text><text>{{ optionLabel(durationOptions, mineShared.durationRange) }}</text></view>
-          <view class="preview-row"><text>相处方式</text><text>{{ optionLabel(interactionOptions, mineShared.interactionMode) }}</text></view>
+          <template v-if="hasContactHistory(mineShared.contactHistory)">
+            <view class="preview-row"><text>现在住得近吗</text><text>{{ optionLabel(proximityOptions, mineShared.contactHistory.currentProximity) }}</text></view>
+            <view class="preview-row"><text>现在多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, mineShared.contactHistory.currentFrequency) }}</text></view>
+            <view v-if="mineShared.contactHistory.changed" class="preview-row"><text>以前也这样吗</text><text>{{ optionLabel(changeOptions, mineShared.contactHistory.changed) }}</text></view>
+            <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>以前住得近吗</text><text>{{ optionLabel(proximityOptions, mineShared.contactHistory.previousProximity) }}</text></view>
+            <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>以前多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, mineShared.contactHistory.previousFrequency) }}</text></view>
+            <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>变化开始于</text><text>{{ optionLabel(changeTimeOptions, mineShared.contactHistory.changeTime) }}</text></view>
+          </template>
+          <view v-else-if="mineShared.interactionMode" class="preview-row"><text>相处方式（旧记录）</text><text>{{ optionLabel(interactionOptions, mineShared.interactionMode) }}</text></view>
         </template>
         <text v-else>{{ decision === 'CONFIRMED' ? '只会让对方看到“你已确认”。' : '不会分享你的关系版本。' }}</text>
         <label v-if="role === 'A'" class="ai-toggle"><switch :checked="mineShared.useSharedAi" color="#315847" @change="mineShared.useSharedAi = eventChecked($event)" /><view><text>让我的私人 AI 参考这份关系背景</text><text>不影响共同 Agent，也不会代替受邀者确认</text></view></label>
@@ -100,12 +123,17 @@
 import { computed, defineComponent, h, nextTick, onMounted, reactive, ref, watch, type PropType } from "vue";
 import {
   communicationPaceOptions,
+  changeTimeOptions,
   durationOptions,
+  emptyContactHistory,
   emptyParticipantContextDraft,
   emptySharedContextDraft,
+  hasCurrentContactAnswer,
   interactionOptions,
+  meetingFrequencyOptions,
   optionLabel,
   planningStyleOptions,
+  proximityOptions,
   relationshipStateOptions,
   relationshipTypeOptions,
   responsePreferenceOptions,
@@ -176,6 +204,13 @@ const decisionOptions = [
   { value: "DIFFERENT", label: "填写我的版本", description: "你的版本会单独保存，不由 AI 判断对错。" },
   { value: "SKIPPED", label: "暂不回答", description: "邀请方只会看到你暂未提供自己的版本。" },
 ] as const;
+const changeOptions = [
+  { value: "NO", label: "是，差不多" },
+  { value: "YES", label: "不是，发生了变化" },
+] as const;
+function hasContactHistory(value: SharedContextDraft["contactHistory"]) {
+  return Object.values(value).some((answer) => answer !== null);
+}
 const step = ref(1);
 const decision = ref<RecipientRelationshipDecision | null>(null);
 const shared = reactive({ ...props.context.shared });
@@ -239,7 +274,7 @@ const isSharedStep = computed(() => step.value === 1 && props.role === "A" || st
 const canContinue = computed(() => {
   if (props.role === "B" && step.value === 1) return decision.value !== null;
   if (props.role === "B" && step.value === 2 && decision.value === "DIFFERENT") {
-    return Boolean(mineShared.relationshipType || mineShared.durationRange || mineShared.interactionMode) &&
+    return Boolean(mineShared.relationshipType || mineShared.durationRange || mineShared.interactionMode || hasCurrentContactAnswer(mineShared.contactHistory)) &&
       (mineShared.relationshipType !== "OTHER" || Boolean(relationshipOther.value.trim()));
   }
   return mineShared.relationshipType !== "OTHER" || Boolean(relationshipOther.value.trim());
@@ -254,8 +289,8 @@ function load() {
   if (source) {
     decision.value = normalizeRecipientRelationshipDecision(source.decision ?? null, shared.status);
     step.value = props.role === "B" && !decision.value ? 1 : source.step;
-    Object.assign(mineShared, source.shared);
-    Object.assign(mine, source.mine);
+    Object.assign(mineShared, { ...source.shared, contactHistory: { ...(source.shared.contactHistory ?? emptyContactHistory()) } });
+    Object.assign(mine, { ...source.mine, contactHistory: { ...(source.mine.contactHistory ?? emptyContactHistory()) } });
   } else {
     const restoredStep = props.role === "A" ? props.context.shared.draftStep : props.context.mine.draftStep;
     decision.value = normalizeRecipientRelationshipDecision(props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
@@ -280,7 +315,8 @@ watch([step, decision, mineShared, mine, relationshipOther], () => {
   emit("draft-change", {
     step: step.value,
     ...(decision.value ? { decision: decision.value } : {}),
-    shared: { ...mineShared }, mine: { ...mine },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
+    mine: { ...mine, contactHistory: { ...mine.contactHistory } },
     sharedRevision: props.context.shared.revision,
     privateRevision: props.context.mine.revision,
   });
@@ -295,6 +331,16 @@ function eventChecked(event: Event) {
   return Boolean((event as unknown as { detail?: { value?: boolean } }).detail?.value);
 }
 
+function setChanged(value: "YES" | "NO" | null) {
+  mineShared.contactHistory.changed = value;
+  if (value !== "YES") Object.assign(mineShared.contactHistory, {
+    ...emptyContactHistory(),
+    currentProximity: mineShared.contactHistory.currentProximity,
+    currentFrequency: mineShared.contactHistory.currentFrequency,
+    changed: value,
+  });
+}
+
 function next() {
   if (!canContinue.value) return;
   if (props.role === "B" && step.value === 1 && decision.value !== "DIFFERENT") step.value = 3;
@@ -302,7 +348,7 @@ function next() {
   emit("checkpoint", {
     step: step.value,
     decision: decision.value,
-    shared: { ...mineShared },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
     mine: currentMinePayload(),
   });
 }
@@ -320,7 +366,7 @@ function submit() {
   const status = props.role === "A" ? "CONFIRMED" : decision.value ?? "SKIPPED";
   emit("save", {
     status,
-    shared: { ...mineShared },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
     mine: currentMinePayload(),
   });
 }
@@ -332,9 +378,10 @@ function currentMinePayload(): ParticipantContextDraft {
       relationshipType: mineShared.relationshipType,
       relationshipOther: mineShared.relationshipOther,
       durationRange: mineShared.durationRange,
-      interactionMode: mineShared.interactionMode,
+      interactionMode: hasCurrentContactAnswer(mineShared.contactHistory) ? null : mineShared.interactionMode,
+      contactHistory: { ...mineShared.contactHistory },
     }
-    : { ...mine };
+    : { ...mine, contactHistory: { ...mine.contactHistory } };
 }
 </script>
 

@@ -231,10 +231,13 @@ describe("profile context draft isolation", () => {
       privateRevision: 0,
       shared: {
         relationshipType: "PARTNER" as const, relationshipOther: null,
-        durationRange: "Y1_3" as const, interactionMode: "MIXED" as const, useSharedAi: true,
+        durationRange: "Y1_3" as const, interactionMode: "MIXED" as const,
+        contactHistory: { currentProximity: null, currentFrequency: null, changed: null, previousProximity: null, previousFrequency: null, changeTime: null },
+        useSharedAi: true,
       },
       mine: {
         relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null,
+        contactHistory: { currentProximity: null, currentFrequency: null, changed: null, previousProximity: null, previousFrequency: null, changeTime: null },
         communicationPace: "PAUSE_FIRST" as const, responsePreference: null, planningStyle: null,
         relationshipState: null, observedDifference: "", culturalContext: "",
         useCommunicationAi: true, useRelationshipStateAi: true, useDifferenceAi: true,

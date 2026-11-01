@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  emptyContactHistory,
   normalizeDisplayName,
   parseRoomRelationshipContext,
   parseUserProfile,
@@ -53,9 +54,9 @@ describe("profile and relationship context parsing", () => {
     const rebased = rebaseRelationshipDraft({
       step: 3,
       decision: "DIFFERENT",
-      shared: { relationshipType: "FRIEND", relationshipOther: null, durationRange: null, interactionMode: null, useSharedAi: false },
+      shared: { relationshipType: "FRIEND", relationshipOther: null, durationRange: null, interactionMode: null, contactHistory: emptyContactHistory(), useSharedAi: false },
       mine: {
-        relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null,
+        relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null, contactHistory: emptyContactHistory(),
         communicationPace: "PAUSE_FIRST", responsePreference: null, planningStyle: null,
         relationshipState: null, observedDifference: "本机未提交内容", culturalContext: "",
         useCommunicationAi: true, useRelationshipStateAi: true, useDifferenceAi: true,
@@ -67,6 +68,28 @@ describe("profile and relationship context parsing", () => {
     expect(rebased.sharedRevision).toBe(2);
     expect(rebased.privateRevision).toBe(3);
     expect(rebased.mine.observedDifference).toBe("本机未提交内容");
+  });
+
+  it("reads a changed contact arrangement without reinterpreting legacy modes", () => {
+    const history = {
+      currentProximity: "DISTANT", currentFrequency: "MONTHLY_OR_LESS", changed: "YES",
+      previousProximity: "TOGETHER", previousFrequency: "DAILY", changeTime: "M1_6",
+    };
+    const parsed = parseRoomRelationshipContext({
+      role: "A",
+      shared: { status: "CONFIRMED", revision: 2, contactHistory: history, interactionMode: null },
+      mine: { status: "MISSING", seenSharedRevision: 0, revision: 0, consentRevision: 0 },
+    });
+    expect(parsed.shared.contactHistory).toEqual(history);
+    expect(parsed.shared.interactionMode).toBeNull();
+    const editable = toSharedContextDraft(parsed.shared);
+    editable.contactHistory.currentProximity = "NEARBY";
+    expect(parsed.shared.contactHistory.currentProximity).toBe("DISTANT");
+    expect(() => parseRoomRelationshipContext({
+      role: "A",
+      shared: { status: "CONFIRMED", revision: 2, contactHistory: { ...history, changeTime: "YESTERDAY" } },
+      mine: { status: "MISSING", seenSharedRevision: 0, revision: 0, consentRevision: 0 },
+    })).toThrow("无效数据");
   });
 
   it("projects restored server context to the exact editable RPC payload", () => {
@@ -97,6 +120,7 @@ describe("profile and relationship context parsing", () => {
       relationshipOther: null,
       durationRange: "Y1_3",
       interactionMode: "MIXED",
+      contactHistory: emptyContactHistory(),
       useSharedAi: true,
     });
     expect(toParticipantContextDraft(parsed.mine)).toEqual({
@@ -104,6 +128,7 @@ describe("profile and relationship context parsing", () => {
       relationshipOther: null,
       durationRange: null,
       interactionMode: null,
+      contactHistory: emptyContactHistory(),
       communicationPace: "IMMEDIATE",
       responsePreference: "EMPATHY_FIRST",
       planningStyle: "PLAN_AHEAD",
