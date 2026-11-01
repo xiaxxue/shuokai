@@ -19,6 +19,7 @@
           <template v-if="hasContactHistory(shared.contactHistory)">
             <view><text>现在住得近吗</text><text>{{ optionLabel(proximityOptions, shared.contactHistory.currentProximity) }}</text></view>
             <view><text>现在多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, shared.contactHistory.currentFrequency) }}</text></view>
+            <view v-if="shared.contactHistory.changed"><text>以前也这样吗</text><text>{{ optionLabel(changeOptions, shared.contactHistory.changed) }}</text></view>
             <view v-if="shared.contactHistory.changed === 'YES'"><text>以前住得近吗</text><text>{{ optionLabel(proximityOptions, shared.contactHistory.previousProximity) }}</text></view>
             <view v-if="shared.contactHistory.changed === 'YES'"><text>以前多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, shared.contactHistory.previousFrequency) }}</text></view>
             <view v-if="shared.contactHistory.changed === 'YES'"><text>变化开始于</text><text>{{ optionLabel(changeTimeOptions, shared.contactHistory.changeTime) }}</text></view>
@@ -78,6 +79,7 @@
           <template v-if="hasContactHistory(mineShared.contactHistory)">
             <view class="preview-row"><text>现在住得近吗</text><text>{{ optionLabel(proximityOptions, mineShared.contactHistory.currentProximity) }}</text></view>
             <view class="preview-row"><text>现在多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, mineShared.contactHistory.currentFrequency) }}</text></view>
+            <view v-if="mineShared.contactHistory.changed" class="preview-row"><text>以前也这样吗</text><text>{{ optionLabel(changeOptions, mineShared.contactHistory.changed) }}</text></view>
             <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>以前住得近吗</text><text>{{ optionLabel(proximityOptions, mineShared.contactHistory.previousProximity) }}</text></view>
             <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>以前多久见面</text><text>{{ optionLabel(meetingFrequencyOptions, mineShared.contactHistory.previousFrequency) }}</text></view>
             <view v-if="mineShared.contactHistory.changed === 'YES'" class="preview-row"><text>变化开始于</text><text>{{ optionLabel(changeTimeOptions, mineShared.contactHistory.changeTime) }}</text></view>
@@ -207,7 +209,7 @@ const changeOptions = [
   { value: "YES", label: "不是，发生了变化" },
 ] as const;
 function hasContactHistory(value: SharedContextDraft["contactHistory"]) {
-  return hasCurrentContactAnswer(value);
+  return Object.values(value).some((answer) => answer !== null);
 }
 const step = ref(1);
 const decision = ref<RecipientRelationshipDecision | null>(null);
