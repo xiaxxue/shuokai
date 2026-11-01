@@ -184,24 +184,19 @@
       />
 
       <view v-else-if="stage === 'GOAL'" class="screen">
-        <text class="eyebrow">先确认意图</text>
-        <text class="title">这次，你最希望发生什么？</text>
-        <text class="description">先选一个方向。它会成为整理表达时的边界，不代表你必须达成某种结果。</text>
-        <view class="option-list">
-          <button
-            v-for="item in goals"
-            :key="item.title"
-            class="option"
-            :class="{ selected: goal === item.title }"
-            @tap="goal = item.title"
-          >
-            <text class="radio" />
-            <view class="option-copy">
-              <text class="option-title">{{ item.title }}</text>
-              <text class="option-description">{{ item.description }}</text>
+        <text class="eyebrow">先了解沟通顺序</text>
+        <text class="title">先理解彼此，再一起往前走。</text>
+        <text class="description">先各自私下整理想说的话。双方都确认愿意分享后，再按下面的方向沟通。</text>
+        <view class="goal-steps" role="list" aria-label="沟通的三个阶段">
+          <view v-for="(item, index) in goalSteps" :key="item.title" class="goal-step" role="listitem">
+            <text class="goal-step-number" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</text>
+            <view class="goal-step-copy">
+              <text class="goal-step-title">{{ item.title }}</text>
+              <text class="goal-step-description">{{ item.description }}</text>
             </view>
-          </button>
+          </view>
         </view>
+        <text class="goal-note">理解不等于同意。任何时候都可以暂停，也不必勉强进入下一步。</text>
       </view>
 
       <InvitationIntro
@@ -699,11 +694,12 @@ import {
   summarizeInviteRelationship,
 } from "../../services/relationship-onboarding-flow";
 
-const goals = [
-  { title: "让我被准确理解", description: "把观察、感受和真正的需要说清楚" },
-  { title: "理解对方为什么这样想", description: "先听见对方行动背后的理由" },
-  { title: "找到一个双方都能尝试的下一步", description: "从争论结论转向一个小实验" },
+const goalSteps = [
+  { title: "先理解对方", description: "听见对方确认愿意分享的想法和经历" },
+  { title: "再让自己被准确理解", description: "核对自己的感受、需要和边界有没有被如实呈现" },
+  { title: "最后一起找下一步", description: "双方都愿意时，尝试一个可以调整的小行动" },
 ];
+const communicationGoal = "先理解对方，也让自己被准确理解，再一起尝试下一步";
 const participantRoles = ["A", "B"] as const;
 const isLiveH5 = __PLATFORM__ === "h5";
 const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
@@ -711,7 +707,7 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
   RELATIONSHIP_SETUP: { step: 1, label: "关系背景" },
   RELATIONSHIP_CONFIRMATION: { step: 1, label: "确认背景" },
   INVITATION_INTRO: { step: 1, label: "邀请" },
-  GOAL: { step: 1, label: "意图" },
+  GOAL: { step: 1, label: "沟通顺序" },
   RECORD: { step: 2, label: "AI 对话" },
   MODE_SELECT: { step: 2, label: "路径" },
   AI_PENDING: { step: 2, label: "AI 整理" },
@@ -733,7 +729,6 @@ const phaseByStage: Record<ClientStage, { step: number; label: string }> = {
 const stage = ref<ClientStage>("WELCOME");
 const room = ref<RoomSession | null>(null);
 const snapshot = ref<RoomSnapshot | null>(null);
-const goal = ref(goals[0].title);
 const joinCode = ref("");
 const contentScrollTop = ref(0);
 const contentScrollIntoView = ref("");
@@ -985,6 +980,7 @@ const canContinue = computed(() => {
   return true;
 });
 const nextLabel = computed(() => {
+  if (stage.value === "GOAL") return "开始整理我的表达";
   if (stage.value === "MODE_SELECT") return selectedMode.value === "PAUSE" ? "确认暂停" : "请 AI 帮我整理";
   if (stage.value === "EXPRESSION_REVIEW") {
     if (expressionReviewIsSummary.value) return "确认表达卡和邀请说明";
@@ -1521,7 +1517,6 @@ function applySnapshot(latest: RoomSnapshot) {
   }
   if (!room.value) return;
   updateRoom({ ...room.value, code: latest.room.code, state: latest.room.state });
-  if (latest.room.goal) goal.value = latest.room.goal;
   if (latest.privateDraft) {
     transcript.value = latest.privateDraft.transcript;
   }
@@ -2415,7 +2410,7 @@ async function next() {
   busy.value = true;
   try {
     if (stage.value === "GOAL") {
-      const result = await roomApi.setGoal(room.value.roomId, goal.value);
+      const result = await roomApi.setGoal(room.value.roomId, communicationGoal);
       updateRoom({ ...room.value, state: result.state, phaseV2: "PRIVATE_EXPRESSION" });
       stage.value = "RECORD";
     } else if (stage.value === "EXPRESSION_REVIEW") {

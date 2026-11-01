@@ -488,46 +488,45 @@ button::after { border: 0; }
   font-weight: 800;
 }
 
-.option-list {
+.goal-steps {
   margin-top: 28px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.option {
-  min-height: 78px;
-  padding: 15px 16px;
+.goal-step {
+  min-height: 92px;
+  padding: 16px;
   display: flex;
-  align-items: center;
-  gap: 13px;
+  align-items: flex-start;
+  gap: 14px;
   border: 1px solid #dad6cc;
+  border-left: 4px solid $coral;
   border-radius: 12px;
   background: $surface;
   color: $ink;
-  text-align: left;
-  transition: border-color .2s ease, background .2s ease, transform .2s ease;
-}
-
-.option.selected {
-  border-color: $coral;
-  background: #fff5ee;
-  transform: translateY(-1px);
-}
-
-.radio {
-  width: 20px;
-  height: 20px;
-  flex: none;
-  border: 1px solid #aaa99f;
-  border-radius: 50%;
   box-sizing: border-box;
 }
 
-.selected .radio { border: 6px solid $coral; }
-.option-copy { display: flex; flex-direction: column; gap: 5px; }
-.option-title { font-size: 14px; font-weight: 700; }
-.option-description { color: $muted; font-size: 11px; line-height: 1.5; }
+.goal-step-number {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #fff0e8;
+  color: $coral;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.goal-step-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.goal-step-title { font-size: 17px; font-weight: 700; line-height: 1.4; }
+.goal-step-description { color: $muted; font-size: 14px; line-height: 1.5; }
+.goal-note { display: block; margin-top: 20px; color: $muted; font-size: 13px; line-height: 1.6; }
 
 .response-context {
   margin: -12px 0 26px;
