@@ -274,7 +274,7 @@ const isSharedStep = computed(() => step.value === 1 && props.role === "A" || st
 const canContinue = computed(() => {
   if (props.role === "B" && step.value === 1) return decision.value !== null;
   if (props.role === "B" && step.value === 2 && decision.value === "DIFFERENT") {
-    return Boolean(mineShared.relationshipType || mineShared.durationRange || mineShared.interactionMode || hasContactHistory(mineShared.contactHistory)) &&
+    return Boolean(mineShared.relationshipType || mineShared.durationRange || mineShared.interactionMode || hasCurrentContactAnswer(mineShared.contactHistory)) &&
       (mineShared.relationshipType !== "OTHER" || Boolean(relationshipOther.value.trim()));
   }
   return mineShared.relationshipType !== "OTHER" || Boolean(relationshipOther.value.trim());
@@ -289,8 +289,8 @@ function load() {
   if (source) {
     decision.value = normalizeRecipientRelationshipDecision(source.decision ?? null, shared.status);
     step.value = props.role === "B" && !decision.value ? 1 : source.step;
-    Object.assign(mineShared, source.shared);
-    Object.assign(mine, source.mine);
+    Object.assign(mineShared, { ...source.shared, contactHistory: { ...(source.shared.contactHistory ?? emptyContactHistory()) } });
+    Object.assign(mine, { ...source.mine, contactHistory: { ...(source.mine.contactHistory ?? emptyContactHistory()) } });
   } else {
     const restoredStep = props.role === "A" ? props.context.shared.draftStep : props.context.mine.draftStep;
     decision.value = normalizeRecipientRelationshipDecision(props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
@@ -315,7 +315,8 @@ watch([step, decision, mineShared, mine, relationshipOther], () => {
   emit("draft-change", {
     step: step.value,
     ...(decision.value ? { decision: decision.value } : {}),
-    shared: { ...mineShared }, mine: { ...mine },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
+    mine: { ...mine, contactHistory: { ...mine.contactHistory } },
     sharedRevision: props.context.shared.revision,
     privateRevision: props.context.mine.revision,
   });
@@ -347,7 +348,7 @@ function next() {
   emit("checkpoint", {
     step: step.value,
     decision: decision.value,
-    shared: { ...mineShared },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
     mine: currentMinePayload(),
   });
 }
@@ -365,7 +366,7 @@ function submit() {
   const status = props.role === "A" ? "CONFIRMED" : decision.value ?? "SKIPPED";
   emit("save", {
     status,
-    shared: { ...mineShared },
+    shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
     mine: currentMinePayload(),
   });
 }
@@ -378,9 +379,9 @@ function currentMinePayload(): ParticipantContextDraft {
       relationshipOther: mineShared.relationshipOther,
       durationRange: mineShared.durationRange,
       interactionMode: hasCurrentContactAnswer(mineShared.contactHistory) ? null : mineShared.interactionMode,
-      contactHistory: mineShared.contactHistory,
+      contactHistory: { ...mineShared.contactHistory },
     }
-    : { ...mine };
+    : { ...mine, contactHistory: { ...mine.contactHistory } };
 }
 </script>
 

@@ -232,7 +232,7 @@ export function toSharedContextDraft(value: Omit<SharedContextDraft, "useSharedA
     relationshipOther: value.relationshipOther,
     durationRange: value.durationRange,
     interactionMode: hasCurrentContactAnswer(value.contactHistory) ? null : value.interactionMode,
-    contactHistory: value.contactHistory,
+    contactHistory: { ...value.contactHistory },
     useSharedAi: value.useSharedAi ?? true,
   };
 }
@@ -243,7 +243,7 @@ export function toParticipantContextDraft(value: ParticipantContextDraft): Parti
     relationshipOther: value.relationshipOther,
     durationRange: value.durationRange,
     interactionMode: hasCurrentContactAnswer(value.contactHistory) ? null : value.interactionMode,
-    contactHistory: value.contactHistory,
+    contactHistory: { ...value.contactHistory },
     communicationPace: value.communicationPace,
     responsePreference: value.responsePreference,
     planningStyle: value.planningStyle,

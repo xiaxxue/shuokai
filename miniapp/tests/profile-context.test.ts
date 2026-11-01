@@ -82,6 +82,9 @@ describe("profile and relationship context parsing", () => {
     });
     expect(parsed.shared.contactHistory).toEqual(history);
     expect(parsed.shared.interactionMode).toBeNull();
+    const editable = toSharedContextDraft(parsed.shared);
+    editable.contactHistory.currentProximity = "NEARBY";
+    expect(parsed.shared.contactHistory.currentProximity).toBe("DISTANT");
     expect(() => parseRoomRelationshipContext({
       role: "A",
       shared: { status: "CONFIRMED", revision: 2, contactHistory: { ...history, changeTime: "YESTERDAY" } },
