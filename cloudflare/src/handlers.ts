@@ -116,6 +116,8 @@ function parseDiscoveryMemoryContext(value: unknown): DiscoveryMemoryContext {
       ], 300),
       sharedContext: boundedStringRecord(onboarding.sharedContext, [
         "source", "relationshipType", "durationRange", "interactionMode",
+        "currentProximity", "currentFrequency", "changed",
+        "previousProximity", "previousFrequency", "changeTime",
       ], 40),
     } } : {}),
   };
@@ -260,7 +262,7 @@ export async function handleExpressionClarification(
     );
   }
   try {
-    const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v1", {
+    const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v2", {
       p_room_id: input.roomId,
     });
     if (memoryError) {
@@ -281,7 +283,7 @@ export async function handleExpressionClarification(
       memoryContext: boundedMemoryContext,
     });
     const discoveryResult = generated.result as DiscoveryResult;
-    const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v1", {
+    const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v2", {
       p_room_id: input.roomId,
     });
     if (latestContextError) {

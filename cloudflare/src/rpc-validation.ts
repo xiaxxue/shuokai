@@ -37,8 +37,11 @@ const specs = {
   save_my_profile_v1: {},
   clear_my_profile_preferences_v1: {},
   get_room_relationship_context_v1: { required: { p_room_id: 36 } },
+  get_room_relationship_context_v2: { required: { p_room_id: 36 } },
   save_room_relationship_context_v1: {},
+  save_room_relationship_context_v2: {},
   respond_room_relationship_context_v1: {},
+  respond_room_relationship_context_v2: {},
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
@@ -74,11 +77,31 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
 
 function validContextPayload(value: unknown) {
   if (!isRecord(value) || JSON.stringify(value).length > 10000 || !hasOnlyKeys(value, [
-    "relationshipType", "relationshipOther", "durationRange", "interactionMode", "useSharedAi",
+    "relationshipType", "relationshipOther", "durationRange", "interactionMode", "contactHistory", "useSharedAi",
     "communicationPace", "responsePreference", "planningStyle", "relationshipState",
     "observedDifference", "culturalContext", "useCommunicationAi", "useRelationshipStateAi",
     "useDifferenceAi", "useCultureAi", "useInviterSharedAi",
   ])) return false;
+  if (value.contactHistory !== null && value.contactHistory !== undefined) {
+    const history = value.contactHistory;
+    if (!isRecord(history) || Object.keys(history).length !== 6 || !hasOnlyKeys(history, [
+      "currentProximity", "currentFrequency", "changed", "previousProximity", "previousFrequency", "changeTime",
+    ])) return false;
+    const historyEnums: Record<string, readonly string[]> = {
+      currentProximity: ["TOGETHER", "NEARBY", "DISTANT", "VARIABLE", "UNSURE"],
+      previousProximity: ["TOGETHER", "NEARBY", "DISTANT", "VARIABLE", "UNSURE"],
+      currentFrequency: ["DAILY", "WEEKLY", "MONTHLY_OR_LESS", "NONE", "VARIABLE", "UNSURE"],
+      previousFrequency: ["DAILY", "WEEKLY", "MONTHLY_OR_LESS", "NONE", "VARIABLE", "UNSURE"],
+      changed: ["YES", "NO"],
+      changeTime: ["LT_1M", "M1_6", "M6_12", "Y1_PLUS", "UNSURE"],
+    };
+    if (Object.keys(historyEnums).some((key) =>
+      history[key] !== null && !historyEnums[key].includes(String(history[key])))) return false;
+    if (history.changed !== "YES" &&
+      (history.previousProximity !== null || history.previousFrequency !== null || history.changeTime !== null)) return false;
+    if ((history.currentProximity !== null || history.currentFrequency !== null) &&
+      value.interactionMode !== null && value.interactionMode !== undefined) return false;
+  }
   const enums: Record<string, readonly string[]> = {
     relationshipType: ["PARTNER", "MARRIED", "FAMILY", "FRIEND", "COLLEAGUE", "OTHER"],
     durationRange: ["LT_3M", "M3_12", "Y1_3", "Y3_7", "Y7_PLUS", "NA"],
@@ -135,7 +158,7 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       ? { p_expected_revision: input.p_expected_revision }
       : null;
   }
-  if (method === "save_room_relationship_context_v1") {
+  if (method === "save_room_relationship_context_v1" || method === "save_room_relationship_context_v2") {
     const {
       p_room_id: roomId,
       p_expected_shared_revision: sharedRevision,
@@ -152,7 +175,7 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       !validContextPayload(shared) || !validContextPayload(privateContext)) return null;
     return input;
   }
-  if (method === "respond_room_relationship_context_v1") {
+  if (method === "respond_room_relationship_context_v1" || method === "respond_room_relationship_context_v2") {
     const {
       p_room_id: roomId,
       p_expected_private_revision: privateRevision,

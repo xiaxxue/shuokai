@@ -456,7 +456,7 @@ function clarificationHarness(options: {
         if (name === "get_expression_workspace_v2") {
           return { data: options.membershipError ? null : {}, error: options.membershipError ?? null };
         }
-        if (name === "get_ai_memory_context_v1") {
+        if (name === "get_ai_memory_context_v2") {
           const memoryCallCount = userRpcCalls.filter((call) => call.name === name).length;
           return {
             data: options.memoryError ? null : memoryCallCount > 1 && options.latestMemoryContext
@@ -1158,8 +1158,8 @@ test("AI clarification verifies membership, scopes memory context, and restores 
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
     "get_expression_workspace_v2",
     "get_ai_private_conversation_v1",
-    "get_ai_memory_context_v1",
-    "get_ai_memory_context_v1",
+    "get_ai_memory_context_v2",
+    "get_ai_memory_context_v2",
     "get_ai_private_conversation_v1",
   ]);
   assert.equal(harness.adminRpcCalls[0]?.name, "internal_save_ai_private_conversation_v2");
@@ -1299,7 +1299,7 @@ test("AI clarification reports optimistic revision conflicts without returning g
   });
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
     "get_expression_workspace_v2", "get_ai_private_conversation_v1",
-    "get_ai_memory_context_v1", "get_ai_memory_context_v1",
+    "get_ai_memory_context_v2", "get_ai_memory_context_v2",
   ]);
 });
 
@@ -1312,7 +1312,7 @@ test("AI clarification rejects an atomic context conflict between final read and
   assert.equal((await response.json() as { code: string }).code, "CONTEXT_STALE");
   assert.deepEqual(harness.userRpcCalls.map((call) => call.name), [
     "get_expression_workspace_v2", "get_ai_private_conversation_v1",
-    "get_ai_memory_context_v1", "get_ai_memory_context_v1",
+    "get_ai_memory_context_v2", "get_ai_memory_context_v2",
   ]);
   assert.equal(harness.adminRpcCalls.length, 1);
 });

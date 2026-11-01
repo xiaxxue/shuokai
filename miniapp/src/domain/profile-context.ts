@@ -30,6 +30,31 @@ export const interactionOptions = [
   { value: "NA", label: "不适用 / 不确定" },
 ] as const;
 
+export const proximityOptions = [
+  { value: "TOGETHER", label: "住在一起" },
+  { value: "NEARBY", label: "同城或方便见面" },
+  { value: "DISTANT", label: "异地" },
+  { value: "VARIABLE", label: "不固定" },
+  { value: "UNSURE", label: "不确定" },
+] as const;
+
+export const meetingFrequencyOptions = [
+  { value: "DAILY", label: "几乎每天" },
+  { value: "WEEKLY", label: "大约每周" },
+  { value: "MONTHLY_OR_LESS", label: "大约每月或更少" },
+  { value: "NONE", label: "暂时不见面" },
+  { value: "VARIABLE", label: "不固定" },
+  { value: "UNSURE", label: "不确定" },
+] as const;
+
+export const changeTimeOptions = [
+  { value: "LT_1M", label: "不到 1 个月" },
+  { value: "M1_6", label: "1–6 个月" },
+  { value: "M6_12", label: "6–12 个月" },
+  { value: "Y1_PLUS", label: "1 年以上" },
+  { value: "UNSURE", label: "不确定" },
+] as const;
+
 export const communicationPaceOptions = [
   { value: "IMMEDIATE", label: "希望尽快说清" },
   { value: "PAUSE_FIRST", label: "通常需要先缓一缓" },
@@ -62,6 +87,23 @@ export type ResponseLength = OptionValue<typeof responseLengthOptions>;
 export type RelationshipType = OptionValue<typeof relationshipTypeOptions>;
 export type DurationRange = OptionValue<typeof durationOptions>;
 export type InteractionMode = OptionValue<typeof interactionOptions>;
+export type ContactHistory = {
+  currentProximity: OptionValue<typeof proximityOptions> | null;
+  currentFrequency: OptionValue<typeof meetingFrequencyOptions> | null;
+  changed: "YES" | "NO" | null;
+  previousProximity: OptionValue<typeof proximityOptions> | null;
+  previousFrequency: OptionValue<typeof meetingFrequencyOptions> | null;
+  changeTime: OptionValue<typeof changeTimeOptions> | null;
+};
+
+export const emptyContactHistory = (): ContactHistory => ({
+  currentProximity: null, currentFrequency: null, changed: null,
+  previousProximity: null, previousFrequency: null, changeTime: null,
+});
+
+export function hasCurrentContactAnswer(history: ContactHistory) {
+  return Boolean(history.currentProximity || history.currentFrequency);
+}
 export type CommunicationPace = OptionValue<typeof communicationPaceOptions>;
 export type ResponsePreference = OptionValue<typeof responsePreferenceOptions>;
 export type PlanningStyle = OptionValue<typeof planningStyleOptions>;
@@ -86,6 +128,7 @@ export type SharedRelationshipContext = {
   relationshipOther: string | null;
   durationRange: DurationRange | null;
   interactionMode: InteractionMode | null;
+  contactHistory: ContactHistory;
   useSharedAi: boolean;
   revision: number;
   consentRevision: number;
@@ -101,6 +144,7 @@ export type ParticipantRelationshipContext = {
   relationshipOther: string | null;
   durationRange: DurationRange | null;
   interactionMode: InteractionMode | null;
+  contactHistory: ContactHistory;
   communicationPace: CommunicationPace | null;
   responsePreference: ResponsePreference | null;
   planningStyle: PlanningStyle | null;
@@ -124,6 +168,7 @@ export type RecipientRelationshipResponse = {
   relationshipOther: string | null;
   durationRange: DurationRange | null;
   interactionMode: InteractionMode | null;
+  contactHistory: ContactHistory;
 } | null;
 
 export type RoomRelationshipContext = {
@@ -137,10 +182,10 @@ export type ProfileDraft = Pick<UserProfile,
   "displayName" | "responseLength" | "language" | "useResponseLengthAi" | "useLanguageAi">;
 
 export type SharedContextDraft = Pick<SharedRelationshipContext,
-  "relationshipType" | "relationshipOther" | "durationRange" | "interactionMode" | "useSharedAi">;
+  "relationshipType" | "relationshipOther" | "durationRange" | "interactionMode" | "contactHistory" | "useSharedAi">;
 
 export type ParticipantContextDraft = Pick<ParticipantRelationshipContext,
-  "relationshipType" | "relationshipOther" | "durationRange" | "interactionMode" |
+  "relationshipType" | "relationshipOther" | "durationRange" | "interactionMode" | "contactHistory" |
   "communicationPace" | "responsePreference" | "planningStyle" | "relationshipState" |
   "observedDifference" | "culturalContext" | "useCommunicationAi" |
   "useRelationshipStateAi" | "useDifferenceAi" | "useCultureAi" | "useInviterSharedAi">;
@@ -158,6 +203,7 @@ export const emptySharedContextDraft = (): SharedContextDraft => ({
   relationshipOther: null,
   durationRange: null,
   interactionMode: null,
+  contactHistory: emptyContactHistory(),
   useSharedAi: true,
 });
 
@@ -166,6 +212,7 @@ export const emptyParticipantContextDraft = (): ParticipantContextDraft => ({
   relationshipOther: null,
   durationRange: null,
   interactionMode: null,
+  contactHistory: emptyContactHistory(),
   communicationPace: null,
   responsePreference: null,
   planningStyle: null,
@@ -184,7 +231,8 @@ export function toSharedContextDraft(value: Omit<SharedContextDraft, "useSharedA
     relationshipType: value.relationshipType,
     relationshipOther: value.relationshipOther,
     durationRange: value.durationRange,
-    interactionMode: value.interactionMode,
+    interactionMode: hasCurrentContactAnswer(value.contactHistory) ? null : value.interactionMode,
+    contactHistory: value.contactHistory,
     useSharedAi: value.useSharedAi ?? true,
   };
 }
@@ -194,7 +242,8 @@ export function toParticipantContextDraft(value: ParticipantContextDraft): Parti
     relationshipType: value.relationshipType,
     relationshipOther: value.relationshipOther,
     durationRange: value.durationRange,
-    interactionMode: value.interactionMode,
+    interactionMode: hasCurrentContactAnswer(value.contactHistory) ? null : value.interactionMode,
+    contactHistory: value.contactHistory,
     communicationPace: value.communicationPace,
     responsePreference: value.responsePreference,
     planningStyle: value.planningStyle,
@@ -240,6 +289,19 @@ function invalid(): never {
 
 const values = <T extends readonly { value: string }[]>(items: T) => items.map((item) => item.value) as Array<OptionValue<T>>;
 
+function parseContactHistory(value: unknown): ContactHistory {
+  if (value === null || value === undefined) return emptyContactHistory();
+  if (!isRecord(value)) invalid();
+  return {
+    currentProximity: optionalEnum(value.currentProximity, values(proximityOptions)),
+    currentFrequency: optionalEnum(value.currentFrequency, values(meetingFrequencyOptions)),
+    changed: optionalEnum(value.changed, ["YES", "NO"] as const),
+    previousProximity: optionalEnum(value.previousProximity, values(proximityOptions)),
+    previousFrequency: optionalEnum(value.previousFrequency, values(meetingFrequencyOptions)),
+    changeTime: optionalEnum(value.changeTime, values(changeTimeOptions)),
+  };
+}
+
 export function parseUserProfile(value: unknown): UserProfile {
   if (!isRecord(value) || !["MISSING", "ACTIVE"].includes(String(value.status))) invalid();
   const missing = value.status === "MISSING";
@@ -267,6 +329,7 @@ function parseShared(value: unknown): SharedRelationshipContext {
     relationshipOther: nullableText(value.relationshipOther, 30),
     durationRange: optionalEnum(value.durationRange, values(durationOptions)),
     interactionMode: optionalEnum(value.interactionMode, values(interactionOptions)),
+    contactHistory: parseContactHistory(value.contactHistory),
     useSharedAi: bool(value.useSharedAi, true),
     revision: integer(value.revision),
     consentRevision: integer(value.consentRevision ?? 0),
@@ -285,6 +348,7 @@ function parseParticipant(value: unknown): ParticipantRelationshipContext {
     relationshipOther: nullableText(value.relationshipOther, 30),
     durationRange: optionalEnum(value.durationRange, values(durationOptions)),
     interactionMode: optionalEnum(value.interactionMode, values(interactionOptions)),
+    contactHistory: parseContactHistory(value.contactHistory),
     communicationPace: optionalEnum(value.communicationPace, values(communicationPaceOptions)),
     responsePreference: optionalEnum(value.responsePreference, values(responsePreferenceOptions)),
     planningStyle: optionalEnum(value.planningStyle, values(planningStyleOptions)),
@@ -315,6 +379,7 @@ export function parseRoomRelationshipContext(value: unknown): RoomRelationshipCo
       relationshipOther: nullableText(value.recipientResponse.relationshipOther, 30),
       durationRange: optionalEnum(value.recipientResponse.durationRange, values(durationOptions)),
       interactionMode: optionalEnum(value.recipientResponse.interactionMode, values(interactionOptions)),
+      contactHistory: parseContactHistory(value.recipientResponse.contactHistory),
     };
   }
   return { role: value.role, shared: parseShared(value.shared), mine: parseParticipant(value.mine), recipientResponse };
