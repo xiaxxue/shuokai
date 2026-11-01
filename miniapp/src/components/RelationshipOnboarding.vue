@@ -58,14 +58,14 @@
       <ChoiceGroup :index="1" label="发生分歧时，你通常会？" :items="communicationPaceOptions" :model-value="mine.communicationPace" @update:model-value="mine.communicationPace = $event" />
       <ChoiceGroup :index="2" label="你更希望先得到什么？" :items="responsePreferenceOptions" :model-value="mine.responsePreference" @update:model-value="mine.responsePreference = $event" />
       <ChoiceGroup :index="3" label="一起行动时，你通常偏向？" :items="planningStyleOptions" :model-value="mine.planningStyle" @update:model-value="mine.planningStyle = $event" />
-      <ChoiceGroup v-if="role === 'B'" label="你眼中的关系现在怎样？" :items="relationshipStateOptions" :model-value="mine.relationshipState" @update:model-value="mine.relationshipState = $event" />
+      <MultiChoiceGroup v-if="role === 'B'" label="你眼中的关系现在怎样？（可多选）" :items="relationshipStateOptions" :model-value="mine.relationshipStates" @update:model-value="mine.relationshipStates = $event" />
       <label v-if="role === 'B'" class="text-field"><text>我观察到的主要差异 <text class="optional">选填</text></text><textarea v-model="mine.observedDifference" maxlength="300" placeholder="只描述你观察到的具体行为。" /><text>{{ mine.observedDifference.length }} / 300</text></label>
       <label v-if="role === 'B'" class="text-field"><text>文化背景为什么和这次有关 <text class="optional">选填</text></text><textarea v-model="mine.culturalContext" maxlength="300" placeholder="只在你认为确实有关时填写，不需要写籍贯或地址。" /><text>{{ mine.culturalContext.length }} / 300</text></label>
       <label class="ai-toggle"><switch :checked="mine.useCommunicationAi" color="#315847" @change="mine.useCommunicationAi = eventChecked($event)" /><view><text>供我的私人 AI 参考</text><text>对方不可见，共同 Agent 不会读取</text></view></label>
     </template>
 
     <template v-else-if="step === 3 && role === 'A'">
-      <ChoiceGroup label="你眼中的关系现在怎样？" :items="relationshipStateOptions" :model-value="mine.relationshipState" @update:model-value="mine.relationshipState = $event" />
+      <MultiChoiceGroup label="你眼中的关系现在怎样？（可多选）" :items="relationshipStateOptions" :model-value="mine.relationshipStates" @update:model-value="mine.relationshipStates = $event" />
       <label class="text-field"><text>我观察到的主要差异 <text class="optional">选填</text></text><textarea v-model="mine.observedDifference" maxlength="300" placeholder="写具体行为，不替对方定义人格。例如：我想马上说清，对方通常想先安静。" /><text>{{ mine.observedDifference.length }} / 300</text></label>
       <label class="text-field"><text>文化背景为什么和这次有关 <text class="optional">选填</text></text><textarea v-model="mine.culturalContext" maxlength="300" placeholder="只在你认为确实有关时填写，不需要写籍贯或地址。" /><text>{{ mine.culturalContext.length }} / 300</text></label>
     </template>
@@ -100,7 +100,7 @@
         <text class="preview-title">只属于我</text>
         <view class="preview-row"><text>沟通节奏</text><text>{{ optionLabel(communicationPaceOptions, mine.communicationPace) }}</text></view>
         <view class="preview-row"><text>回应偏好</text><text>{{ optionLabel(responsePreferenceOptions, mine.responsePreference) }}</text></view>
-        <view class="preview-row"><text>当前状态</text><text>{{ optionLabel(relationshipStateOptions, mine.relationshipState) }}</text></view>
+        <view class="preview-row"><text>当前状态</text><text>{{ mine.relationshipStates.length ? mine.relationshipStates.map((state) => optionLabel(relationshipStateOptions, state)).join('、') : '暂不填写' }}</text></view>
         <label class="ai-toggle"><switch :checked="mine.useCommunicationAi" color="#315847" @change="mine.useCommunicationAi = eventChecked($event)" /><view><text>让私人 AI 参考沟通偏好</text><text>共同 Agent 永远不会读取这些资料</text></view></label>
         <label class="ai-toggle"><switch :checked="mine.useRelationshipStateAi" color="#315847" @change="mine.useRelationshipStateAi = eventChecked($event)" /><view><text>让私人 AI 参考当前关系状态</text><text>只用于这间房，不形成关系诊断</text></view></label>
         <label v-if="mine.observedDifference" class="ai-toggle"><switch :checked="mine.useDifferenceAi" color="#315847" @change="mine.useDifferenceAi = eventChecked($event)" /><view><text>让私人 AI 参考我观察到的差异</text><text>始终作为你的视角，不定义对方</text></view></label>
@@ -179,6 +179,30 @@ const ChoiceGroup = defineComponent({
         h("text", { class: "choice-label" }, item.label),
         props.modelValue === item.value ? h("text", { class: "choice-check", "aria-hidden": "true" }, "✓") : null,
       ]))),
+    ]);
+  },
+});
+
+const MultiChoiceGroup = defineComponent({
+  props: {
+    label: { type: String, required: true },
+    items: { type: Array as PropType<readonly { value: string; label: string }[]>, required: true },
+    modelValue: { type: Array as PropType<readonly string[]>, required: true },
+  },
+  emits: ["update:modelValue"],
+  setup(props, { emit }) {
+    const toggle = (value: string) => emit("update:modelValue", props.modelValue.includes(value)
+      ? props.modelValue.filter((selected) => selected !== value)
+      : [...props.modelValue, value]);
+    return () => h("view", { class: "choice-group", role: "group", "aria-label": props.label }, [
+      h("view", { class: "question-row" }, [h("text", { class: "question" }, props.label)]),
+      h("view", { class: "choice-grid" }, props.items.map((item) => h("button", {
+        class: ["choice", { selected: props.modelValue.includes(item.value) }],
+        role: "checkbox", tabindex: 0, "aria-checked": props.modelValue.includes(item.value),
+        onClick: () => toggle(item.value),
+      }, [h("text", { class: "choice-label" }, item.label),
+        props.modelValue.includes(item.value)
+          ? h("text", { class: "choice-check", "aria-hidden": "true" }, "✓") : null]))),
     ]);
   },
 });
@@ -290,7 +314,9 @@ function load() {
     decision.value = normalizeRecipientRelationshipDecision(source.decision ?? null, shared.status);
     step.value = props.role === "B" && !decision.value ? 1 : source.step;
     Object.assign(mineShared, { ...source.shared, contactHistory: { ...(source.shared.contactHistory ?? emptyContactHistory()) } });
-    Object.assign(mine, { ...source.mine, contactHistory: { ...(source.mine.contactHistory ?? emptyContactHistory()) } });
+    Object.assign(mine, { ...source.mine,
+      contactHistory: { ...(source.mine.contactHistory ?? emptyContactHistory()) },
+      relationshipStates: [...(source.mine.relationshipStates ?? (source.mine.relationshipState ? [source.mine.relationshipState] : []))] });
   } else {
     const restoredStep = props.role === "A" ? props.context.shared.draftStep : props.context.mine.draftStep;
     decision.value = normalizeRecipientRelationshipDecision(props.context.mine.draftDecision ?? (props.context.mine.status === "DIFFERENT" ? "DIFFERENT"
@@ -316,7 +342,7 @@ watch([step, decision, mineShared, mine, relationshipOther], () => {
     step: step.value,
     ...(decision.value ? { decision: decision.value } : {}),
     shared: { ...mineShared, contactHistory: { ...mineShared.contactHistory } },
-    mine: { ...mine, contactHistory: { ...mine.contactHistory } },
+    mine: { ...mine, contactHistory: { ...mine.contactHistory }, relationshipStates: [...mine.relationshipStates] },
     sharedRevision: props.context.shared.revision,
     privateRevision: props.context.mine.revision,
   });
@@ -380,8 +406,11 @@ function currentMinePayload(): ParticipantContextDraft {
       durationRange: mineShared.durationRange,
       interactionMode: hasCurrentContactAnswer(mineShared.contactHistory) ? null : mineShared.interactionMode,
       contactHistory: { ...mineShared.contactHistory },
+      relationshipState: null,
+      relationshipStates: [...mine.relationshipStates],
     }
-    : { ...mine, contactHistory: { ...mine.contactHistory } };
+    : { ...mine, contactHistory: { ...mine.contactHistory }, relationshipState: null,
+      relationshipStates: [...mine.relationshipStates] };
 }
 </script>
 

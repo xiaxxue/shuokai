@@ -38,10 +38,13 @@ const specs = {
   clear_my_profile_preferences_v1: {},
   get_room_relationship_context_v1: { required: { p_room_id: 36 } },
   get_room_relationship_context_v2: { required: { p_room_id: 36 } },
+  get_room_relationship_context_v3: { required: { p_room_id: 36 } },
   save_room_relationship_context_v1: {},
   save_room_relationship_context_v2: {},
+  save_room_relationship_context_v3: {},
   respond_room_relationship_context_v1: {},
   respond_room_relationship_context_v2: {},
+  respond_room_relationship_context_v3: {},
   set_room_goal_v2: { required: { p_room_id: 36, p_goal: 80 } },
   get_expression_workspace_v2: { required: { p_room_id: 36 } },
   get_ai_job_status_v2: { required: { p_job_id: 36 } },
@@ -78,7 +81,7 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
 function validContextPayload(value: unknown) {
   if (!isRecord(value) || JSON.stringify(value).length > 10000 || !hasOnlyKeys(value, [
     "relationshipType", "relationshipOther", "durationRange", "interactionMode", "contactHistory", "useSharedAi",
-    "communicationPace", "responsePreference", "planningStyle", "relationshipState",
+    "communicationPace", "responsePreference", "planningStyle", "relationshipState", "relationshipStates",
     "observedDifference", "culturalContext", "useCommunicationAi", "useRelationshipStateAi",
     "useDifferenceAi", "useCultureAi", "useInviterSharedAi",
   ])) return false;
@@ -111,6 +114,11 @@ function validContextPayload(value: unknown) {
     planningStyle: ["PLAN_AHEAD", "ADAPTIVE", "DEPENDS"],
     relationshipState: ["REPAIR", "REPEATING", "DECISION", "BOUNDARY", "UNCERTAIN", "PAUSE_END"],
   };
+  if (value.relationshipStates !== undefined) {
+    const states = value.relationshipStates;
+    if (!Array.isArray(states) || states.length > 6 || new Set(states).size !== states.length ||
+      states.some((state) => typeof state !== "string" || !enums.relationshipState.includes(state))) return false;
+  }
   for (const [key, allowed] of Object.entries(enums)) {
     if (value[key] !== null && value[key] !== undefined && !allowed.includes(String(value[key]))) return false;
   }
@@ -158,7 +166,7 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       ? { p_expected_revision: input.p_expected_revision }
       : null;
   }
-  if (method === "save_room_relationship_context_v1" || method === "save_room_relationship_context_v2") {
+  if (["save_room_relationship_context_v1", "save_room_relationship_context_v2", "save_room_relationship_context_v3"].includes(method)) {
     const {
       p_room_id: roomId,
       p_expected_shared_revision: sharedRevision,
@@ -175,7 +183,7 @@ export function validateRpcArgs(method: AllowedRpcMethod, input: unknown): RpcAr
       !validContextPayload(shared) || !validContextPayload(privateContext)) return null;
     return input;
   }
-  if (method === "respond_room_relationship_context_v1" || method === "respond_room_relationship_context_v2") {
+  if (["respond_room_relationship_context_v1", "respond_room_relationship_context_v2", "respond_room_relationship_context_v3"].includes(method)) {
     const {
       p_room_id: roomId,
       p_expected_private_revision: privateRevision,

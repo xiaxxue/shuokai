@@ -111,7 +111,7 @@ function parseDiscoveryMemoryContext(value: unknown): DiscoveryMemoryContext {
       version: discoveryContextVersionObject(value),
       profile: boundedStringRecord(onboarding.profile, ["responseLength", "language"], 30),
       myContext: boundedStringRecord(onboarding.myContext, [
-        "communicationPace", "responsePreference", "planningStyle", "relationshipState",
+        "communicationPace", "responsePreference", "planningStyle", "relationshipState", "relationshipStates",
         "observedDifference", "culturalContext",
       ], 300),
       sharedContext: boundedStringRecord(onboarding.sharedContext, [
@@ -262,7 +262,7 @@ export async function handleExpressionClarification(
     );
   }
   try {
-    const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v2", {
+    const { data: memoryContext, error: memoryError } = await supabase.rpc("get_ai_memory_context_v3", {
       p_room_id: input.roomId,
     });
     if (memoryError) {
@@ -283,7 +283,7 @@ export async function handleExpressionClarification(
       memoryContext: boundedMemoryContext,
     });
     const discoveryResult = generated.result as DiscoveryResult;
-    const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v2", {
+    const { data: latestContext, error: latestContextError } = await supabase.rpc("get_ai_memory_context_v3", {
       p_room_id: input.roomId,
     });
     if (latestContextError) {

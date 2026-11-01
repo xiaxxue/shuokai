@@ -49,6 +49,7 @@ describe("profile and relationship context parsing", () => {
     });
     expect(parsed.shared.relationshipType).toBe("PARTNER");
     expect(parsed.mine.relationshipType).toBe("FRIEND");
+    expect(parsed.mine.relationshipStates).toEqual(["BOUNDARY"]);
     expect(parsed.mine.useInviterSharedAi).toBe(false);
 
     const rebased = rebaseRelationshipDraft({
@@ -58,7 +59,7 @@ describe("profile and relationship context parsing", () => {
       mine: {
         relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null, contactHistory: emptyContactHistory(),
         communicationPace: "PAUSE_FIRST", responsePreference: null, planningStyle: null,
-        relationshipState: null, observedDifference: "本机未提交内容", culturalContext: "",
+        relationshipState: null, relationshipStates: [], observedDifference: "本机未提交内容", culturalContext: "",
         useCommunicationAi: true, useRelationshipStateAi: true, useDifferenceAi: true,
         useCultureAi: false, useInviterSharedAi: false,
       },
@@ -90,6 +91,18 @@ describe("profile and relationship context parsing", () => {
       shared: { status: "CONFIRMED", revision: 2, contactHistory: { ...history, changeTime: "YESTERDAY" } },
       mine: { status: "MISSING", seenSharedRevision: 0, revision: 0, consentRevision: 0 },
     })).toThrow("无效数据");
+  });
+
+  it("reads several private relationship states and rejects duplicate values", () => {
+    const room = {
+      role: "A", shared: { status: "MISSING", revision: 0 },
+      mine: { status: "CONFIRMED", revision: 1, consentRevision: 1, seenSharedRevision: 0,
+        relationshipStates: ["REPAIR", "BOUNDARY"] },
+    };
+    expect(parseRoomRelationshipContext(room).mine.relationshipStates).toEqual(["REPAIR", "BOUNDARY"]);
+    expect(() => parseRoomRelationshipContext({ ...room, mine: {
+      ...room.mine, relationshipStates: ["REPAIR", "REPAIR"],
+    } })).toThrow("无效数据");
   });
 
   it("projects restored server context to the exact editable RPC payload", () => {
@@ -133,6 +146,7 @@ describe("profile and relationship context parsing", () => {
       responsePreference: "EMPATHY_FIRST",
       planningStyle: "PLAN_AHEAD",
       relationshipState: null,
+      relationshipStates: [],
       observedDifference: "",
       culturalContext: "",
       useCommunicationAi: true,

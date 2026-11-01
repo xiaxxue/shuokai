@@ -302,7 +302,7 @@ export const roomApi = {
     return parseInvitationContext(response.data);
   },
   relationshipContext: async (roomId: string) => parseRoomRelationshipContext(await rpc<unknown>(
-    "get_room_relationship_context_v2",
+    "get_room_relationship_context_v3",
     { p_room_id: roomId },
   )),
   saveRelationshipContext: async (
@@ -313,7 +313,7 @@ export const roomApi = {
     step: number,
     shared: SharedContextDraft,
     mine: ParticipantContextDraft,
-  ) => parseRoomRelationshipContext(await rpc<unknown>("save_room_relationship_context_v2", {
+  ) => parseRoomRelationshipContext(await rpc<unknown>("save_room_relationship_context_v3", {
     p_room_id: roomId,
     p_expected_shared_revision: sharedRevision,
     p_expected_private_revision: privateRevision,
@@ -330,7 +330,7 @@ export const roomApi = {
     step: number,
     decision: "CONFIRMED" | "DIFFERENT" | "SKIPPED" | null,
     mine: ParticipantContextDraft,
-  ) => parseRoomRelationshipContext(await rpc<unknown>("respond_room_relationship_context_v2", {
+  ) => parseRoomRelationshipContext(await rpc<unknown>("respond_room_relationship_context_v3", {
     p_room_id: roomId,
     p_expected_private_revision: privateRevision,
     p_seen_shared_revision: sharedRevision,
