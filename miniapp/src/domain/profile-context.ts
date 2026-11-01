@@ -149,6 +149,7 @@ export type ParticipantRelationshipContext = {
   responsePreference: ResponsePreference | null;
   planningStyle: PlanningStyle | null;
   relationshipState: RelationshipState | null;
+  relationshipStates: RelationshipState[];
   observedDifference: string;
   culturalContext: string;
   useCommunicationAi: boolean;
@@ -187,6 +188,7 @@ export type SharedContextDraft = Pick<SharedRelationshipContext,
 export type ParticipantContextDraft = Pick<ParticipantRelationshipContext,
   "relationshipType" | "relationshipOther" | "durationRange" | "interactionMode" | "contactHistory" |
   "communicationPace" | "responsePreference" | "planningStyle" | "relationshipState" |
+  "relationshipStates" |
   "observedDifference" | "culturalContext" | "useCommunicationAi" |
   "useRelationshipStateAi" | "useDifferenceAi" | "useCultureAi" | "useInviterSharedAi">;
 
@@ -217,6 +219,7 @@ export const emptyParticipantContextDraft = (): ParticipantContextDraft => ({
   responsePreference: null,
   planningStyle: null,
   relationshipState: null,
+  relationshipStates: [],
   observedDifference: "",
   culturalContext: "",
   useCommunicationAi: true,
@@ -248,6 +251,7 @@ export function toParticipantContextDraft(value: ParticipantContextDraft): Parti
     responsePreference: value.responsePreference,
     planningStyle: value.planningStyle,
     relationshipState: value.relationshipState,
+    relationshipStates: [...value.relationshipStates],
     observedDifference: value.observedDifference,
     culturalContext: value.culturalContext,
     useCommunicationAi: value.useCommunicationAi,
@@ -302,6 +306,14 @@ function parseContactHistory(value: unknown): ContactHistory {
   };
 }
 
+function parseRelationshipStates(value: unknown, legacy: RelationshipState | null): RelationshipState[] {
+  if (value === null || value === undefined) return legacy ? [legacy] : [];
+  if (!Array.isArray(value) || value.length > relationshipStateOptions.length ||
+    value.some((item) => !values(relationshipStateOptions).includes(item as RelationshipState)) ||
+    new Set(value).size !== value.length) invalid();
+  return value as RelationshipState[];
+}
+
 export function parseUserProfile(value: unknown): UserProfile {
   if (!isRecord(value) || !["MISSING", "ACTIVE"].includes(String(value.status))) invalid();
   const missing = value.status === "MISSING";
@@ -353,6 +365,8 @@ function parseParticipant(value: unknown): ParticipantRelationshipContext {
     responsePreference: optionalEnum(value.responsePreference, values(responsePreferenceOptions)),
     planningStyle: optionalEnum(value.planningStyle, values(planningStyleOptions)),
     relationshipState: optionalEnum(value.relationshipState, values(relationshipStateOptions)),
+    relationshipStates: parseRelationshipStates(value.relationshipStates,
+      optionalEnum(value.relationshipState, values(relationshipStateOptions))),
     observedDifference: text(value.observedDifference, 300),
     culturalContext: text(value.culturalContext, 300),
     useCommunicationAi: bool(value.useCommunicationAi, true),

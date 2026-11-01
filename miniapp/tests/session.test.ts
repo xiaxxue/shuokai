@@ -239,7 +239,7 @@ describe("profile context draft isolation", () => {
         relationshipType: null, relationshipOther: null, durationRange: null, interactionMode: null,
         contactHistory: { currentProximity: null, currentFrequency: null, changed: null, previousProximity: null, previousFrequency: null, changeTime: null },
         communicationPace: "PAUSE_FIRST" as const, responsePreference: null, planningStyle: null,
-        relationshipState: null, observedDifference: "", culturalContext: "",
+        relationshipState: null, relationshipStates: [], observedDifference: "", culturalContext: "",
         useCommunicationAi: true, useRelationshipStateAi: true, useDifferenceAi: true,
         useCultureAi: false, useInviterSharedAi: false,
       },
