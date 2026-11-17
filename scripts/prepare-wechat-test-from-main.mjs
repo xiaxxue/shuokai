@@ -48,7 +48,7 @@ export async function prepareWechatTestFromMain() {
     functionRoot: "cloudfunctions",
     functions: [{
       name: "shuokaiGateway", handler: "index.main", runtime: "Nodejs22.21",
-      timeout: 120, memorySize: 256, installDependency: true,
+      timeout: 60, memorySize: 256, installDependency: true,
     }],
   }, null, 2)}\n`);
   console.log(`测试交付目录：${destination}；请先部署云函数、配置测试 Supabase，再上传小程序。`);
