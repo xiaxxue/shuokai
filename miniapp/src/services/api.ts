@@ -39,6 +39,7 @@ import {
 } from "../domain/room-validation";
 import type { RecordedAudio } from "./recorder";
 import { requireH5Session } from "./auth";
+import { cloudRequest, cloudTranscribe } from "./wechat-cloud";
 import { clearSession, getSession, saveSession } from "./session";
 
 type RpcArgs = Record<string, unknown>;
@@ -56,27 +57,22 @@ export class ApiError extends Error {
 }
 
 function apiUrl(path: string) {
-  return `${__API_BASE_URL__}${path}`;
+  return __PLATFORM__ === "mp-weixin" ? path : `${__API_BASE_URL__}${path}`;
 }
 
 function request<T>(options: Omit<UniApp.RequestOptions, "success" | "fail">) {
+  if (__PLATFORM__ === "mp-weixin") {
+    return cloudRequest<T>({
+      path: options.url,
+      method: options.method ?? "GET",
+      data: options.data,
+      authorization: options.header?.Authorization,
+    }, options.timeout);
+  }
   return new Promise<ApiResponse<T>>((resolve, reject) => {
     uni.request({
       ...options,
       success: (response) => resolve(response as unknown as ApiResponse<T>),
-      fail: (error) => reject(new Error(error.errMsg)),
-    });
-  });
-}
-
-function wechatLogin() {
-  if (__PLATFORM__ !== "mp-weixin") {
-    throw new Error("当前平台的正式登录方式尚未配置。");
-  }
-  return new Promise<string>((resolve, reject) => {
-    uni.login({
-      provider: "weixin",
-      success: ({ code }) => code ? resolve(code) : reject(new Error("微信没有返回登录凭证，请重试。")),
       fail: (error) => reject(new Error(error.errMsg)),
     });
   });
@@ -114,12 +110,11 @@ function parseAuthSession(data: unknown): AuthSession {
 }
 
 async function requestPlatformSession(): Promise<AuthSession> {
-  const code = await wechatLogin();
   const response = await request<unknown>({
     url: apiUrl("/wechat-login"),
     method: "POST",
     header: { "content-type": "application/json" },
-    data: { code },
+    data: {},
     timeout: 15000,
   });
   if (response.statusCode !== 200) {
@@ -597,21 +592,6 @@ export async function requestExpressionClarification(
   };
 }
 
-async function uploadPath(audio: Extract<RecordedAudio, { kind: "path" }>, accessToken: string) {
-  return new Promise<{ statusCode: number; data: string }>((resolve, reject) => {
-    uni.uploadFile({
-      url: apiUrl("/transcribe"),
-      filePath: audio.filePath,
-      name: "file",
-      header: { Authorization: `Bearer ${accessToken}` },
-      formData: { language: "zh" },
-      timeout: 120000,
-      success: resolve,
-      fail: (error) => reject(new Error(error.errMsg)),
-    });
-  });
-}
-
 async function uploadBlob(audio: Extract<RecordedAudio, { kind: "blob" }>, accessToken: string) {
   const form = new FormData();
   form.append("file", audio.blob, audio.fileName);
@@ -628,7 +608,7 @@ export async function transcribeAudio(audio: RecordedAudio) {
   const session = await activeSession();
   const result = audio.kind === "blob"
     ? await uploadBlob(audio, session.accessToken)
-    : await uploadPath(audio, session.accessToken);
+    : await cloudTranscribe(audio, session.accessToken);
   let body: { text?: string; message?: string } = {};
   try {
     body = JSON.parse(result.data) as { text?: string; message?: string };

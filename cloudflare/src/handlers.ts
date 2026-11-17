@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { issueWechatSession, refreshWechatSession, WechatSessionError } from "../../server/wechat-session.ts";
 import {
   bearerToken,
   errorJson,
@@ -695,25 +696,6 @@ export async function handleInvitationContext(request: Request, env: WorkerEnv) 
   return json(request, env, context);
 }
 
-async function digest(value: string) {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(bytes), (item) => item.toString(16).padStart(2, "0")).join("");
-}
-
-function authPayload(session: {
-  access_token: string;
-  refresh_token: string;
-  expires_at?: number;
-  user: { id: string };
-}) {
-  return {
-    accessToken: session.access_token,
-    refreshToken: session.refresh_token,
-    expiresAt: session.expires_at ?? Math.floor(Date.now() / 1000) + 3600,
-    userId: session.user.id,
-  };
-}
-
 export async function handleWechatLogin(request: Request, env: WorkerEnv) {
   if (request.method !== "POST") {
     return errorJson(request, env, "METHOD_NOT_ALLOWED", "Method not allowed", 405);
@@ -743,22 +725,18 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
   const input = payload as { code?: unknown; refreshToken?: unknown };
   const code = typeof input.code === "string" ? input.code.trim() : "";
   const refreshToken = typeof input.refreshToken === "string" ? input.refreshToken.trim() : "";
-  const client = createClient(supabaseConfig.url, supabaseConfig.key, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
+  const authConfig = {
+    url: configured.SUPABASE_URL,
+    publishableKey: supabaseConfig.key,
+    secretKey: configured.SUPABASE_SECRET_KEY,
+  };
   if (refreshToken) {
-    const { data: refreshed, error } = await client.auth.refreshSession({ refresh_token: refreshToken });
-    if (error || !refreshed.session || !refreshed.user) {
-      return errorJson(
-        request,
-        env,
-        "WECHAT_SESSION_EXPIRED",
-        "登录已失效，请重新进入小程序。",
-        401,
-      );
+    try {
+      return json(request, env, await refreshWechatSession(authConfig, refreshToken));
+    } catch (error) {
+      if (!(error instanceof WechatSessionError)) throw error;
+      return errorJson(request, env, error.code, error.message, error.status);
     }
-    return json(request, env, authPayload({ ...refreshed.session, user: refreshed.user }));
   }
   if (!code || code.length > 128) {
     return errorJson(request, env, "WECHAT_CODE_REQUIRED", "缺少微信登录凭证。", 400);
@@ -799,83 +777,12 @@ export async function handleWechatLogin(request: Request, env: WorkerEnv) {
     );
   }
 
-  const admin = adminClient(configured);
-  const { data: knownUser, error: lookupError } = await admin.rpc(
-    "internal_get_wechat_user",
-    { p_openid: identity.openid },
-  );
-  if (lookupError) {
-    return errorJson(request, env, "WECHAT_MAPPING_FAILED", "微信身份映射读取失败。", 500);
+  try {
+    return json(request, env, await issueWechatSession(authConfig, { openid: identity.openid, unionid: identity.unionid }));
+  } catch (error) {
+    if (!(error instanceof WechatSessionError)) throw error;
+    return errorJson(request, env, error.code, error.message, error.status);
   }
-
-  let userId = typeof knownUser === "string" ? knownUser : null;
-  let email = "";
-  if (userId) {
-    const { data, error } = await admin.auth.admin.getUserById(userId);
-    if (error || !data.user?.email) {
-      return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
-    }
-    email = data.user.email;
-  } else {
-    email = `wx_${(await digest(identity.openid)).slice(0, 32)}@users.shuokai.invalid`;
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-      app_metadata: { provider: "wechat-mini-program" },
-    });
-    if (error || !data.user) {
-      const { data: racedUser } = await admin.rpc("internal_get_wechat_user", {
-        p_openid: identity.openid,
-      });
-      if (typeof racedUser !== "string") {
-        return errorJson(request, env, "USER_CREATE_FAILED", "用户创建失败。", 500);
-      }
-      userId = racedUser;
-      const { data: racedAccount, error: racedAccountError } = await admin.auth.admin.getUserById(userId);
-      if (racedAccountError || !racedAccount.user?.email) {
-        return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
-      }
-      email = racedAccount.user.email;
-    } else {
-      const createdUserId = data.user.id;
-      const { data: boundUser, error: bindError } = await admin.rpc("internal_bind_wechat_user", {
-        p_openid: identity.openid,
-        p_unionid: identity.unionid ?? "",
-        p_user_id: createdUserId,
-      });
-      if (bindError || typeof boundUser !== "string") {
-        await admin.auth.admin.deleteUser(createdUserId);
-        return errorJson(request, env, "WECHAT_BIND_FAILED", "微信身份绑定失败。", 500);
-      }
-      userId = boundUser;
-      if (userId !== createdUserId) {
-        await admin.auth.admin.deleteUser(createdUserId);
-        const { data: boundAccount, error: boundAccountError } = await admin.auth.admin.getUserById(userId);
-        if (boundAccountError || !boundAccount.user?.email) {
-          return errorJson(request, env, "USER_SESSION_CREATE_FAILED", "用户会话创建失败。", 500);
-        }
-        email = boundAccount.user.email;
-      }
-    }
-  }
-
-  const { data: link, error: linkError } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-  });
-  const tokenHash = link?.properties?.hashed_token;
-  if (linkError || !tokenHash) {
-    return errorJson(request, env, "LOGIN_TOKEN_CREATE_FAILED", "登录令牌创建失败。", 500);
-  }
-
-  const { data: verified, error: verifyError } = await client.auth.verifyOtp({
-    type: "magiclink",
-    token_hash: tokenHash,
-  });
-  if (verifyError || !verified.session || !verified.user) {
-    return errorJson(request, env, "LOGIN_SESSION_ISSUE_FAILED", "登录会话签发失败。", 500);
-  }
-  return json(request, env, authPayload({ ...verified.session, user: verified.user }));
 }
 
 const supportedExtensions = new Set(["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"]);

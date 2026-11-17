@@ -153,3 +153,16 @@ npm run cloudflare:deploy:site:production:main
 
 生产 H5 验收完成后，再把 `app.shuokai.me` 体验入口加入官网并重新发布。H5 尚未稳定时，
 官网不得出现可点击的正式体验入口或测试环境地址。
+
+## 8. 微信云函数体验版交付
+
+微信小程序保留 Supabase，以微信云函数为访问入口；共享测试 Worker 不因此更换部署来源。
+新增独立云函数依赖需要执行 `npm --prefix wechat-cloud ci`，并运行
+`npm run wechat-cloud:test`、`npm run wechat-cloud:type-check` 与 `npm run wechat-cloud:build`。
+
+微信云函数和小程序上传也必须来自 GitHub `main` 的干净检出：设置真实的
+`SHUOKAI_WECHAT_APP_ID` / `SHUOKAI_WECHAT_CLOUD_ENV` 后运行
+`npm run wechat-cloud:prepare:test:main`，只上传其生成的带提交号目录。
+该命令复用主分支校验规则，不调用生产资源；详细配置见
+[`wechat-cloud/README.md`](../wechat-cloud/README.md)。若改动需要更新测试 Worker，仍只运行
+`npm run cloudflare:deploy:test:main`，不得直接运行 Wrangler 发布功能分支。

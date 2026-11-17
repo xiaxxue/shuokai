@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "rewriteRelativeImportExtensions": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["node"],
+    "rootDir": "..",
+    "outDir": "../dist/wechat-cloud/cloudfunctions/shuokaiGateway"
+  },
+  "include": ["src/**/*.ts", "../server/wechat-session.ts"]
+}

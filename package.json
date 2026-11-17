@@ -22,8 +22,12 @@
     "cloudflare:deploy:production:main": "node scripts/deploy-production-from-main.mjs",
     "cloudflare:deploy:site:production:main": "node scripts/deploy-site-production-from-main.mjs",
     "test:web": "npm run build && node --test tests/*.test.mjs",
-    "test": "npm run test:web && npm run miniapp:test && npm run cloudflare:test",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern '**/.wrangler/**'"
+    "test": "npm run test:web && npm run miniapp:test && npm run cloudflare:test && npm run wechat-cloud:test",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern '**/.wrangler/**'",
+    "wechat-cloud:test": "node --test wechat-cloud/tests/*.test.ts",
+    "wechat-cloud:type-check": "tsc --project wechat-cloud/tsconfig.json --noEmit",
+    "wechat-cloud:build": "node scripts/build-wechat-cloud.mjs",
+    "wechat-cloud:prepare:test:main": "node scripts/prepare-wechat-test-from-main.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.1",

@@ -25,7 +25,7 @@ npm run build:mp-weixin
 npm run build:h5
 ```
 
-微信开发者工具应导入本目录；`project.config.json` 会把小程序目录指向 `dist/build/mp-weixin/`。仓库不提供游客 AppID，联调时必须在开发者工具中选择真实小程序 AppID。
+本地客户端开发时，微信开发者工具可导入本目录；`project.config.json` 会把小程序目录指向 `dist/build/mp-weixin/`。仓库不提供游客 AppID，联调时必须在开发者工具中选择真实小程序 AppID。云函数体验版交付应导入受保护脚本生成的完整目录，见后文。
 
 ## 真实后端
 
@@ -34,7 +34,7 @@ npm run build:h5
 微信小程序接入真实后端：
 
 ```bash
-SHUOKAI_API_BASE_URL=https://your-cloudflare-worker.example.com \
+SHUOKAI_WECHAT_CLOUD_ENV=your-real-test-environment-id \
 SHUOKAI_WECHAT_APP_ID=wx_your_real_app_id \
 npm run build:mp-weixin
 ```
@@ -52,15 +52,16 @@ Supabase 的 publishable key 本来就用于客户端，不是服务端私钥；
 
 ## 两个平台的运行边界
 
-- 微信登录：`uni.login(provider: "weixin")` 获取 code，再由后端交换 openid 并签发 Supabase Auth 会话。
+- 微信登录：通过微信云函数的可信 OPENID 登录，并签发普通 Supabase Auth 用户会话，不在小程序端携带 AppSecret。
 - H5 登录：浏览器使用 Supabase 邮箱注册/登录；PKCE 会话保存在本机并自动刷新，退出仅撤销当前本机会话，同时清除本机房间与私人草稿。
 - 录音：微信端使用 RecorderManager；H5 使用 MediaRecorder。用户停止录音后才上传，也可以直接输入或修改文字。
-- 数据：客户端只携带用户 JWT 调用 Cloudflare Worker；Worker 以用户身份访问 Supabase，RLS 继续通过 `auth.uid()` 隔离数据。
+- 数据：微信通过 `wx.cloud.callFunction` 调用云函数，再携带用户 JWT 访问现有测试 Worker；H5 仍访问 Worker。Worker 以用户身份访问 Supabase，RLS 继续通过 `auth.uid()` 隔离数据。
 - AI：录音由 Cloudflare Worker 转写，任何模型私钥都只存在 Worker Secret。
 - 分享：微信使用原生分享能力，H5 使用系统分享面板或复制邀请链接。
 
-微信正式发布还需要真实 AppID、微信 AppSecret、已备案的 HTTPS API 域名，并在小程序后台配置 `request` 与 `uploadFile` 合法域名。开发者工具的 `urlCheck` 保持开启，避免把只在本地能工作的网络配置误当成可发布状态。
+微信小程序使用微信云函数入口，不再通过 `uni.request` / `uni.uploadFile` 直接访问外部 API 域名。
+`urlCheck` 保持开启。构建必须提供真实 AppID 与 `SHUOKAI_WECHAT_CLOUD_ENV`，缺失时直接失败。
 
-微信登录只有在以下配置齐备后才算接通：真实 AppID、Worker 的 `WECHAT_APP_ID` / `WECHAT_APP_SECRET`、
-Supabase `SUPABASE_SECRET_KEY`，以及已应用的 `add_wechat_identity_bridge` migration。缺少任一项时，
-只能运行静态检查，不能视为微信真实登录已经接通。
+云函数需要配置测试 Supabase URL、publishable key 与服务端 secret key，并确认数据库的
+`add_wechat_identity_bridge` migration 已应用。具体部署、权限边界和体验版验收见
+[`wechat-cloud/README.md`](../wechat-cloud/README.md)。小程序本身的备案、隐私声明与审核仍需办理。
