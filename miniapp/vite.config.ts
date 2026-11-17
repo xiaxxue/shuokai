@@ -4,6 +4,7 @@ import uni from "@dcloudio/vite-plugin-uni";
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   const platform = env.UNI_PLATFORM ?? "h5";
+  const cloudEnv = env.SHUOKAI_WECHAT_CLOUD_ENV?.trim() ?? "";
   const apiBaseUrl = (env.SHUOKAI_API_BASE_URL ?? "").replace(/\/+$/, "");
   const supabaseUrl = env.SHUOKAI_SUPABASE_URL ?? "";
   const supabasePublishableKey = env.SHUOKAI_SUPABASE_PUBLISHABLE_KEY ?? "";
@@ -11,8 +12,8 @@ export default defineConfig(({ mode }) => {
   if (env.SHUOKAI_API_MODE && env.SHUOKAI_API_MODE !== "live") {
     throw new Error("客户端不再支持 mock/demo 构建；请使用真实测试环境。 ");
   }
-  if (platform === "mp-weixin" && !apiBaseUrl) {
-    throw new Error("微信正式构建必须设置 SHUOKAI_API_BASE_URL（Cloudflare Worker 域名）。");
+  if (platform === "mp-weixin" && !/^[a-z][a-z0-9-]{5,100}$/i.test(cloudEnv)) {
+    throw new Error("微信构建必须设置真实 SHUOKAI_WECHAT_CLOUD_ENV（云开发环境 ID）。");
   }
   if (platform === "h5" && (!supabaseUrl || !supabasePublishableKey)) {
     throw new Error("H5 正式构建必须设置 Supabase URL 与 publishable key。");
@@ -21,7 +22,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [uni()],
     define: {
-      __API_BASE_URL__: JSON.stringify(apiBaseUrl),
+      __API_BASE_URL__: JSON.stringify(platform === "mp-weixin" ? "" : apiBaseUrl),
+      __WECHAT_CLOUD_ENV__: JSON.stringify(cloudEnv),
       __PLATFORM__: JSON.stringify(platform),
       __SUPABASE_URL__: JSON.stringify(supabaseUrl),
       __SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(supabasePublishableKey),

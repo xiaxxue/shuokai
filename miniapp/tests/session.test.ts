@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = new Map<string, unknown>();
-const login = vi.fn();
 const request = vi.fn();
 
 vi.stubGlobal("uni", {
@@ -9,9 +8,10 @@ vi.stubGlobal("uni", {
   setStorageSync: (key: string, value: unknown) => storage.set(key, value),
   removeStorageSync: (key: string) => storage.delete(key),
   getStorageInfoSync: () => ({ keys: [...storage.keys()] }),
-  login,
-  request,
+  request: vi.fn(),
 });
+
+vi.stubGlobal("wx", { cloud: { init: vi.fn(), callFunction: request } });
 
 import { loginForPlatform, requestExpressionClarification } from "../src/services/api";
 import {
@@ -42,28 +42,17 @@ const freshSession = {
   userId: "00000000-0000-4000-8000-000000000002",
 };
 
-function loginSucceeds(code: string) {
-  login.mockImplementation(({ success }: { success: (result: { code: string }) => void }) => {
-    success({ code });
-  });
-}
-
 function requestReturns(statusCode: number, data: unknown) {
-  return ({ success }: { success: (result: { statusCode: number; data: unknown }) => void }) => {
-    success({ statusCode, data });
-  };
+  return () => Promise.resolve({ result: { statusCode, data } });
 }
 
 function requestFails(errMsg: string) {
-  return ({ fail }: { fail: (error: { errMsg: string }) => void }) => {
-    fail({ errMsg });
-  };
+  return () => Promise.reject(new Error(errMsg));
 }
 
 describe("wechat session recovery", () => {
   beforeEach(() => {
     storage.clear();
-    login.mockReset();
     request.mockReset();
   });
 
@@ -77,23 +66,21 @@ describe("wechat session recovery", () => {
     request
       .mockImplementationOnce(requestReturns(401, { message: "expired" }))
       .mockImplementationOnce(requestReturns(200, freshSession));
-    loginSucceeds("one-time-code");
 
     await expect(loginForPlatform()).resolves.toEqual(freshSession);
-    expect(login).toHaveBeenCalledTimes(1);
+    expect(uni.request).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(2);
     expect(storage.get(sessionKey)).toEqual(freshSession);
   });
 
   it("deduplicates concurrent login requests", async () => {
-    loginSucceeds("one-time-code");
     request.mockImplementation(requestReturns(200, freshSession));
 
     const first = loginForPlatform();
     const second = loginForPlatform();
 
     await expect(Promise.all([first, second])).resolves.toEqual([freshSession, freshSession]);
-    expect(login).toHaveBeenCalledTimes(1);
+    expect(uni.request).not.toHaveBeenCalled();
     expect(request).toHaveBeenCalledTimes(1);
   });
 });
@@ -120,7 +107,7 @@ describe("AI clarification request recovery", () => {
       code: "AI_RESPONSE_TIMEOUT",
       message: "AI 这次理解得比较慢。你的内容仍在，请重新尝试；如果结果已经保存，会直接恢复，不会重复追问。",
     });
-    expect(request.mock.calls[0]?.[0].timeout).toBe(60000);
+    expect(request.mock.calls[0]?.[0].data.path).toBe("/ai/clarify");
   });
 
   it("keeps non-timeout network failures separate from slow AI responses", async () => {

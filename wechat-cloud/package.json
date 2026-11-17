@@ -1,0 +1,14 @@
+{
+  "name": "shuokai-wechat-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.1",
+    "wx-server-sdk": "4.0.2"
+  }
+}
