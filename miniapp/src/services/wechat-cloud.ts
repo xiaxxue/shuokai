@@ -87,6 +87,6 @@ export async function cloudTranscribe(audio: Extract<RecordedAudio, { kind: "pat
     method: "POST",
     authorization: `Bearer ${accessToken}`,
     data: { audioBase64 },
-  }, 120000);
+  }, 65000);
   return { statusCode: response.statusCode, data: JSON.stringify(response.data) };
 }

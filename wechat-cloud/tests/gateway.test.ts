@@ -99,6 +99,30 @@ test("bounds JSON requests and responses", async () => {
   assert.equal((await handleGateway(post, identity, env, deps)).statusCode, 502);
 });
 
+test("slow AI and audio requests stop before the native 60s limit and return a stable timeout", async (t) => {
+  const deadlines: number[] = [];
+  t.mock.method(AbortSignal, "timeout", (milliseconds: number) => {
+    deadlines.push(milliseconds);
+    return AbortSignal.abort(new DOMException("private-provider-detail", "TimeoutError"));
+  });
+  const deps = dependencies();
+  deps.fetch = async (_url, options) => {
+    options?.signal?.throwIfAborted();
+    throw new Error("expected an abort signal");
+  };
+  for (const request of [
+    { ...post, path: "/ai/clarify" },
+    { ...post, path: "/transcribe", data: { audioBase64: "YXVkaW8=" } },
+  ]) {
+    const response = await handleGateway(request, identity, env, deps);
+    assert.deepEqual(response, {
+      statusCode: 504,
+      data: { code: "UPSTREAM_TIMEOUT", message: "服务响应超时，请稍后重试。" },
+    });
+  }
+  assert.deepEqual(deadlines, [55000, 55000]);
+});
+
 test("does not leak upstream exceptions or secrets, and exposes stable login failures", async () => {
   const deps = dependencies();
   deps.fetch = async () => { throw new Error("secret-token-private-text"); };

@@ -107,7 +107,8 @@ export async function handleGateway(
       headers["content-type"] = "application/json";
     }
 
-    const timeout = path === "/transcribe" ? 110000 : path === "/ai/clarify" ? 58000 : 25000;
+    // Leave time to return a useful error before the native cloud function's 60s limit.
+    const timeout = path === "/transcribe" || path === "/ai/clarify" ? 55000 : 25000;
     const response = await dependencies.fetch(`${TEST_BACKEND}${path}`, {
       method: event.method,
       headers,
