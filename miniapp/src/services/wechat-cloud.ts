@@ -44,7 +44,7 @@ export async function cloudRequest<T>(invocation: CloudInvocation, timeout = 200
   try {
     const { result } = await Promise.race([
       cloud.callFunction({
-        name: "shuokaiGateway",
+        name: __WECHAT_CLOUD_FUNCTION__,
         config: { env: __WECHAT_CLOUD_ENV__ },
         data: invocation,
       }),

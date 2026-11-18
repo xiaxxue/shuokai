@@ -7,7 +7,7 @@ const env = {
   APP_ENVIRONMENT: "test",
   SHUOKAI_BACKEND_URL: "https://shuokai-supabase-test.shuokai.workers.dev",
   WECHAT_APP_ID: "wx30bafbe48a0f4d4b",
-  SUPABASE_URL: "https://test-project.supabase.co",
+  SUPABASE_URL: "https://pwpcisztfnukjnavszgv.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
   SUPABASE_SECRET_KEY: "sb_secret_test",
 };
@@ -22,7 +22,7 @@ function dependencies() {
   };
 }
 
-test("requires a verified context for this specific app and a test-only backend", async () => {
+test("requires a verified context for this specific app and matching environment configuration", async () => {
   for (const context of [{}, { ...identity, APPID: "wx0000000000000000" }]) {
     const response = await handleGateway(post, context, env);
     assert.equal(response.statusCode, 401);
@@ -30,6 +30,33 @@ test("requires a verified context for this specific app and a test-only backend"
   for (const overrides of [{ APP_ENVIRONMENT: "production" }, { SHUOKAI_BACKEND_URL: "https://attacker.test" }]) {
     assert.equal((await handleGateway(post, identity, { ...env, ...overrides })).statusCode, 503);
   }
+});
+
+test("production forwards to the official backend and issues sessions for the production database", async () => {
+  const production = {
+    ...env, APP_ENVIRONMENT: "production", SHUOKAI_BACKEND_URL: "https://app.shuokai.me",
+    SUPABASE_URL: "https://jmktnjeefvwailfcrljz.supabase.co",
+  };
+  const deps = dependencies();
+  deps.fetch = async (url, options) => {
+    assert.equal(url, "https://app.shuokai.me/miniapp-api");
+    assert.equal((options?.headers as Record<string, string>).authorization, "Bearer jwt");
+    return Response.json({ ok: true });
+  };
+  assert.equal((await handleGateway(post, identity, production, deps)).statusCode, 200);
+  deps.issueSession = async (config) => {
+    assert.equal(config.url, production.SUPABASE_URL);
+    return session;
+  };
+  assert.equal((await handleGateway({ path: "/wechat-login", method: "POST", data: {} }, identity, production, deps)).statusCode, 200);
+  for (const overrides of [
+    { SUPABASE_URL: env.SUPABASE_URL },
+    { SHUOKAI_BACKEND_URL: env.SHUOKAI_BACKEND_URL },
+    { APP_ENVIRONMENT: "constructor" },
+  ]) {
+    assert.equal((await handleGateway(post, identity, { ...production, ...overrides }, deps)).statusCode, 503);
+  }
+  assert.equal((await handleGateway(post, identity, { ...env, SUPABASE_URL: production.SUPABASE_URL }, deps)).statusCode, 503);
 });
 
 test("login ignores forged identity in event data and uses native verified identity", async () => {

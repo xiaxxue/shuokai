@@ -1,14 +1,21 @@
-# 微信云函数测试入口
+# 微信云函数入口
 
-微信小程序通过 `wx.cloud.callFunction` 调用 `shuokaiGateway`，不直接请求外部 HTTP 域名。
-Supabase 继续管理身份和数据库；现有测试 Worker 继续处理 RPC、AI 和转写。
+微信小程序通过 `wx.cloud.callFunction` 调用指定云函数，不直接请求外部 HTTP 域名。
+Supabase 继续管理身份和数据库；对应环境的现有 Worker 继续处理 RPC、AI 和转写。
 H5 的连接方式保持不变。
+
+| 环境 | 云函数 | 后端 | Supabase 项目 |
+| --- | --- | --- | --- |
+| 测试 | `shuokaiGateway` | `shuokai-supabase-test.shuokai.workers.dev` | `pwpcisztfnukjnavszgv` |
+| 正式 | `shuokaiGatewayProduction` | `app.shuokai.me` | `jmktnjeefvwailfcrljz` |
+
+函数级环境变量相互独立。运行时同时检查环境、后端和 Supabase URL，配置串用时拒绝请求。
 
 ## 身份与权限
 
 - 云函数只接受 `wx-server-sdk.getWXContext()` 提供的 OPENID / APPID，拒绝其他小程序及无微信身份的调用。
 - 登录复用 `server/wechat-session.ts` 的 Supabase 身份映射和用户会话签发；不需要微信 AppSecret。
-- 业务请求只向固定测试 Worker 转发用户 JWT；Worker 继续校验 JWT，Supabase 的 RLS / RPC 继续执行授权。
+- 业务请求只向该环境的固定 Worker 转发用户 JWT；Worker 继续校验 JWT，Supabase 的 RLS / RPC 继续执行授权。
 - 不提供任意 URL 代理，不转发客户端自定义请求头，不打印事件、身份、令牌、录音或沟通正文。
 - 录音以有界 base64 请求传入云函数，再转为 multipart 交给原有转写服务。上限为 3 MiB，覆盖客户端两分钟、48kbps 的 MP3；不写云存储。
 
@@ -63,6 +70,28 @@ Supabase 测试库必须已应用仓库的 `add_wechat_identity_bridge` 及后�
 
 小程序本身的备案、隐私声明和发布审核仍按微信要求办理。云函数调用免自有 API 域名配置，
 不代表其他外部图片 / 下载链接可以绕过微信的域名要求。
+
+## 正式服务的微信体验版
+
+获得用户明确授权后，使用 GitHub `main` 干净检出生成正式交付包：
+
+```bash
+SHUOKAI_WECHAT_APP_ID=wx30bafbe48a0f4d4b \
+SHUOKAI_WECHAT_CLOUD_ENV=your-real-cloud-environment-id \
+SHUOKAI_WECHAT_PRODUCTION_APPROVED=wx30bafbe48a0f4d4b \
+SHUOKAI_PRODUCTION_SUPABASE_PROJECT_REF=jmktnjeefvwailfcrljz \
+npm run wechat-cloud:prepare:production:main
+```
+
+导入 `dist/wechat-production-<commit>/`，上传其中唯一的 `shuokaiGatewayProduction`。
+配置 `APP_ENVIRONMENT=production`、`SHUOKAI_BACKEND_URL=https://app.shuokai.me`、真实
+`WECHAT_APP_ID`、`SUPABASE_URL=https://jmktnjeefvwailfcrljz.supabase.co`，以及同一个正式项目的
+publishable key 和服务端 secret key。服务端密钥只保存于该正式云函数。
+脚本拒绝缺少授权、错误正式项目、脏工作区、功能分支和未推送提交；交付包不包含数据库密钥。
+
+正式微信入口复用现有正式 Worker，不会在此命令中重新发布 H5、迁移或复制数据库。
+验证微信身份映射函数存在、普通用户授权有效后，再验证建房、加入、AI 和语音。
+微信首次登录会建立独立账号；网页账号的历史数据需要另行关联账号才能共用。
 
 官方调用文档：<https://docs.cloudbase.net/en/cloud-function/how-use>
 

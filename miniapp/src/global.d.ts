@@ -1,4 +1,5 @@
 declare const __WECHAT_CLOUD_ENV__: string;
+declare const __WECHAT_CLOUD_FUNCTION__: string;
 declare const __API_BASE_URL__: string;
 declare const __PLATFORM__: "mp-weixin" | "h5" | "app" | string;
 declare const __SUPABASE_URL__: string;
