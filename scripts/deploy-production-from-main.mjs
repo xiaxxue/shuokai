@@ -9,10 +9,12 @@ const PRODUCTION_DLQ = "shuokai-ai-jobs-production-dlq";
 const PRODUCTION_WRANGLER_CONFIG = "cloudflare/wrangler.jsonc";
 const REQUIRED_SECRETS = new Set([
   "SUPABASE_SECRET_KEY",
+  "OPENCODE_API_KEY",
 ]);
 const PUBLIC_RUNTIME_BINDINGS = new Set([
   "SUPABASE_PUBLISHABLE_KEY",
   "SUPABASE_URL",
+  "TEXT_AI_PROVIDER",
 ]);
 const ALLOWED_ORIGIN_URLS = new Set([
   "git@github.com:xiaxxue/shuokai.git",
@@ -90,6 +92,9 @@ export function validateProductionWorkerConfig(configText) {
 
   if (config.name !== PRODUCTION_WORKER_NAME || config.vars?.APP_ENVIRONMENT !== "production") {
     throw new Error(`生产配置必须部署 ${PRODUCTION_WORKER_NAME} 且 APP_ENVIRONMENT=production。`);
+  }
+  if (config.vars?.TEXT_AI_PROVIDER !== "opencode") {
+    throw new Error("生产文字 AI 必须显式选择已验证的 opencode provider。");
   }
   if (!customDomains.includes(PRODUCTION_HOSTNAME)) {
     throw new Error(`生产配置必须绑定 ${PRODUCTION_HOSTNAME} Custom Domain。`);
@@ -171,6 +176,8 @@ export function deployProductionFromMain() {
     PRODUCTION_WRANGLER_CONFIG,
     "--var",
     "APP_ENVIRONMENT:production",
+    "--var",
+    "TEXT_AI_PROVIDER:opencode",
     "--var",
     `SUPABASE_URL:${process.env.SHUOKAI_SUPABASE_URL}`,
     "--var",

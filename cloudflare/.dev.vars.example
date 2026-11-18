@@ -8,3 +8,7 @@ ALLOWED_ORIGINS=http://localhost:5173
 SUPABASE_SECRET_KEY=sb_secret_replace_me
 WECHAT_APP_ID=replace_me
 WECHAT_APP_SECRET=replace_me
+
+# Optional local text-provider switch. Shared test defaults to Workers AI.
+# TEXT_AI_PROVIDER=opencode
+# OPENCODE_API_KEY=replace_me
