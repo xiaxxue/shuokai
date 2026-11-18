@@ -27,7 +27,8 @@
     "wechat-cloud:test": "node --test wechat-cloud/tests/*.test.ts",
     "wechat-cloud:type-check": "tsc --project wechat-cloud/tsconfig.json --noEmit",
     "wechat-cloud:build": "node scripts/build-wechat-cloud.mjs",
-    "wechat-cloud:prepare:test:main": "node scripts/prepare-wechat-test-from-main.mjs"
+    "wechat-cloud:prepare:test:main": "node scripts/prepare-wechat-test-from-main.mjs",
+    "wechat-cloud:prepare:production:main": "node scripts/prepare-wechat-production-from-main.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.1",

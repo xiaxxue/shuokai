@@ -13,7 +13,16 @@ type Dependencies = {
   refreshSession: typeof refreshWechatSession;
 };
 
-const TEST_BACKEND = "https://shuokai-supabase-test.shuokai.workers.dev";
+const ENVIRONMENTS: Record<string, { backend: string; supabaseUrl: string }> = {
+  test: {
+    backend: "https://shuokai-supabase-test.shuokai.workers.dev",
+    supabaseUrl: "https://pwpcisztfnukjnavszgv.supabase.co",
+  },
+  production: {
+    backend: "https://app.shuokai.me",
+    supabaseUrl: "https://jmktnjeefvwailfcrljz.supabase.co",
+  },
+};
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 const JSON_PATHS = new Set([
   "/miniapp-api", "/room/invitation-context", "/ai/expression", "/ai/clarify", "/ai/understanding",
@@ -37,7 +46,9 @@ export async function handleGateway(
     refreshSession: refreshWechatSession,
   },
 ): Promise<GatewayResponse> {
-  if (env.APP_ENVIRONMENT !== "test" || env.SHUOKAI_BACKEND_URL !== TEST_BACKEND ||
+  const target = Object.hasOwn(ENVIRONMENTS, env.APP_ENVIRONMENT ?? "")
+    ? ENVIRONMENTS[env.APP_ENVIRONMENT!] : undefined;
+  if (!target || env.SHUOKAI_BACKEND_URL !== target.backend || env.SUPABASE_URL !== target.supabaseUrl ||
       !/^wx[0-9a-f]{16}$/i.test(env.WECHAT_APP_ID ?? "")) {
     return failure(503, "SERVICE_NOT_CONFIGURED", "小程序云服务尚未配置。");
   }
@@ -109,7 +120,7 @@ export async function handleGateway(
 
     // Leave time to return a useful error before the native cloud function's 60s limit.
     const timeout = path === "/transcribe" || path === "/ai/clarify" ? 55000 : 25000;
-    const response = await dependencies.fetch(`${TEST_BACKEND}${path}`, {
+    const response = await dependencies.fetch(`${target.backend}${path}`, {
       method: event.method,
       headers,
       body,

@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   define: {
     __WECHAT_CLOUD_ENV__: JSON.stringify("shuokai-test-environment"),
+    __WECHAT_CLOUD_FUNCTION__: JSON.stringify("shuokaiGateway"),
     __API_BASE_URL__: JSON.stringify("https://example.test/functions/v1"),
     __PLATFORM__: JSON.stringify("mp-weixin"),
     __SUPABASE_URL__: JSON.stringify(""),

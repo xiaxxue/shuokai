@@ -166,3 +166,8 @@ npm run cloudflare:deploy:site:production:main
 该命令复用主分支校验规则，不调用生产资源；详细配置见
 [`wechat-cloud/README.md`](../wechat-cloud/README.md)。若改动需要更新测试 Worker，仍只运行
 `npm run cloudflare:deploy:test:main`，不得直接运行 Wrangler 发布功能分支。
+
+用户明确授权微信连接正式服务后，使用 `npm run wechat-cloud:prepare:production:main`。
+它同样只接受 GitHub main 干净检出，还要求显式的 AppID 授权和正式 Supabase 项目 ID。
+正式入口使用独立的 `shuokaiGatewayProduction` 云函数和 `dist/wechat-production-<commit>/` 包，
+不得复用测试函数的密钥配置。该命令不重新部署现有 H5 或 Worker。

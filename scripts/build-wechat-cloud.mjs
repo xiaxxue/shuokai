@@ -2,9 +2,10 @@ import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-export async function buildWechatCloud() {
-  execFileSync("node", ["node_modules/typescript/bin/tsc", "--project", "wechat-cloud/tsconfig.json"], { stdio: "inherit" });
-  const destination = "dist/wechat-cloud/cloudfunctions/shuokaiGateway";
+export async function buildWechatCloud({ functionName = "shuokaiGateway" } = {}) {
+  if (!["shuokaiGateway", "shuokaiGatewayProduction"].includes(functionName)) throw new Error("未知的微信云函数入口。");
+  const destination = `dist/wechat-cloud/cloudfunctions/${functionName}`;
+  execFileSync("node", ["node_modules/typescript/bin/tsc", "--project", "wechat-cloud/tsconfig.json", "--outDir", destination], { stdio: "inherit" });
   await mkdir(destination, { recursive: true });
   const sourcePackage = JSON.parse(await readFile("wechat-cloud/package.json", "utf8"));
   await writeFile(`${destination}/package.json`, `${JSON.stringify({ ...sourcePackage, type: "commonjs" }, null, 2)}\n`);
