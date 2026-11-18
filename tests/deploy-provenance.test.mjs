@@ -135,7 +135,7 @@ test("requires a matching production Supabase project and publishable client key
 test("pins the production Worker, custom domain, queues, and required secrets", () => {
   const config = JSON.stringify({
     name: "shuokai-ai",
-    vars: { APP_ENVIRONMENT: "production" },
+    vars: { APP_ENVIRONMENT: "production", TEXT_AI_PROVIDER: "opencode" },
     routes: [{ pattern: "app.shuokai.me", custom_domain: true }],
     queues: {
       producers: [{ binding: "AI_JOBS_QUEUE", queue: "shuokai-ai-jobs-production" }],
@@ -148,7 +148,11 @@ test("pins the production Worker, custom domain, queues, and required secrets", 
   assert.doesNotThrow(() => validateProductionWorkerConfig(config));
   assert.doesNotThrow(() => validateProductionSecrets(JSON.stringify([
     { name: "SUPABASE_SECRET_KEY" },
+    { name: "OPENCODE_API_KEY" },
   ])));
+  assert.throws(() => validateProductionSecrets(JSON.stringify([
+    { name: "SUPABASE_SECRET_KEY" },
+  ])), /OPENCODE_API_KEY/);
   assert.throws(
     () => validateProductionSecrets(JSON.stringify([{ name: "SUPABASE_URL" }])),
     /SUPABASE_SECRET_KEY/,
@@ -156,6 +160,7 @@ test("pins the production Worker, custom domain, queues, and required secrets", 
   assert.throws(
     () => validateProductionSecrets(JSON.stringify([
       { name: "SUPABASE_SECRET_KEY" },
+      { name: "OPENCODE_API_KEY" },
       { name: "SUPABASE_URL" },
     ])),
     /会遮蔽本次生产配置的旧 Secrets/,

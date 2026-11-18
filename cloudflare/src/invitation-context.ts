@@ -1,4 +1,4 @@
-import { requestStructuredOutput } from "./cloudflare-ai.ts";
+import { isTextAIConfigured, requestStructuredOutput } from "./cloudflare-ai.ts";
 import type { WorkerEnv } from "./http.ts";
 
 const topicKeys = {
@@ -166,7 +166,7 @@ export async function generateInvitationDraft(
 ): Promise<InvitationDraftGeneration> {
   const source = invitationSourceFromExpression(expression);
   const fallback = await fallbackInvitationDraft(source);
-  if (!source || !env.AI) {
+  if (!source || !isTextAIConfigured(env)) {
     return {
       draft: fallback,
       model: null,

@@ -11,7 +11,7 @@ import {
 } from "./http.ts";
 import { isAllowedRpcMethod, validateRpcArgs } from "./rpc-validation.ts";
 import { isSupportedExpressionMode } from "./expression-ai.ts";
-import { transcribeAudio } from "./cloudflare-ai.ts";
+import { isTextAIConfigured, transcribeAudio } from "./cloudflare-ai.ts";
 import {
   generateDiscoveryQuestion,
   type DiscoveryMemoryContext,
@@ -195,7 +195,7 @@ export async function handleExpressionClarification(
   const authorization = bearerToken(request);
   if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !isTextAIConfigured(env)) {
     return errorJson(request, env, "AI_SERVICE_NOT_CONFIGURED", "AI 私人对话尚未配置。", 503);
   }
   let body: unknown;
@@ -364,7 +364,7 @@ export async function handleExpressionClarification(
     });
   } catch (error) {
     const cause = error instanceof Error ? error.message : "";
-    if (cause === "CLOUDFLARE_AI_INVALID_OUTPUT") {
+    if (cause === "CLOUDFLARE_AI_INVALID_OUTPUT" || cause === "OPENCODE_AI_INVALID_OUTPUT") {
       return errorJson(
         request,
         env,
@@ -399,7 +399,7 @@ export async function handleExpressionJob(request: Request, env: WorkerEnv, corr
   const authorization = bearerToken(request);
   if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !isTextAIConfigured(env) || !env.AI_JOBS_QUEUE) {
     return errorJson(
       request,
       env,
@@ -515,7 +515,7 @@ export async function handleUnderstandingJob(request: Request, env: WorkerEnv, c
   const authorization = bearerToken(request);
   if (!authorization) return errorJson(request, env, "AUTH_REQUIRED", "请先登录。", 401);
   const config = publicSupabaseConfig(env);
-  if (!config || !env.SUPABASE_SECRET_KEY || !env.AI || !env.AI_JOBS_QUEUE) {
+  if (!config || !env.SUPABASE_SECRET_KEY || !isTextAIConfigured(env) || !env.AI_JOBS_QUEUE) {
     return errorJson(
       request,
       env,

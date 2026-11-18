@@ -5,6 +5,8 @@ export type WorkerEnv = {
   SUPABASE_SECRET_KEY?: string;
   WECHAT_APP_ID?: string;
   WECHAT_APP_SECRET?: string;
+  TEXT_AI_PROVIDER?: string;
+  OPENCODE_API_KEY?: string;
   AI?: {
     run(model: string, input: Record<string, unknown>): Promise<unknown>;
   };

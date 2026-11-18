@@ -11,7 +11,8 @@
     { "pattern": "app.shuokai.me", "custom_domain": true }
   ],
   "vars": {
-    "APP_ENVIRONMENT": "production"
+    "APP_ENVIRONMENT": "production",
+    "TEXT_AI_PROVIDER": "opencode"
   },
   "observability": {
     "enabled": true,

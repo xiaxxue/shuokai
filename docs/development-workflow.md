@@ -127,7 +127,8 @@ npm run cloudflare:deploy:test:main
 1. 创建独立生产 Supabase 项目，应用仓库内全部 migration，并通过 pgTAP 与 RLS 检查；
 2. 在 Supabase Auth 中把 `https://app.shuokai.me` 加入 Site URL 与 Redirect URLs；
 3. 创建 `shuokai-ai-jobs-production` 与 `shuokai-ai-jobs-production-dlq`；
-4. 为 `shuokai-ai` 配置唯一的私密 Secret `SUPABASE_SECRET_KEY`；生产 URL 与 publishable key
+4. 为 `shuokai-ai` 配置私密 Secrets `SUPABASE_SECRET_KEY` 和 `OPENCODE_API_KEY`，文字 AI 显式选择
+   `TEXT_AI_PROVIDER=opencode`；生产 URL 与 publishable key
    由受保护的发布命令同时注入客户端和 Worker，避免两端指向不同项目。若远端曾把
    `SUPABASE_URL` 或 `SUPABASE_PUBLISHABLE_KEY` 保存为 Secret，发布前必须删除，避免遮蔽；
 5. 从 GitHub `main` 的干净检出执行受保护命令。

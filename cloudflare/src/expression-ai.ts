@@ -854,7 +854,8 @@ async function processMessage(
     return { correlationId, outcome: "succeeded" };
   } catch (error) {
     const code = error instanceof Error ? error.message : "AI_UNKNOWN_ERROR";
-    const retryable = code === "CLOUDFLARE_AI_RETRYABLE" || code === "COMPLETE_JOB_FAILED";
+    const retryable = code === "CLOUDFLARE_AI_RETRYABLE" || code === "OPENCODE_AI_RETRYABLE" ||
+      code === "COMPLETE_JOB_FAILED";
     await admin.rpc("internal_fail_ai_job_v2", {
       p_job_id: parsed.jobId,
       p_worker_id: workerId,
