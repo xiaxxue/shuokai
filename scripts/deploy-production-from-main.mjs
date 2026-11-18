@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { checkProductionDatabase } from "./check-production-database.mjs";
 
 const PRODUCTION_HOSTNAME = "app.shuokai.me";
 const PRODUCTION_WORKER_NAME = "shuokai-ai";
@@ -121,7 +122,7 @@ export function validateProductionSecrets(secretListText) {
   }
 }
 
-export function deployProductionFromMain() {
+export async function deployProductionFromMain() {
   run("git", ["fetch", "origin", "main"]);
 
   const branch = git(["branch", "--show-current"]);
@@ -143,6 +144,10 @@ export function deployProductionFromMain() {
     productionProjectRef: process.env.SHUOKAI_PRODUCTION_SUPABASE_PROJECT_REF,
   });
   validateProductionWorkerConfig(readFileSync(PRODUCTION_WRANGLER_CONFIG, "utf8"));
+  await checkProductionDatabase({
+    supabaseUrl: process.env.SHUOKAI_SUPABASE_URL,
+    supabasePublishableKey: process.env.SHUOKAI_SUPABASE_PUBLISHABLE_KEY,
+  });
 
   const wranglerEnvironment = {
     ...process.env,
@@ -190,7 +195,7 @@ export function deployProductionFromMain() {
 const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
 if (import.meta.url === invokedPath) {
   try {
-    deployProductionFromMain();
+    await deployProductionFromMain();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`生产 H5 部署已停止：${message}`);
