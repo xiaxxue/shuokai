@@ -27,7 +27,7 @@ test("OpenCode uses the fixed paid endpoint and selected model for generation an
   const calls: Record<string, unknown>[] = [];
   t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
     assert.equal(url, `${OPENCODE_BASE_URL}/chat/completions`);
-    assert.equal(init.redirect, "error");
+    assert.equal(init.redirect, "manual");
     assert.ok(init.signal instanceof AbortSignal);
     assert.equal(new Headers(init.headers).get("authorization"), "Bearer test-provider-key");
     calls.push(JSON.parse(String(init.body)));
@@ -87,13 +87,13 @@ test("private reasoning is never accepted as a generated result", async (t) => {
 test("HTTP failures have sanitized codes without leaking upstream bodies or switching providers", async (t) => {
   let status = 429;
   const fakeFetch = t.mock.method(globalThis, "fetch", async () => new Response("private upstream error", { status }));
-  for (const code of [429, 503, 401, 403]) {
+  for (const code of [429, 503, 401, 403, 301, 302, 307, 308]) {
     status = code;
     await assert.rejects(requestStructuredOutput(env, options), {
       message: code === 429 || code >= 500 ? "OPENCODE_AI_RETRYABLE" : "OPENCODE_AI_REQUEST_FAILED",
     });
   }
-  assert.equal(fakeFetch.mock.callCount(), 4);
+  assert.equal(fakeFetch.mock.callCount(), 8);
 });
 
 test("network failures are retryable and do not expose the original error", async (t) => {

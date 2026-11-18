@@ -17,7 +17,9 @@ export async function requestOpenCodeOutput(
   try {
     response = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
       method: "POST",
-      redirect: "error",
+      // Workers only supports follow/manual. Reject redirects via response.ok
+      // below so the provider credential is never forwarded to a second URL.
+      redirect: "manual",
       headers: {
         authorization: `Bearer ${env.OPENCODE_API_KEY.trim()}`,
         "content-type": "application/json",
